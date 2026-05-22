@@ -1,0 +1,318 @@
+import path from 'path';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
+import type { ClaudeEffort, CodexReasoning, Provider, SandboxSecuritySettings } from '../../../shared/types';
+import { DEFAULT_SANDBOX_SETTINGS } from '../../../shared/types';
+import { PROVIDER_CONFIGS } from '../providerConfig';
+import { CLAUDE_CODE_OAUTH_TOKEN_ENV } from '../../sessions/threadAuth';
+import { eventLogger } from '../eventLog';
+import { AGENTOS_MCP_BEARER_TOKEN_ENV_VAR, getMcpAuthHeaders } from '../../mcp/mcpAuth';
+
+const execFileAsync = promisify(execFile);
+
+export interface DockerArgs {
+  command: string;
+  args: string[];
+}
+
+function validateBindMount(hostPath: string, containerPath: string): void {
+  if (!path.isAbsolute(hostPath)) throw new Error(`Bind mount host path must be absolute: ${hostPath}`);
+  if (!path.isAbsolute(containerPath)) throw new Error(`Bind mount container path must be absolute: ${containerPath}`);
+}
+
+export function buildDockerRunArgs(
+  sessionId: string,
+  workingDir: string,
+  imageName: string,
+  provider: Provider,
+  apiKey: string | undefined,
+  security?: Partial<SandboxSecuritySettings>,
+  providerArgs: string[] = [],
+  extraReadonlyMounts: Array<{ hostPath: string; containerPath: string; readOnly?: boolean }> = [],
+  labels: Record<string, string> = {},
+  opts: {
+    headless?: boolean;
+    claudeOauthToken?: string | null;
+    sessionDataDir?: string;
+    extraEnv?: Record<string, string>;
+    seccompProfilePath?: string;
+  } = {}
+): DockerArgs {
+  validateBindMount(workingDir, '/workspace');
+
+  const cfg = PROVIDER_CONFIGS[provider];
+  const sec: SandboxSecuritySettings = { ...DEFAULT_SANDBOX_SETTINGS, ...security };
+
+  const args: string[] = [
+    'run',
+    '--rm',
+    '-it',
+    '--name',
+    `agentos-session-${sessionId}`,
+    '-v',
+    `${workingDir}:/workspace`,
+    '--workdir',
+    '/workspace',
+
+    // Read-only root + tmpfs
+    ...(sec.readOnlyRoot ? ['--read-only'] : []),
+    ...sec.tmpfs.flatMap((t) => ['--tmpfs', t]),
+
+    // Capabilities
+    ...(sec.dropAllCapabilities ? ['--cap-drop', 'ALL'] : []),
+    ...(sec.noNewPrivileges ? ['--security-opt', 'no-new-privileges'] : []),
+    ...(opts.seccompProfilePath ? ['--security-opt', `seccomp=${opts.seccompProfilePath}`] : []),
+    '--user',
+    'agent',
+
+    // Network
+    '--network',
+    sec.network,
+
+    // Resource limits
+    ...(sec.memory ? ['--memory', sec.memory, '--memory-swap', sec.memory] : []),
+    ...(sec.cpus ? ['--cpus', sec.cpus] : []),
+  ];
+
+  for (const [key, value] of Object.entries(labels)) {
+    if (!key || !value) continue;
+    args.push('--label', `${key}=${value}`);
+  }
+
+  if (apiKey) {
+    args.push('-e', `${cfg.apiKeyEnvVar}=${apiKey}`);
+  }
+
+  if (opts.claudeOauthToken) {
+    args.push('-e', `${CLAUDE_CODE_OAUTH_TOKEN_ENV}=${opts.claudeOauthToken}`);
+  }
+
+  // Mount session data first so extra mounts can overlay it
+  if (opts.sessionDataDir) {
+    validateBindMount(opts.sessionDataDir, cfg.sessionConfigDir);
+    args.push('-v', `${opts.sessionDataDir}:${cfg.sessionConfigDir}`);
+  }
+
+  for (const mount of extraReadonlyMounts) {
+    validateBindMount(mount.hostPath, mount.containerPath);
+    const roSuffix = mount.readOnly !== false ? ':ro' : '';
+    args.push('-v', `${mount.hostPath}:${mount.containerPath}${roSuffix}`);
+  }
+
+  if (opts.extraEnv) {
+    for (const [key, value] of Object.entries(opts.extraEnv)) {
+      args.push('-e', `${key}=${value}`);
+    }
+  }
+
+  if (opts.headless) {
+    args.push(imageName, 'sleep', 'infinity');
+  } else {
+    args.push(imageName, cfg.binaryName, ...providerArgs);
+  }
+
+  return { command: 'docker', args };
+}
+
+/** Returns `['-e', 'KEY=value']` when value is non-empty, otherwise `[]`. */
+function envArg(key: string, value: string | null | undefined): string[] {
+  return value ? ['-e', `${key}=${value}`] : [];
+}
+
+type McpOpts = {
+  memoryMcpUrl?: string | null;
+  threadMcpUrl?: string | null;
+  councilMcpUrl?: string | null;
+  slackMcpUrl?: string | null;
+  kanbanMcpUrl?: string | null;
+  recordingsMcpUrl?: string | null;
+};
+
+type McpServer = { name: string; url: string };
+
+function enabledMcpServers(opts: McpOpts): McpServer[] {
+  const candidates: Array<{ name: string; url: string | null | undefined }> = [
+    { name: 'agentos-memory', url: opts.memoryMcpUrl },
+    { name: 'agentos-thread', url: opts.threadMcpUrl },
+    { name: 'agentos-council', url: opts.councilMcpUrl },
+    { name: 'agentos-slack', url: opts.slackMcpUrl },
+    { name: 'agentos-kanban', url: opts.kanbanMcpUrl },
+    { name: 'agentos-recordings', url: opts.recordingsMcpUrl },
+  ];
+  return candidates.flatMap(({ name, url }) => (url ? [{ name, url }] : []));
+}
+
+export function buildDockerExecArgs(
+  threadId: string,
+  input: string,
+  opts: McpOpts & {
+    provider: Provider;
+    claudeSessionId?: string;
+    codexSessionId?: string;
+    geminiSessionId?: string;
+    piSessionId?: string;
+    skipPermissions?: boolean;
+    systemPrompt?: string | null;
+    systemPromptSuffix?: string | null;
+    disallowedTools?: string[];
+    claudeOauthToken?: string | null;
+    apiKey?: string | null;
+    mcpBearerToken?: string | null;
+    model?: string;
+    effort?: ClaudeEffort;
+    reasoning?: CodexReasoning;
+    outputFormat?: 'text' | 'stream-json';
+    extraEnv?: Record<string, string>;
+  }
+): DockerArgs {
+  const skipPermissions = opts.skipPermissions ?? true;
+  const mcpServers = enabledMcpServers(opts);
+
+  const modelArgs: string[] = !opts.model
+    ? []
+    : opts.provider === 'codex'
+      ? ['-m', opts.model]
+      : ['--model', opts.model];
+
+  if (opts.provider === 'codex') {
+    const prompt = opts.systemPrompt ? `${opts.systemPrompt}\n\n${input}` : input;
+    const mcpFlags = mcpServers.flatMap(({ name, url }) => [
+      '-c',
+      `mcp_servers.${name}.url="${url}"`,
+      '-c',
+      `mcp_servers.${name}.bearer_token_env_var="${AGENTOS_MCP_BEARER_TOKEN_ENV_VAR}"`,
+    ]);
+    const commonFlags = [
+      '--json',
+      '--skip-git-repo-check',
+      ...(skipPermissions ? ['--dangerously-bypass-approvals-and-sandbox'] : []),
+      ...mcpFlags,
+    ];
+    const subcommand = opts.codexSessionId ? ['exec', 'resume', opts.codexSessionId, prompt] : ['exec', prompt];
+    const reasoningArgs: string[] = opts.reasoning ? ['--reasoning', opts.reasoning] : [];
+    return {
+      command: 'docker',
+      args: [
+        'exec',
+        '-it',
+        ...envArg(PROVIDER_CONFIGS.codex.apiKeyEnvVar, opts.apiKey),
+        ...envArg(AGENTOS_MCP_BEARER_TOKEN_ENV_VAR, opts.mcpBearerToken),
+        '--user',
+        'agent',
+        ...Object.entries(opts.extraEnv ?? {}).flatMap(([k, v]) => ['-e', `${k}=${v}`]),
+        `agentos-session-${threadId}`,
+        'codex',
+        ...subcommand,
+        ...commonFlags,
+        ...modelArgs,
+        ...reasoningArgs,
+      ],
+    };
+  }
+
+  if (opts.provider === 'gemini') {
+    const prompt = opts.systemPrompt ? `${opts.systemPrompt}\n\n${input}` : input;
+    return {
+      command: 'docker',
+      args: [
+        'exec',
+        '-it',
+        ...envArg(PROVIDER_CONFIGS.gemini.apiKeyEnvVar, opts.apiKey),
+        ...envArg(AGENTOS_MCP_BEARER_TOKEN_ENV_VAR, opts.mcpBearerToken),
+        '--user',
+        'agent',
+        ...Object.entries(opts.extraEnv ?? {}).flatMap(([k, v]) => ['-e', `${k}=${v}`]),
+        `agentos-session-${threadId}`,
+        'gemini',
+        '--prompt',
+        prompt,
+        '--output-format',
+        opts.outputFormat ?? 'stream-json',
+        '--yolo',
+        ...(opts.geminiSessionId ? ['--resume', opts.geminiSessionId] : []),
+        ...modelArgs,
+        ...mcpServers.flatMap(({ name }) => ['--allowed-mcp-server-names', name]),
+      ],
+    };
+  }
+
+  if (opts.provider === 'pi') {
+    // Pi CLI has no MCP server flags yet — mcpBearerToken is injected for future use
+    // but server URLs are not passed. See council/service.ts for the same caveat.
+    const prompt = opts.systemPrompt ? `${opts.systemPrompt}\n\n${input}` : input;
+    return {
+      command: 'docker',
+      args: [
+        'exec',
+        '-it',
+        ...envArg(PROVIDER_CONFIGS.pi.apiKeyEnvVar, opts.apiKey),
+        ...envArg(AGENTOS_MCP_BEARER_TOKEN_ENV_VAR, opts.mcpBearerToken),
+        '--user',
+        'agent',
+        ...Object.entries(opts.extraEnv ?? {}).flatMap(([k, v]) => ['-e', `${k}=${v}`]),
+        `agentos-session-${threadId}`,
+        'pi',
+        '-p',
+        ...modelArgs,
+        ...(opts.piSessionId ? ['--session', opts.piSessionId] : []),
+        prompt,
+      ],
+    };
+  }
+
+  // Claude (default)
+  const outputFormat = opts.outputFormat ?? 'stream-json';
+  // When resuming, --append-system-prompt is ignored by Claude Code; inject the per-turn
+  // suffix into the user message instead so the model still sees it.
+  const effectiveInput =
+    opts.claudeSessionId && opts.systemPromptSuffix ? `${opts.systemPromptSuffix}\n\n${input}` : input;
+  const args: string[] = [
+    'exec',
+    '-it',
+    ...envArg(PROVIDER_CONFIGS.claude.apiKeyEnvVar, opts.apiKey),
+    '--user',
+    'agent',
+    ...envArg(CLAUDE_CODE_OAUTH_TOKEN_ENV, opts.claudeOauthToken),
+    ...Object.entries(opts.extraEnv ?? {}).flatMap(([k, v]) => ['-e', `${k}=${v}`]),
+    `agentos-session-${threadId}`,
+    'claude',
+    '-p',
+    effectiveInput,
+    '--output-format',
+    outputFormat,
+    ...(outputFormat === 'stream-json' ? ['--verbose', '--include-partial-messages'] : []),
+    ...(skipPermissions ? ['--dangerously-skip-permissions'] : []),
+    ...modelArgs,
+    ...(opts.effort ? ['--effort', opts.effort] : []),
+  ];
+
+  if (opts.claudeSessionId) {
+    args.push('--resume', opts.claudeSessionId);
+  }
+
+  if (opts.systemPrompt) {
+    args.push('--append-system-prompt', opts.systemPrompt);
+  }
+
+  if (mcpServers.length > 0) {
+    const authHeaders = getMcpAuthHeaders();
+    const mcpConfig: Record<string, { type: string; url: string; headers: Record<string, string> }> = {};
+    for (const { name, url } of mcpServers) {
+      mcpConfig[name] = { type: 'http', url, headers: authHeaders };
+    }
+    args.push('--mcp-config', JSON.stringify({ mcpServers: mcpConfig }));
+  }
+
+  if (opts.disallowedTools?.length) {
+    args.push('--disallowed-tools', opts.disallowedTools.join(','));
+  }
+
+  return { command: 'docker', args };
+}
+
+export async function stopContainer(sessionId: string): Promise<void> {
+  const containerName = `agentos-session-${sessionId}`;
+  await execFileAsync('docker', ['kill', containerName]).catch((err) => {
+    eventLogger.warn('docker', 'docker kill failed', { containerName, error: String(err) });
+  });
+}

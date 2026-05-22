@@ -1,0 +1,12 @@
+{
+  "all": true,
+  "include": ["src/main/**/*.ts", "src/shared/**/*.ts", "src/preload/**/*.ts"],
+  "exclude": ["**/*.d.ts", "src/main/index.ts"],
+  "reporter": ["text", "html", "lcov", "json-summary"],
+  "report-dir": "coverage",
+  "check-coverage": true,
+  "lines": 7,
+  "statements": 7,
+  "branches": 42,
+  "functions": 38
+}

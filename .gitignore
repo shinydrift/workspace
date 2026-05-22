@@ -1,0 +1,9 @@
+*/dist/*
+.test-dist
+
+.agentos
+.gemini
+.claude/settings.local.json
+.claude/worktrees/
+release.env
+.agentos/worktrees/

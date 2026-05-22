@@ -1,0 +1,2 @@
+FROM agentos-sandbox:latest
+# Add project-specific dependencies below

@@ -1,0 +1,15 @@
+#!/bin/sh
+# In a git worktree, .git is a file (not a directory) — skip the hook.
+# Agents running in worktrees are responsible for their own formatting.
+if [ -f "$(git rev-parse --git-dir)" ]; then
+  exit 0
+fi
+
+cd "$(git rev-parse --show-toplevel)/agentos"
+
+# Skip if node_modules is not installed (CI / agent environments without deps)
+if [ ! -d node_modules ]; then
+  exit 0
+fi
+
+npx lint-staged

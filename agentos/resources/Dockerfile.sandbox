@@ -1,0 +1,48 @@
+FROM node:slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    ca-certificates \
+    curl \
+    git \
+    iptables \
+    jq \
+    openssh-client \
+    python3 \
+    python3-pip \
+    python3-venv \
+    ripgrep \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+    | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
+    && chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+    | tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
+    && apt-get update && apt-get install -y --no-install-recommends gh \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Tailscale (userspace networking — no NET_ADMIN required)
+RUN OS_CODENAME=$(. /etc/os-release && echo "${VERSION_CODENAME}") \
+    && curl -fsSL "https://pkgs.tailscale.com/stable/debian/${OS_CODENAME}.noarmor.gpg" \
+       | dd of=/usr/share/keyrings/tailscale-archive-keyring.gpg \
+    && echo "deb [signed-by=/usr/share/keyrings/tailscale-archive-keyring.gpg] https://pkgs.tailscale.com/stable/debian ${OS_CODENAME} main" \
+       | tee /etc/apt/sources.list.d/tailscale.list \
+    && apt-get update && apt-get install -y --no-install-recommends tailscale \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install all three AI CLIs (always latest). The invalidation key lets AgentOS
+# deliberately refresh the npm install layer during scheduled image rebuilds.
+ARG SANDBOX_IMAGE_INVALIDATION_KEY=initial
+RUN echo "Sandbox image invalidation: ${SANDBOX_IMAGE_INVALIDATION_KEY}" \
+    && npm install -g @anthropic-ai/claude-code@latest @openai/codex@latest @google/gemini-cli@latest @earendil-works/pi-coding-agent@latest
+
+COPY entrypoint.sh /usr/local/bin/agentos-entrypoint.sh
+RUN chmod +x /usr/local/bin/agentos-entrypoint.sh
+
+# Tailscale socket path used by all tailscale CLI calls inside the container
+ENV TS_SOCKET=/tmp/tailscale-run/tailscaled.sock
+
+RUN useradd -m -s /bin/bash agent
+WORKDIR /workspace
+ENTRYPOINT ["/usr/local/bin/agentos-entrypoint.sh"]

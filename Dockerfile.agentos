@@ -1,0 +1,5 @@
+FROM agentos-sandbox:latest
+# Add project-specific dependencies below
+USER root
+RUN npm install -g typescript@latest prettier@latest
+USER agent

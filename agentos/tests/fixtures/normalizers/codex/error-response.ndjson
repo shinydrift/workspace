@@ -1,0 +1,3 @@
+{"type":"thread.started","thread_id":"thread-ghi789","model":"gpt-4o-codex"}
+{"type":"turn.started","turn_id":"turn-001"}
+{"type":"turn.failed","error":{"message":"The model encountered an error processing your request.","code":"model_error"}}

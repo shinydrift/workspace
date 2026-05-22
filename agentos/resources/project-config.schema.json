@@ -1,0 +1,76 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AgentOS Project Config",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "type": "integer",
+      "enum": [1]
+    },
+    "provider": {
+      "type": "string",
+      "enum": ["claude", "codex", "gemini"]
+    },
+    "failover": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "transcriptMessages": { "type": "number" }
+      }
+    },
+    "sandbox": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "readOnlyRoot": { "type": "boolean" },
+        "dropAllCapabilities": { "type": "boolean" },
+        "noNewPrivileges": { "type": "boolean" },
+        "network": { "type": "string", "enum": ["none", "bridge", "host"] },
+        "pidsLimit": { "type": "number" },
+        "memory": { "type": "string", "examples": ["512m", "2g"] },
+        "cpus": { "type": "string", "examples": ["1.0", "2.0"] },
+        "tmpfs": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "skills": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "disabled": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "memory": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" }
+      }
+    },
+    "boot": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" }
+      }
+    },
+    "worktree": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "autoCreate": { "type": "boolean" }
+      }
+    }
+  }
+}

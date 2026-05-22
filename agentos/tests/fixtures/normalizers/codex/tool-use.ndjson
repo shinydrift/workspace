@@ -1,0 +1,7 @@
+{"type":"thread.started","thread_id":"thread-def456","model":"gpt-4o-codex"}
+{"type":"turn.started","turn_id":"turn-001"}
+{"type":"item.started","item":{"type":"command_execution","id":"cmd-001","command":"ls -la /tmp"}}
+{"type":"item.completed","item":{"type":"command_execution","id":"cmd-001","command":"ls -la /tmp","aggregated_output":"total 0\ndrwxrwxrwt 10 root root 200 Jan 1 00:00 .\ndrwxr-xr-x 20 root root 400 Jan 1 00:00 ..","exit_code":0,"status":"completed"}}
+{"type":"item.started","item":{"type":"agent_message","id":"msg-002","role":"assistant"}}
+{"type":"item.completed","item":{"type":"agent_message","id":"msg-002","role":"assistant","text":"The /tmp directory is empty (no user files)."}}
+{"type":"turn.completed","usage":{"input_tokens":250,"output_tokens":22,"input_tokens_details":{"cached_tokens":100}},"model":"gpt-4o-codex"}

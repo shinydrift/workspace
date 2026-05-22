@@ -1,0 +1,5 @@
+{"type":"thread.started","thread_id":"thread-abc123","model":"gpt-4o-mini-codex"}
+{"type":"turn.started","turn_id":"turn-001"}
+{"type":"item.started","item":{"type":"agent_message","id":"msg-001","role":"assistant"}}
+{"type":"item.completed","item":{"type":"agent_message","id":"msg-001","role":"assistant","text":"The answer is 42."}}
+{"type":"turn.completed","usage":{"input_tokens":120,"output_tokens":15},"model":"gpt-4o-mini-codex"}

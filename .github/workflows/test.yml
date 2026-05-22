@@ -1,0 +1,43 @@
+name: Tests
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: agentos/.node-version
+          cache: npm
+          cache-dependency-path: agentos/package-lock.json
+
+      - name: Install dependencies
+        working-directory: agentos
+        run: npm install
+
+      - name: Lint tests
+        working-directory: agentos
+        run: npx eslint --ext .ts,.tsx tests/
+
+      - name: Coverage — Renderer (Vitest / v8)
+        working-directory: agentos
+        run: npm run test:renderer:coverage
+
+      - name: Coverage — Main/Shared/Preload (c8, threshold gate)
+        working-directory: agentos
+        run: npm run test:coverage
+
+      - name: Upload coverage reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage
+          path: |
+            agentos/coverage/
+            agentos/coverage-renderer/
+          retention-days: 14

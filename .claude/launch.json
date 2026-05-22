@@ -1,0 +1,19 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "agentos",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["vite", "--config", "vite.renderer.config.mts"],
+      "port": 5173,
+      "cwd": "agentos"
+    },
+    {
+      "name": "agentos-renderer",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["vite", "--config", "vite.renderer.config.mts", "--port", "5174"],
+      "port": 5174,
+      "cwd": "agentos"
+    }
+  ]
+}
