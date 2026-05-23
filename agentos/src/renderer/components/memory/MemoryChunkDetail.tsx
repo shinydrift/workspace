@@ -4,6 +4,7 @@ import { Button } from '../ui/button';
 import { Textarea } from '../ui/textarea';
 import { cn } from '../../lib/utils';
 import { statusColors } from '../../lib/status-colors';
+import { displayPath } from './displayPath';
 
 interface Props {
   chunk: ChunkRow;
@@ -34,8 +35,8 @@ export function MemoryChunkDetail({ chunk, busy, onPin, onDelete, onUpdate }: Pr
     <div className="space-y-3">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <div className="truncate text-sm font-medium" title={chunk.path}>
-            {chunk.path}
+          <div className="truncate text-sm font-medium" title={displayPath(chunk.path)}>
+            {displayPath(chunk.path)}
           </div>
           <div className="text-xs text-muted-foreground">
             Lines {chunk.startLine}–{chunk.endLine} · {chunk.source} · {chunk.model} · {updatedAt}

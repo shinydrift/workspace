@@ -19,8 +19,7 @@ import { InsightsToolsSection } from './InsightsToolsSection';
 import { InsightsLayout } from './InsightsLayout';
 import { useThreadMetrics } from '../../hooks/useThreadMetrics';
 import { Sheet, SheetContent, SheetTitle } from '../ui/sheet';
-import { MemoryPanel } from '../memory/MemoryPanel';
-import { ChunkSourcePanel } from '../memory/ChunkSourcePanel';
+import { MemorySourcePanel } from '../memory/MemorySourcePanel';
 
 interface Props {
   thread: Thread;
@@ -152,8 +151,8 @@ export function ThreadInsightsPanel({ thread }: Props) {
       >
         <SheetContent>
           <SheetTitle className="sr-only">{sheetSource === 'memory' ? 'Memory' : 'Sessions'}</SheetTitle>
-          {sheetSource === 'memory' && <MemoryPanel thread={thread} />}
-          {sheetSource === 'sessions' && <ChunkSourcePanel thread={thread} source="sessions" />}
+          {sheetSource === 'memory' && <MemorySourcePanel thread={thread} source="memory" />}
+          {sheetSource === 'sessions' && <MemorySourcePanel thread={thread} source="sessions" />}
         </SheetContent>
       </Sheet>
     </>

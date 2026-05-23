@@ -19,6 +19,12 @@ import {
   type SearchParams,
   type CodeSearchParams,
 } from '../search/engine';
+
+// Coordinator search accepts the wider 'code' source value and dispatches to
+// the appropriate ranker. searchMemory itself only accepts memory|sessions|all.
+type CoordinatorSearchParams = Omit<SearchParams, 'source'> & {
+  source?: 'all' | 'memory' | 'sessions' | 'code';
+};
 import { memoryStatus, memoryDoctor, memoryHealthCheck } from '../memoryDiagnostics';
 import { persistMerkleRoot } from '../integrity';
 import type { EmbeddingProvider } from '../embedding/provider';
@@ -38,6 +44,7 @@ export class MemorySyncCoordinator {
   private memoryDir: string | null = null;
   private watcherRegistry = new MemoryWatcherRegistry();
   private syncedProjects = new Set<string>();
+  private syncedCodeProjects = new Set<string>();
   private dirtyProjects = new Set<string>();
   private dirtyGen = new Map<string, number>();
   private memorySyncPromises = new Map<string, Promise<void>>();
@@ -100,28 +107,41 @@ export class MemorySyncCoordinator {
     return resolveSyncScope(projectId, threadId, this.homeDir);
   }
 
-  async search(scope: SyncScope, params: SearchParams): Promise<MemorySearchHit[]> {
+  async search(scope: SyncScope, params: CoordinatorSearchParams): Promise<MemorySearchHit[]> {
     const settings = getStore().get('settings');
     const provider = await getProvider(settings);
+    const dirty = !this.syncedProjects.has(scope.projectId) || this.dirtyProjects.has(scope.projectId);
 
-    if (!this.syncedProjects.has(scope.projectId) || this.dirtyProjects.has(scope.projectId)) {
-      await this.scheduleMemorySync(scope);
+    if (params.source === 'code') {
+      // Code search reads only the code index. Don't block on memory sync; refresh
+      // it in the background while awaiting the code index so cold-project searches
+      // return real results instead of an empty list.
+      if (dirty) void this.scheduleMemorySync(scope);
+      await this.scheduleCodeIndex(scope);
+      this.watcherRegistry.ensure(scope, () => {
+        this.dirtyProjects.add(scope.projectId);
+        this.dirtyGen.set(scope.projectId, (this.dirtyGen.get(scope.projectId) ?? 0) + 1);
+      });
+      const { source: _ignored, ...codeParams } = params;
+      return execCodeSearch(scope, codeParams, settings, provider, getProjectDb(scope.projectId));
     }
+
+    if (dirty) await this.scheduleMemorySync(scope);
     this.watcherRegistry.ensure(scope, () => {
       this.dirtyProjects.add(scope.projectId);
       this.dirtyGen.set(scope.projectId, (this.dirtyGen.get(scope.projectId) ?? 0) + 1);
     });
-
-    return searchMemory(scope, params, settings, provider, getProjectDb(scope.projectId));
+    const memoryParams: SearchParams = { ...params, source: params.source };
+    return searchMemory(scope, memoryParams, settings, provider, getProjectDb(scope.projectId));
   }
 
   async searchCode(scope: SyncScope, params: CodeSearchParams): Promise<CodeSearchHit[]> {
     const settings = getStore().get('settings');
     const provider = await getProvider(settings);
+    const dirty = !this.syncedProjects.has(scope.projectId) || this.dirtyProjects.has(scope.projectId);
 
-    if (!this.syncedProjects.has(scope.projectId) || this.dirtyProjects.has(scope.projectId)) {
-      await this.scheduleMemorySync(scope);
-    }
+    if (dirty) void this.scheduleMemorySync(scope);
+    await this.scheduleCodeIndex(scope);
     this.watcherRegistry.ensure(scope, () => {
       this.dirtyProjects.add(scope.projectId);
       this.dirtyGen.set(scope.projectId, (this.dirtyGen.get(scope.projectId) ?? 0) + 1);
@@ -177,13 +197,18 @@ export class MemorySyncCoordinator {
     return p;
   }
 
-  private scheduleCodeIndex(scope: SyncScope): void {
-    if (this.codeIndexingPromises.has(scope.projectId)) return;
+  private scheduleCodeIndex(scope: SyncScope): Promise<void> {
+    const existing = this.codeIndexingPromises.get(scope.projectId);
+    if (existing) return existing;
+    if (this.syncedCodeProjects.has(scope.projectId) && !this.dirtyProjects.has(scope.projectId)) {
+      return Promise.resolve();
+    }
     this.broadcastIndexStatus({ projectId: scope.projectId, phase: 'code', state: 'started' });
     const settings = getStore().get('settings');
     const p = getProvider(settings)
       .then((provider) => syncCodeFiles(scope, provider))
       .then(() => {
+        this.syncedCodeProjects.add(scope.projectId);
         this.broadcastIndexStatus({ projectId: scope.projectId, phase: 'code', state: 'done' });
       })
       .catch((err) => {
@@ -192,6 +217,7 @@ export class MemorySyncCoordinator {
       })
       .finally(() => this.codeIndexingPromises.delete(scope.projectId));
     this.codeIndexingPromises.set(scope.projectId, p);
+    return p;
   }
 
   async reindex(scope: SyncScope): Promise<unknown> {
@@ -205,9 +231,11 @@ export class MemorySyncCoordinator {
     const provider = await getProvider(settings);
     const db = getProjectDb(scope.projectId);
     db.exec('DELETE FROM files');
+    this.syncedCodeProjects.delete(scope.projectId);
     await syncProject(scope, provider);
     this.syncedProjects.add(scope.projectId);
     await syncCodeFiles(scope, provider);
+    this.syncedCodeProjects.add(scope.projectId);
     try {
       persistMerkleRoot(db, scope.projectId);
     } catch {
@@ -243,6 +271,7 @@ export class MemorySyncCoordinator {
 
   clearProject(projectId: string): void {
     this.syncedProjects.delete(projectId);
+    this.syncedCodeProjects.delete(projectId);
     this.dirtyProjects.delete(projectId);
     this.dirtyGen.delete(projectId);
     this.memorySyncPromises.delete(projectId);
@@ -264,6 +293,7 @@ export class MemorySyncCoordinator {
     if (pathsChanged) {
       this.watcherRegistry.closeAll();
       this.syncedProjects.clear();
+      this.syncedCodeProjects.clear();
       this.memorySyncPromises.clear();
       this.codeIndexingPromises.clear();
       clearAllProjectCfgCaches();
@@ -277,6 +307,7 @@ export class MemorySyncCoordinator {
           clearAllProjectCfgCaches();
           for (const projectId of [...this.syncedProjects]) {
             this.syncedProjects.delete(projectId);
+            this.syncedCodeProjects.delete(projectId);
             this.dirtyProjects.add(projectId);
             this.dirtyGen.set(projectId, (this.dirtyGen.get(projectId) ?? 0) + 1);
           }

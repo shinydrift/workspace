@@ -10,7 +10,19 @@ import type {
   MemoryDoctorResult,
   MemoryHealthReport,
 } from '../../shared/types';
-import type { SearchParams, CodeSearchParams } from './search';
+import type { CodeSearchParams } from './search';
+
+// Service-level search params accept the wider 'code' source value (the IPC
+// boundary's MemorySearchRequest also accepts 'code') plus optional projectId
+// for MCP callers that route by project rather than thread.
+type ServiceSearchParams = {
+  projectId?: string | null;
+  threadId?: string | null;
+  query: string;
+  maxResults?: number;
+  minScore?: number;
+  source?: 'all' | 'memory' | 'sessions' | 'code';
+};
 import type { EntityType, GraphQueryResult, EdgeRelation } from './graph';
 import { MemoryStatsService } from './statsService';
 import { MemoryContentService } from './contentService';
@@ -137,7 +149,7 @@ export class AgentOSMemoryService {
     return this.content.save(scope, { path: params.path, content: params.content, mode: params.mode });
   }
 
-  async search(params: SearchParams): Promise<MemorySearchHit[]> {
+  async search(params: ServiceSearchParams): Promise<MemorySearchHit[]> {
     const scope = this.sync.resolveScope(params.projectId, params.threadId);
     return this.sync.search(scope, params);
   }

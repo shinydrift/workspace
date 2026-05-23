@@ -3,36 +3,40 @@ import type { ChunkRow } from '../../../shared/types';
 import { Button } from '../ui/button';
 import { cn } from '../../lib/utils';
 import { statusColors } from '../../lib/status-colors';
+import { displayPath } from './displayPath';
 
 interface Props {
   filePath: string;
   fileChunks: ChunkRow[];
   selectedChunkId: string | null;
   onSelectChunk: (id: string) => void;
-  onDeleteFile: (path: string) => void;
+  onDeleteFile?: (path: string) => void;
 }
 
 export function ChunkFileGroup({ filePath, fileChunks, selectedChunkId, onSelectChunk, onDeleteFile }: Props) {
+  const label = displayPath(filePath);
   return (
     <div className="rounded-lg border border-border/70">
       <div className="flex items-center justify-between gap-2 border-b border-border/50 bg-muted/40 px-3 py-2">
-        <div className="truncate text-xs font-medium" title={filePath}>
-          {filePath}
+        <div className="truncate text-xs font-medium" title={label}>
+          {label}
         </div>
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted-foreground">{fileChunks.length} chunks</span>
-          <Button
-            type="button"
-            variant="ghost"
-            className="h-auto px-1.5 py-0.5 text-xs text-red-500 hover:bg-red-50 hover:text-red-700"
-            onClick={() => {
-              if (!confirm(`Delete all indexed chunks for "${filePath}"?`)) return;
-              onDeleteFile(filePath);
-            }}
-            title="Delete all chunks for this file"
-          >
-            Delete file
-          </Button>
+          {onDeleteFile && (
+            <Button
+              type="button"
+              variant="ghost"
+              className="h-auto px-1.5 py-0.5 text-xs text-red-500 hover:bg-red-50 hover:text-red-700"
+              onClick={() => {
+                if (!confirm(`Delete all indexed chunks for "${label}"?`)) return;
+                onDeleteFile(filePath);
+              }}
+              title="Delete all chunks for this file"
+            >
+              Delete file
+            </Button>
+          )}
         </div>
       </div>
       <div className="divide-y divide-border/40">

@@ -48,7 +48,7 @@ function rowToEntry(row: {
 }): MemoryEntryRecord {
   return {
     id: row.id,
-    source: row.source as 'memory' | 'sessions',
+    source: row.source as 'memory' | 'sessions' | 'code',
     path: row.path,
     title: row.path,
     text: row.text,

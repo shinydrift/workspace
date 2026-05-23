@@ -1,5 +1,5 @@
 import React from 'react';
-import type { MemorySearchHit } from '../../../shared/types';
+import type { MemorySearchHit, MemorySourceFilter } from '../../../shared/types';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { ScrollFade } from '@/components/ui/scroll-fade';
 import { Button } from '../ui/button';
@@ -10,6 +10,7 @@ import { MemoryChunkListPagination } from './MemoryChunkListPagination';
 import { MemorySearchResultsList } from './MemorySearchResultsList';
 
 interface Props {
+  source: MemorySourceFilter;
   showSearch: boolean;
   results: MemorySearchHit[];
   busy: string | null;
@@ -19,7 +20,16 @@ interface Props {
   onOpenChunk: (chunkId: string) => void;
 }
 
-export function MemoryPanelBody({ showSearch, results, busy, error, inspector, onOpenSearchHit, onOpenChunk }: Props) {
+export function MemoryPanelBody({
+  source,
+  showSearch,
+  results,
+  busy,
+  error,
+  inspector,
+  onOpenSearchHit,
+  onOpenChunk,
+}: Props) {
   const grouped = useGroupedChunks(inspector.chunks);
 
   const totalPages = Math.max(1, Math.ceil(inspector.total / inspector.pageSize));
@@ -56,7 +66,9 @@ export function MemoryPanelBody({ showSearch, results, busy, error, inspector, o
               <div className="px-3 py-2 text-xs text-muted-foreground">Loading…</div>
             ) : inspector.chunks.length === 0 ? (
               <div className="m-3 rounded border border-dashed border-border p-3 text-xs text-muted-foreground">
-                No indexed chunks.
+                {source === 'code'
+                  ? 'No code chunks indexed yet — indexing runs in the background.'
+                  : 'No indexed chunks.'}
               </div>
             ) : (
               <div className="space-y-3 p-3">
@@ -67,7 +79,7 @@ export function MemoryPanelBody({ showSearch, results, busy, error, inspector, o
                     fileChunks={fileChunks}
                     selectedChunkId={inspector.selectedChunkId}
                     onSelectChunk={onOpenChunk}
-                    onDeleteFile={(path) => void inspector.deleteFile(path)}
+                    onDeleteFile={source === 'code' ? undefined : (path) => void inspector.deleteFile(path)}
                   />
                 ))}
                 <MemoryChunkListPagination

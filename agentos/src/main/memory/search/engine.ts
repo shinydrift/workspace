@@ -488,7 +488,8 @@ export async function searchCode(
   const topIds = top.map((r) => r.id);
   const entityMap = buildEntityMap(db, scope.projectId, topIds);
 
-  // code_search is exposed only via MCP (agents); no IPC handler is registered for the renderer.
+  // Reachable from the renderer via memory:search with source='code' (routed
+  // by MemorySyncCoordinator.search) and from agents via the MCP code_search tool.
   return top.map(
     (r) =>
       ({
@@ -500,6 +501,7 @@ export async function searchCode(
         snippet: createSnippet(r.text, query),
         startLine: r.startLine,
         endLine: r.endLine,
+        timestamp: r.updatedAt > 0 ? r.updatedAt : undefined,
         entities: entityMap.get(r.id),
       }) satisfies CodeSearchHit
   );

@@ -3,9 +3,9 @@ import type { MemoryEntryRecord, ProjectConfigLookup, Thread } from '../../../sh
 import type { ViewId } from './ProjectDetail';
 import { BoardView } from '../board/BoardView';
 import { BoardEmptyState } from './BoardEmptyState';
-import { ChunkSourcePanel } from '../memory/ChunkSourcePanel';
 import { MemoryGraphView } from '../memory/MemoryGraphView';
-import { MemoryPanel } from '../memory/MemoryPanel';
+import { MemorySourcePanel } from '../memory/MemorySourcePanel';
+import { displayPath } from '../memory/displayPath';
 import { ProjectInsightsPanel } from '../insights/ProjectInsightsPanel';
 import { WikiPanel } from '../wiki/WikiPanel';
 import { Sheet, SheetContent, SheetTitle } from '../ui/sheet';
@@ -77,17 +77,17 @@ export function ProjectDetailContent({
         ))}
       {seen.has('memory') && thread && (
         <div key={`memory-${thread.id}`} className={view === 'memory' ? 'flex min-h-0 flex-1 flex-col' : 'hidden'}>
-          <MemoryPanel thread={thread} />
+          <MemorySourcePanel thread={thread} source="memory" />
         </div>
       )}
       {seen.has('sessions') && thread && (
         <div key={`sessions-${thread.id}`} className={view === 'sessions' ? 'flex min-h-0 flex-1 flex-col' : 'hidden'}>
-          <ChunkSourcePanel thread={thread} source="sessions" />
+          <MemorySourcePanel thread={thread} source="sessions" />
         </div>
       )}
       {seen.has('code') && thread && (
         <div key={`code-${thread.id}`} className={view === 'code' ? 'flex min-h-0 flex-1 flex-col' : 'hidden'}>
-          <ChunkSourcePanel thread={thread} source="code" />
+          <MemorySourcePanel thread={thread} source="code" />
         </div>
       )}
 
@@ -99,8 +99,8 @@ export function ProjectDetailContent({
       >
         <SheetContent>
           <SheetTitle className="sr-only">{sheetSource === 'memory' ? 'Memory' : 'Sessions'}</SheetTitle>
-          {sheetSource === 'memory' && thread && <MemoryPanel thread={thread} />}
-          {sheetSource === 'sessions' && thread && <ChunkSourcePanel thread={thread} source="sessions" />}
+          {sheetSource === 'memory' && thread && <MemorySourcePanel thread={thread} source="memory" />}
+          {sheetSource === 'sessions' && thread && <MemorySourcePanel thread={thread} source="sessions" />}
         </SheetContent>
       </Sheet>
 
@@ -115,8 +115,8 @@ export function ProjectDetailContent({
             <div className="flex flex-col gap-4 p-6 pt-10">
               {chunkEntry && (
                 <>
-                  <SheetTitle>{chunkEntry.title}</SheetTitle>
-                  <div className="text-xs text-muted-foreground">{chunkEntry.path}</div>
+                  <SheetTitle>{displayPath(chunkEntry.title)}</SheetTitle>
+                  <div className="text-xs text-muted-foreground">{displayPath(chunkEntry.path)}</div>
                   <pre className="overflow-auto rounded-lg border border-border/60 bg-muted/30 p-4 text-xs leading-5 whitespace-pre-wrap">
                     {chunkEntry.text}
                   </pre>

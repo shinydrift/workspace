@@ -38,7 +38,7 @@ export type MemorySourceFilter = 'all' | 'memory' | 'sessions' | 'code';
 
 export interface MemorySearchHit {
   id: string;
-  source: 'memory' | 'sessions';
+  source: 'memory' | 'sessions' | 'code';
   path: string;
   title: string;
   score: number;
@@ -50,17 +50,7 @@ export interface MemorySearchHit {
   entities?: Array<{ name: string; type: string; observations: string[] }>;
 }
 
-export interface CodeSearchHit {
-  id: string;
-  source: 'code';
-  path: string;
-  title: string;
-  score: number;
-  snippet: string;
-  startLine?: number;
-  endLine?: number;
-  entities?: Array<{ name: string; type: string; observations: string[] }>;
-}
+export type CodeSearchHit = MemorySearchHit;
 
 export interface MemoryIndexStatus {
   projectId: string;
@@ -93,7 +83,7 @@ export interface MemoryEntryRecord {
   // Stable chunk id, present only for entries returned by memory_search or
   // backed by a row in the chunks table. Path-range reads omit this.
   id?: string;
-  source: 'memory' | 'sessions';
+  source: 'memory' | 'sessions' | 'code';
   path: string;
   title: string;
   text: string;
@@ -109,8 +99,8 @@ export interface MemorySearchRequest {
   query: string;
   maxResults?: number;
   minScore?: number;
-  /** Restrict search to 'memory', 'sessions', or 'all' (both). 'code' is only valid for the list endpoint — code chunks are not included in search results. */
-  source?: 'all' | 'memory' | 'sessions';
+  /** Restrict search to 'memory', 'sessions', 'code', or 'all' (memory + sessions). 'code' dispatches to the code-search ranker. */
+  source?: 'all' | 'memory' | 'sessions' | 'code';
 }
 
 export interface MemoryGetRequest {

@@ -62,7 +62,7 @@ const MemorySearchSchema: z.ZodType<MemorySearchRequest> = z.object({
   query: z.string().min(1).max(2048),
   maxResults: z.number().int().positive().max(100).optional(),
   minScore: z.number().min(0).max(1).optional(),
-  source: z.enum(['all', 'memory', 'sessions']).optional(),
+  source: z.enum(['all', 'memory', 'sessions', 'code']).optional(),
 });
 
 const MemoryGetSchema: z.ZodType<MemoryGetRequest> = z.object({

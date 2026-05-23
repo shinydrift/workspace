@@ -1,6 +1,7 @@
 import React from 'react';
 import { Button } from '../ui/button';
 import type { MemorySearchHit } from '../../../shared/types';
+import { displayPath } from './displayPath';
 
 interface Props {
   results: MemorySearchHit[];
@@ -28,7 +29,7 @@ export function MemorySearchResultsList({ results, busy, onSelect }: Props) {
           className="w-full h-auto px-3 py-2.5 flex-col items-start rounded-none hover:bg-accent/40"
         >
           <div className="flex w-full items-start gap-2">
-            <div className="flex-1 truncate text-xs font-medium">{hit.title}</div>
+            <div className="flex-1 truncate text-xs font-medium">{displayPath(hit.title)}</div>
             <span className="shrink-0 rounded bg-muted px-1 py-0.5 text-[10px] tabular-nums text-muted-foreground">
               {Math.round(hit.score * 100)}%
             </span>

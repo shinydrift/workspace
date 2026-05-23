@@ -4,6 +4,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import type { useMemoryInspector } from '../../hooks/useMemoryInspector';
 import { MemoryChunkDetail } from './MemoryChunkDetail';
 import { Sheet, SheetContent, SheetTitle } from '../ui/sheet';
+import { displayPath } from './displayPath';
 
 type DetailSheet = 'search' | 'chunk' | null;
 
@@ -29,8 +30,8 @@ export function MemoryDetailSheet({ detailSheet, selectedEntry, inspector, onClo
         <SheetBody>
           {detailSheet === 'search' && selectedEntry && (
             <>
-              <SheetTitle>{selectedEntry.title}</SheetTitle>
-              <div className="text-xs text-muted-foreground">{selectedEntry.path}</div>
+              <SheetTitle>{displayPath(selectedEntry.title)}</SheetTitle>
+              <div className="text-xs text-muted-foreground">{displayPath(selectedEntry.path)}</div>
               <pre className="overflow-auto rounded-lg border border-border/60 bg-muted/30 p-4 text-xs leading-5 whitespace-pre-wrap">
                 {selectedEntry.text}
               </pre>
@@ -38,7 +39,7 @@ export function MemoryDetailSheet({ detailSheet, selectedEntry, inspector, onClo
           )}
           {detailSheet === 'chunk' && inspector.selectedChunk && (
             <>
-              <SheetTitle className="truncate">{inspector.selectedChunk.path}</SheetTitle>
+              <SheetTitle className="truncate">{displayPath(inspector.selectedChunk.path)}</SheetTitle>
               <MemoryChunkDetail
                 chunk={inspector.selectedChunk}
                 busy={inspector.busy}
