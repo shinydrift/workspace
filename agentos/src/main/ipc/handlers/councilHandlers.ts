@@ -5,7 +5,7 @@ import { defineHandler } from '../ipcResponse';
 import { broadcastToWindows } from '../../sessions/broadcaster';
 import { threadManager } from '../../sessions/ThreadManager';
 
-const providerEnum = z.enum(['claude', 'codex', 'gemini']);
+const providerEnum = z.enum(['claude', 'claude-interactive', 'codex', 'gemini']);
 const memberSchema = z.object({
   provider: providerEnum,
   model: z.string().min(1).max(128),

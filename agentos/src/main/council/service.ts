@@ -11,7 +11,7 @@ const TERMINAL_STATUSES = new Set(['submitted', 'invalid', 'error', 'timeout']);
 
 const memberSchema = z.object({
   // pi excluded: council members must submit outcomes via MCP, which is not yet wired for pi.
-  provider: z.enum(['claude', 'codex', 'gemini']),
+  provider: z.enum(['claude', 'claude-interactive', 'codex', 'gemini']),
   model: z.string().max(128),
   effort: z.enum(['low', 'medium', 'high', 'extra-high', 'max']).optional(),
   reasoning: z.enum(['low', 'medium', 'high', 'extra-high']).optional(),

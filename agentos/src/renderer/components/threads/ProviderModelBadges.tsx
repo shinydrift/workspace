@@ -56,7 +56,7 @@ export function ProviderModelBadges({
   const parts: string[] = [PROVIDER_LABEL[provider]];
   if (backend && backend !== DEFAULT_BACKEND[provider]) parts.push(PROVIDER_BACKEND_LABEL[backend]);
   if (model) parts.push(MODEL_LABEL[model] ?? model);
-  if (provider === 'claude' && effort) parts.push(CLAUDE_EFFORT_LABEL[effort]);
+  if ((provider === 'claude' || provider === 'claude-interactive') && effort) parts.push(CLAUDE_EFFORT_LABEL[effort]);
   if (provider === 'codex' && reasoning) parts.push(CODEX_REASONING_LABEL[reasoning]);
   const summaryLabel = parts.join(' · ');
 
@@ -166,7 +166,7 @@ export function ProviderModelBadges({
             </div>
 
             {/* Effort column (Claude only) */}
-            {provider === 'claude' && onEffortChange && (
+            {(provider === 'claude' || provider === 'claude-interactive') && onEffortChange && (
               <div className="flex flex-col border-l border-border/50 pl-1">
                 <div className="px-2 py-1 text-xs font-medium text-muted-foreground">Effort</div>
                 <Button

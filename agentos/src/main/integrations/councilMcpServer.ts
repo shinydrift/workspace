@@ -81,14 +81,14 @@ class CouncilMcpServer extends BaseMcpServer {
 
     server.tool(
       'council_upsert_config',
-      'Create or update a council configuration. Pass id to update an existing config, omit to create a new one. Each member requires provider (claude|codex|gemini) and model.',
+      'Create or update a council configuration. Pass id to update an existing config, omit to create a new one. Each member requires provider (claude|claude-interactive|codex|gemini) and model.',
       {
         id: z.string().min(1).optional().describe('Existing config id to update. Omit to create a new config.'),
         name: z.string().min(1).max(128).describe('Display name for the config.'),
         members: z
           .array(
             z.object({
-              provider: z.enum(['claude', 'codex', 'gemini']),
+              provider: z.enum(['claude', 'claude-interactive', 'codex', 'gemini']),
               model: z.string().min(1).max(128),
               effort: z.enum(['low', 'medium', 'high', 'extra-high', 'max']).optional(),
               reasoning: z.enum(['low', 'medium', 'high', 'extra-high']).optional(),

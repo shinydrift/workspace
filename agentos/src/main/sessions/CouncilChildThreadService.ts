@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import { nanoid } from 'nanoid';
 import { getStore } from '../store/index';
 import * as threadStore from '../threads/threadStore';
@@ -12,7 +13,11 @@ import { getMcpToken } from '../mcp/mcpAuth';
 import { eventLogger } from '../utils/eventLog';
 import { ThreadRuntimeStore } from './ThreadRuntimeStore';
 import { EmbeddedChildThreadRunner } from './EmbeddedChildThreadRunner';
-import type { Thread } from '../../shared/types';
+import { ThreadOutputManager } from './threadOutput';
+import { broadcastThreadCreated, broadcastStatus } from './broadcaster';
+import { ClaudeInteractiveSession } from './claudeInteractive/ClaudeInteractiveSession';
+import type { JsonlEntry } from './claudeInteractive/ClaudeJsonlWatcher';
+import type { Thread, ThreadStatus } from '../../shared/types';
 import type { CouncilMember, CouncilOutcomeRecord } from '../../shared/types/council';
 
 const COUNCIL_CHILD_TIMEOUT_MS = 10 * 60 * 1000;
@@ -32,7 +37,8 @@ function resolveContainerThreadId(store: ThreadRuntimeStore, threadId: string): 
 export class CouncilChildThreadService {
   constructor(
     private readonly store: ThreadRuntimeStore,
-    private readonly runner: EmbeddedChildThreadRunner
+    private readonly runner: EmbeddedChildThreadRunner,
+    private readonly output: ThreadOutputManager
   ) {}
 
   async spawn(opts: {
@@ -84,6 +90,23 @@ export class CouncilChildThreadService {
     });
     const composed = `${bootInstructions}\n\n${opts.prompt}`;
     const councilMcpUrl = `http://host.docker.internal:${councilMcpServer.actualPort ?? 0}/mcp`;
+
+    if (opts.member.provider === 'claude-interactive') {
+      return this.spawnInteractive({
+        runId: opts.runId,
+        member: opts.member,
+        onOutcome: opts.onOutcome,
+        containerThreadId,
+        childId,
+        childThread,
+        composed,
+        workingDirectory: parent.workingDirectory,
+        claudeOauthToken,
+        apiKey,
+        councilMcpUrl,
+      });
+    }
+
     const execArgs = buildDockerExecArgs(containerThreadId, composed, {
       provider: opts.member.provider,
       model: opts.member.model,
@@ -151,5 +174,180 @@ export class CouncilChildThreadService {
     });
 
     return { childThreadId: childId };
+  }
+
+  // Interactive harness branch — uses ClaudeInteractiveSession instead of a one-shot
+  // PtyProcess. The child runs in PTY mode with --session-id, output streams from the
+  // JSONL file rather than stdout. Lifecycle still terminates on council MCP outcome
+  // submission, child PTY exit, or council timeout (whichever first).
+  private spawnInteractive(opts: {
+    runId: string;
+    member: CouncilMember;
+    onOutcome: (outcome: CouncilOutcomeRecord) => void;
+    containerThreadId: string;
+    childId: string;
+    childThread: Omit<Thread, 'logBuffer'>;
+    composed: string;
+    workingDirectory: string;
+    claudeOauthToken: string | null;
+    apiKey: string | null;
+    councilMcpUrl: string;
+  }): { childThreadId: string } {
+    const sessionId = randomUUID();
+    const childThreadWithSession = { ...opts.childThread, claudeSessionId: sessionId };
+
+    // Pre-listener setup that can throw (disk I/O, IPC marshalling, watcher init).
+    // If any throw, we record the failure and return — without this guard the parent
+    // council would hang the full MAX_COUNCIL_MS (15 min) waiting for an outcome.
+    let session: ClaudeInteractiveSession;
+    try {
+      threadStore.saveThread(childThreadWithSession);
+      this.output.initLogBuffer(opts.childId);
+      this.output.openLogStream(opts.childId);
+      broadcastThreadCreated({ ...childThreadWithSession, logBuffer: [] });
+
+      session = new ClaudeInteractiveSession(
+        opts.childId,
+        sessionId,
+        opts.workingDirectory,
+        {
+          // args.threadId is used by buildClaudeInteractiveArgs to pick the container
+          // (`agentos-session-<threadId>`). Council children share the parent's container,
+          // so we pass the resolved container thread id, not the child's id.
+          threadId: opts.containerThreadId,
+          sessionId,
+          claudeOauthToken: opts.claudeOauthToken,
+          apiKey: opts.apiKey,
+          mcpBearerToken: getMcpToken(),
+          model: opts.member.model || undefined,
+          effort: opts.member.effort,
+          skipPermissions: true,
+          mcp: { councilMcpUrl: opts.councilMcpUrl },
+        },
+        () => {
+          // No registry to clean up for council children — they aren't tracked in
+          // claudeInteractiveSessions and dispose-on-exit is driven by the wrappers below.
+        }
+      );
+    } catch (err) {
+      eventLogger.warn('council', 'Failed to spawn interactive council child', {
+        childThreadId: opts.childId,
+        runId: opts.runId,
+        error: String(err),
+      });
+      try {
+        this.output.closeLogStream(opts.childId);
+      } catch {
+        /* best-effort */
+      }
+      try {
+        threadStore.updateThread(opts.childId, { status: 'error', exitCode: null });
+      } catch {
+        /* best-effort */
+      }
+      broadcastStatus({ threadId: opts.childId, status: 'error' });
+      opts.onOutcome({
+        runId: opts.runId,
+        childThreadId: opts.childId,
+        member: opts.member,
+        status: 'error',
+        error: `Failed to spawn interactive council child: ${String(err)}`,
+        submittedAt: Date.now(),
+      });
+      return { childThreadId: opts.childId };
+    }
+
+    let outcomeRecorded = false;
+    let cleanedUp = false;
+
+    const finalize = (statusOnNoOutcome: ThreadStatus, errorMessage?: string): void => {
+      if (cleanedUp) return;
+      cleanedUp = true;
+      if (timeoutHandle) clearTimeout(timeoutHandle);
+      councilEvents.off('outcome:submitted', onMcpOutcome);
+      this.output.flushAssistantMessage(opts.childId, { multiTurn: true });
+      this.output.closeLogStream(opts.childId);
+      if (!outcomeRecorded) {
+        outcomeRecorded = true;
+        opts.onOutcome({
+          runId: opts.runId,
+          childThreadId: opts.childId,
+          member: opts.member,
+          status: 'error',
+          error: errorMessage ?? 'Interactive council child ended before submitting an outcome',
+          submittedAt: Date.now(),
+        });
+      }
+      // exitCode is null because interactive lifecycle is driven by us (MCP outcome,
+      // timeout, or runTurn settlement), not a process exit code. Matches the headless
+      // path's `exitCode: exitCode ?? null` shape.
+      threadStore.updateThread(opts.childId, { status: statusOnNoOutcome, exitCode: null });
+      broadcastStatus({ threadId: opts.childId, status: statusOnNoOutcome });
+      eventLogger.info('council', 'Council interactive child ended', {
+        childThreadId: opts.childId,
+        runId: opts.runId,
+      });
+    };
+
+    const onMcpOutcome = (data: { runId: string; outcome: CouncilOutcomeRecord }): void => {
+      if (data.runId !== opts.runId || data.outcome.childThreadId !== opts.childId) return;
+      outcomeRecorded = true;
+      if (timeoutHandle) clearTimeout(timeoutHandle);
+      session.dispose();
+    };
+    councilEvents.on('outcome:submitted', onMcpOutcome);
+
+    const timeoutHandle: NodeJS.Timeout | null = setTimeout(() => {
+      if (outcomeRecorded) return;
+      outcomeRecorded = true;
+      opts.onOutcome({
+        runId: opts.runId,
+        childThreadId: opts.childId,
+        member: opts.member,
+        status: 'timeout',
+        error: `Council child timed out after ${Math.round(COUNCIL_CHILD_TIMEOUT_MS / 1000)}s`,
+        submittedAt: Date.now(),
+      });
+      session.dispose();
+    }, COUNCIL_CHILD_TIMEOUT_MS);
+
+    // No broadcastTerminalData here — unlike the headless path (EmbeddedChildThreadRunner
+    // which broadcasts raw stream-json from PTY 'data'), the interactive harness produces
+    // JSONL entries that don't match extractStreamBlocks's stream-json parser. Final
+    // assistant messages still reach the renderer via flushAssistantMessage →
+    // broadcastMessageAppended; the live token-by-token streaming view is unavailable
+    // for interactive council members.
+    const onEntry = (entry: JsonlEntry): void => {
+      const data = JSON.stringify(entry) + '\n';
+      this.output.appendLog(opts.childId, data);
+      if (entry.type === 'assistant' || entry.type === 'user') {
+        this.output.flushAssistantMessage(opts.childId, { multiTurn: true, skipSideEffects: true });
+      } else {
+        this.output.clearPendingOutput(opts.childId);
+      }
+    };
+
+    session
+      .runTurn(opts.composed, undefined, onEntry)
+      .then(() => {
+        finalize('stopped');
+      })
+      .catch((err: unknown) => {
+        // runTurn rejects when the watcher is cancelled (dispose path) — that's expected
+        // when the MCP outcome arrives or the council times out. Only treat unexpected
+        // rejections as errors.
+        if (outcomeRecorded) {
+          finalize('stopped');
+          return;
+        }
+        eventLogger.warn('council', 'Interactive council turn failed', {
+          childThreadId: opts.childId,
+          runId: opts.runId,
+          error: String(err),
+        });
+        finalize('error', `Interactive council turn failed: ${String(err)}`);
+      });
+
+    return { childThreadId: opts.childId };
   }
 }
