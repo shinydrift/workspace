@@ -126,6 +126,7 @@ class ThreadManager implements Disposable {
       inputQueue: this.inputQueue,
       output: this.output,
       autopilot: this.autopilot,
+      autopilotState: this.autopilotState,
       containers: this.containers,
       stateService: this.stateService,
       callbacks: {
@@ -415,8 +416,8 @@ class ThreadManager implements Disposable {
     return this.reads.getThread(threadId)!;
   }
 
-  setThreadAutopilot(threadId: string, enabled: boolean): Thread {
-    return this.autopilotState.setAutopilot(threadId, enabled);
+  setThreadAutopilot(threadId: string, enabled: boolean, options?: { triggerAfterTurn?: boolean }): Thread {
+    return this.autopilotState.setAutopilot(threadId, enabled, options);
   }
 
   setPersonalityOverride(threadId: string, override: Partial<PersonalitySettings> | null): void {

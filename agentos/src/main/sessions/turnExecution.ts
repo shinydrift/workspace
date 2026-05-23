@@ -19,6 +19,7 @@ import { getStore } from '../store/index';
 import { loadProjectConfig } from '../config/projectConfig';
 import { getEffectiveProviderOrder } from '../../shared/effectiveProjectSettings';
 import type { AutopilotService } from '../autopilot/service';
+import type { AutopilotStateService } from './AutopilotStateService';
 import type { ContainerManager } from './ContainerManager';
 import type { TurnWaiterManager } from './TurnWaiterManager';
 import type { ThreadInputQueue, QueueSource } from './ThreadInputQueue';
@@ -127,6 +128,7 @@ export class TurnExecutor {
   private readonly inputQueue: ThreadInputQueue;
   private readonly output: ThreadOutputManager;
   private readonly autopilot: AutopilotService;
+  private readonly autopilotState: AutopilotStateService;
   private readonly containers: ContainerManager;
   private readonly callbacks: {
     startThread: (threadId: string) => Promise<void>;
@@ -142,6 +144,7 @@ export class TurnExecutor {
     inputQueue: ThreadInputQueue;
     output: ThreadOutputManager;
     autopilot: AutopilotService;
+    autopilotState: AutopilotStateService;
     containers: ContainerManager;
     stateService: ThreadStateService;
     callbacks: {
@@ -156,6 +159,7 @@ export class TurnExecutor {
     this.inputQueue = args.inputQueue;
     this.output = args.output;
     this.autopilot = args.autopilot;
+    this.autopilotState = args.autopilotState;
     this.containers = args.containers;
     this.stateService = args.stateService;
     this.callbacks = args.callbacks;
@@ -216,6 +220,7 @@ export class TurnExecutor {
       wasThisTurnInterrupted = this.store.interruptedThreads.has(threadId);
       flushOutput();
       eventLogger.info('queue', 'Main agent turn ended', { threadId, source, turnEndReason });
+      this.autopilotState.recordTurnEndReason(threadId, turnEndReason);
       if (wasThisTurnInterrupted) {
         eventLogger.info('autopilot', 'Skipped: turn was interrupted by new user input', { threadId });
       } else if (turnEndReason === 'silence_fallback') {

@@ -48,7 +48,7 @@ type SlackBridgeDeps = {
   getThreadWorkingDirectory: (threadId: string) => string | null;
   setSlackContext: (threadId: string, ctx: { channelId: string; threadTs: string | null }) => void;
   /** Optional: enable autopilot on newly created threads. */
-  setAutopilot?: (threadId: string, enabled: boolean) => void;
+  setAutopilot?: (threadId: string, enabled: boolean, options?: { triggerAfterTurn?: boolean }) => void;
 };
 
 type SlackSocketEnvelope = {

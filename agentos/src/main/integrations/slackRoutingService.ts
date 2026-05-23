@@ -19,7 +19,7 @@ type SlackBridgeDeps = {
   ) => Promise<void>;
   getThreadWorkingDirectory: (threadId: string) => string | null;
   setSlackContext: (threadId: string, ctx: { channelId: string; threadTs: string | null }) => void;
-  setAutopilot?: (threadId: string, enabled: boolean) => void;
+  setAutopilot?: (threadId: string, enabled: boolean, options?: { triggerAfterTurn?: boolean }) => void;
 };
 
 export class SlackRoutingService {
@@ -163,7 +163,10 @@ export class SlackRoutingService {
 
     const autopilotEnabled = Boolean(deps.setAutopilot) && Boolean(getStore().get('settings').autopilot?.enabled);
     if (autopilotEnabled) {
-      deps.setAutopilot?.(threadId, true);
+      // triggerAfterTurn: false — we're about to call sendInput below; letting setAutopilot
+      // fire its post-enable hook here would race the queue (planner reads pre-input state,
+      // then logs "state changed during planning" as soon as the input lands).
+      deps.setAutopilot?.(threadId, true, { triggerAfterTurn: false });
     }
 
     let input = task;

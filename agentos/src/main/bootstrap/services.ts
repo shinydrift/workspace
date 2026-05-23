@@ -77,7 +77,7 @@ function buildSlackConfig(): Parameters<typeof slackBridge.init>[0] {
     getThreadName: (threadId) => threadManager.getThread(threadId)?.name ?? null,
     getThreadWorkingDirectory: (threadId) => threadManager.getThread(threadId)?.workingDirectory ?? null,
     setSlackContext: (threadId, ctx) => threadManager.setSlackContext(threadId, ctx),
-    setAutopilot: (threadId, enabled) => threadManager.setThreadAutopilot(threadId, enabled),
+    setAutopilot: (threadId, enabled, options) => threadManager.setThreadAutopilot(threadId, enabled, options),
   };
 }
 

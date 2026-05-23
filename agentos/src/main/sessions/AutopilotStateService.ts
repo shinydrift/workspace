@@ -2,11 +2,21 @@ import * as threadStore from '../threads/threadStore';
 import type { ThreadStateService } from './ThreadStateService';
 import type { Thread, Message } from '../../shared/types';
 import type { QueueSource } from './ThreadInputQueue';
+import type { TurnEndReason } from './headlessRunner';
 import { eventLogger } from '../utils/eventLog';
+
+export type SetAutopilotOptions = {
+  // When false, skip the post-enable afterTurnHook fire (caller is about to queue input;
+  // the hook would race the queue and read pre-input state). Default true.
+  triggerAfterTurn?: boolean;
+};
 
 export class AutopilotStateService {
   private kanbanWatchdog: ((taskId: string, projectId: string, reason: string) => void) | null = null;
   private afterTurnHook: ((threadId: string, source: QueueSource) => void) | null = null;
+  // Last completed turn's end reason per thread. Used to mirror runTurn's silence_fallback
+  // skip when setAutopilot tries to kick the planner on re-enable.
+  private lastTurnEndReason = new Map<string, TurnEndReason>();
 
   constructor(
     private readonly stateService: ThreadStateService,
@@ -47,7 +57,18 @@ export class AutopilotStateService {
     this.stateService.broadcastAutopilotStatus(threadId, thread);
   }
 
-  setAutopilot(threadId: string, enabled: boolean): Thread {
+  // Called from runTurn after a clean settle. Not called on the throw path — a thrown
+  // turn leaves the previous reason in place, which is safe (over-conservative if the
+  // previous reason was silence_fallback) and self-heals on the next clean turn.
+  recordTurnEndReason(threadId: string, reason: TurnEndReason | undefined): void {
+    if (reason === undefined) {
+      this.lastTurnEndReason.delete(threadId);
+    } else {
+      this.lastTurnEndReason.set(threadId, reason);
+    }
+  }
+
+  setAutopilot(threadId: string, enabled: boolean, options?: SetAutopilotOptions): Thread {
     const thread = threadStore.getThread(threadId);
     if (!thread) throw new Error(`Thread ${threadId} not found`);
 
@@ -60,13 +81,23 @@ export class AutopilotStateService {
     threadStore.updateThread(threadId, patch);
     this.broadcastAutopilotStatus(threadId, { ...thread, ...patch });
 
-    if (enabled) {
+    if (enabled && options?.triggerAfterTurn !== false) {
       const lastMsg = this.listMessages(threadId).at(-1);
       if (lastMsg?.role === 'assistant') {
-        if (!this.afterTurnHook) {
-          eventLogger.warn('autopilot', 'afterTurnHook not set — autopilot trigger skipped', { threadId });
+        // Mirror runTurn's silence_fallback guard: if the last completed turn was incomplete,
+        // the assistant message we'd hand the planner is half-finished. Skip and wait for the
+        // next clean turn.
+        const lastReason = this.lastTurnEndReason.get(threadId);
+        if (lastReason === 'silence_fallback') {
+          eventLogger.info('autopilot', 'Skipped: setAutopilot trigger after silence_fallback turn', {
+            threadId,
+          });
+        } else {
+          if (!this.afterTurnHook) {
+            eventLogger.warn('autopilot', 'afterTurnHook not set — autopilot trigger skipped', { threadId });
+          }
+          this.afterTurnHook?.(threadId, 'user');
         }
-        this.afterTurnHook?.(threadId, 'user');
       }
     }
     return this.getDecoratedThread(threadId)!;
