@@ -3,6 +3,7 @@ import path from 'path';
 import { eventLogger } from '../../utils/eventLog';
 import { PtyProcess } from '../PtyProcess';
 import { ClaudeJsonlWatcher, type JsonlEntry } from './ClaudeJsonlWatcher';
+import type { TurnEndReason } from '../headlessRunner';
 import { buildClaudeInteractiveArgs, type ClaudeInteractiveArgsOpts } from './buildClaudeInteractiveArgs';
 import { seedClaudeHostConfigOnce } from './seedClaudeHostConfig';
 
@@ -148,7 +149,11 @@ export class ClaudeInteractiveSession {
     return dispose;
   }
 
-  async runTurn(input: string, timeoutMs: number | undefined, onEntry: (entry: JsonlEntry) => void): Promise<void> {
+  async runTurn(
+    input: string,
+    timeoutMs: number | undefined,
+    onEntry: (entry: JsonlEntry) => void
+  ): Promise<TurnEndReason> {
     if (this.disposed) {
       throw new Error(`Claude interactive session for thread ${this.threadId} has been disposed`);
     }
@@ -187,7 +192,7 @@ export class ClaudeInteractiveSession {
     };
 
     try {
-      await this.watcher.watchTurn({
+      return await this.watcher.watchTurn({
         threadId: this.threadId,
         onEntry: wrappedOnEntry,
         onSessionId: () => {

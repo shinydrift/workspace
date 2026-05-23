@@ -12,7 +12,7 @@ import { eventLogger } from '../utils/eventLog';
 import * as threadStore from '../threads/threadStore';
 import { PtyProcess } from './PtyProcess';
 import { ThreadRuntimeStore } from './ThreadRuntimeStore';
-import { execHeadlessTurn, isProviderLimitError } from './headlessRunner';
+import { execHeadlessTurn, isProviderLimitError, type TurnEndReason } from './headlessRunner';
 import { execClaudeInteractiveTurn } from './claudeInteractive/execClaudeInteractiveTurn';
 import { emitTurnStarted, emitTurnEnded } from '../events';
 import { getStore } from '../store/index';
@@ -210,13 +210,24 @@ export class TurnExecutor {
     };
 
     let wasThisTurnInterrupted = false;
+    let turnEndReason: TurnEndReason | undefined;
     try {
-      await this.executeTurn(threadId, input, source, timeoutMs, persistInput, systemPromptSuffix);
+      turnEndReason = await this.executeTurn(threadId, input, source, timeoutMs, persistInput, systemPromptSuffix);
       wasThisTurnInterrupted = this.store.interruptedThreads.has(threadId);
       flushOutput();
-      eventLogger.info('queue', 'Main agent turn ended', { threadId, source });
+      eventLogger.info('queue', 'Main agent turn ended', { threadId, source, turnEndReason });
       if (wasThisTurnInterrupted) {
         eventLogger.info('autopilot', 'Skipped: turn was interrupted by new user input', { threadId });
+      } else if (turnEndReason === 'silence_fallback') {
+        // claude-interactive only: the JSONL went silent for the full window without writing
+        // end_turn or a turn_duration system marker. Overwhelmingly this means the turn didn't
+        // complete cleanly (crash, interrupt, stuck TUI) and the planner would be reading a
+        // half-finished response. We accept a narrow false-positive: if claude legitimately
+        // ended a turn but skipped writing turn_duration (rare CLI bug), we'll suppress one
+        // autopilot tick. The next user turn will re-evaluate normally.
+        // (Note: this is unrelated to TurnWaiterManager's kebab-case 'silence-fallback', which
+        // is the normal turn-end signal for codex/gemini PTY output — those still fire autopilot.)
+        eventLogger.info('autopilot', 'Skipped: turn ended on silence_fallback (incomplete)', { threadId });
       } else {
         this.autopilot.maybeRunAfterTurn(threadId, source);
       }
@@ -320,20 +331,19 @@ export class TurnExecutor {
     timeoutMs?: number,
     persistInput = true,
     systemPromptSuffix?: string
-  ): Promise<void> {
+  ): Promise<TurnEndReason | undefined> {
     if (this.store.launchModes.get(threadId)?.headless) {
       try {
-        await this.execHeadlessTurn(threadId, input, source, timeoutMs, persistInput, systemPromptSuffix);
+        return await this.execHeadlessTurn(threadId, input, source, timeoutMs, persistInput, systemPromptSuffix);
       } catch (error) {
         if (
           isProviderLimitError(error) &&
           (await this.fallbackProviderAndRetry(threadId, input, source, timeoutMs, systemPromptSuffix))
         ) {
-          return;
+          return undefined;
         }
         throw error;
       }
-      return;
     }
 
     this.writeInputNow(threadId, input, source, persistInput);
@@ -351,6 +361,7 @@ export class TurnExecutor {
     } finally {
       emitTurnEnded({ threadId });
     }
+    return undefined;
   }
 
   private persistSessionIds(threadId: string, rawOutput: string): void {
@@ -370,10 +381,10 @@ export class TurnExecutor {
     timeoutMs: number | undefined,
     persistInput: boolean,
     systemPromptSuffix: string | undefined
-  ): Promise<void> {
+  ): Promise<TurnEndReason | undefined> {
     const provider = this.getThreadProvider(threadId);
     const runner = provider === 'claude-interactive' ? execClaudeInteractiveTurn : execHeadlessTurn;
-    await runner(
+    const result = await runner(
       threadId,
       input,
       source,
@@ -390,6 +401,7 @@ export class TurnExecutor {
       },
       { timeoutMs, persistInput, systemPromptSuffix }
     );
+    return result.turnEndReason;
   }
 
   private async fallbackProviderAndRetry(

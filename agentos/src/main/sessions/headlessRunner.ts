@@ -47,8 +47,14 @@ export function isProviderLimitError(error: unknown): error is ProviderLimitErro
   return error instanceof ProviderLimitError;
 }
 
+export type TurnEndReason = 'end_turn' | 'system_marker' | 'silence_fallback';
+
 export type TurnExecutionResult = {
   rawOutput: string;
+  // Only populated by the claude-interactive harness today. `silence_fallback` means the
+  // JSONL never wrote end_turn or a turn_duration system marker — the turn is incomplete
+  // (claude crashed / interrupted / TUI hung) and autopilot must not run against it.
+  turnEndReason?: TurnEndReason;
 };
 
 export type HeadlessTurnDeps = {

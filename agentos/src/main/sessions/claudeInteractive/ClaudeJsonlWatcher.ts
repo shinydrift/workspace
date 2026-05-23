@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { eventLogger } from '../../utils/eventLog';
+import type { TurnEndReason } from '../headlessRunner';
 
 export type JsonlEntry = {
   type: string;
@@ -110,7 +111,7 @@ export class ClaudeJsonlWatcher {
     onEntry: (entry: JsonlEntry) => void;
     onSessionId: (sessionId: string) => void;
     timeoutMs?: number;
-  }): Promise<void> {
+  }): Promise<TurnEndReason> {
     const { threadId, onEntry, onSessionId, timeoutMs } = opts;
 
     const prep = this.prepared;
@@ -159,7 +160,7 @@ export class ClaudeJsonlWatcher {
     const tailMs =
       timeoutMs !== undefined && prep ? Math.max(100, timeoutMs - (Date.now() - prep.preparedAt)) : timeoutMs;
 
-    await this.tailFile(threadId, jsonlPath, startPos, onEntry, tailMs);
+    return this.tailFile(threadId, jsonlPath, startPos, onEntry, tailMs);
   }
 
   cancel(): void {
@@ -225,8 +226,8 @@ export class ClaudeJsonlWatcher {
     startPos: number,
     onEntry: (entry: JsonlEntry) => void,
     timeoutMs?: number
-  ): Promise<void> {
-    return new Promise((resolve, reject) => {
+  ): Promise<TurnEndReason> {
+    return new Promise<TurnEndReason>((resolve, reject) => {
       const tailStart = Date.now();
       let pos = startPos;
       let tail = '';
@@ -275,16 +276,14 @@ export class ClaudeJsonlWatcher {
           // best-effort cleanup; watcher may already be torn down
         }
         if (!err) flushPendingAssistant();
-        const settleReason = err
-          ? 'error'
-          : endTurnSeen
-            ? 'end_turn'
-            : systemMarkerSeen
-              ? 'system_marker'
-              : 'silence_fallback';
+        const reason: TurnEndReason = endTurnSeen
+          ? 'end_turn'
+          : systemMarkerSeen
+            ? 'system_marker'
+            : 'silence_fallback';
         eventLogger.info('claudeIO', 'watcher: turn settled', {
           threadId,
-          reason: settleReason,
+          reason: err ? 'error' : reason,
           durationMs: Date.now() - tailStart,
           totalEntriesSeen,
           assistantEntriesSeen,
@@ -299,12 +298,12 @@ export class ClaudeJsonlWatcher {
             threadId,
             pendingCount: pendingToolUseIds.size,
             ids: Array.from(pendingToolUseIds).slice(0, 5),
-            reason: settleReason,
+            reason,
           });
         }
         this.cancelFn = null;
         if (err) reject(err);
-        else resolve();
+        else resolve(reason);
       };
 
       // Turn-end detection (in priority order):

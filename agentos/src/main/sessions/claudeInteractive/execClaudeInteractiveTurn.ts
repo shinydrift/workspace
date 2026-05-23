@@ -137,7 +137,7 @@ export async function execClaudeInteractiveTurn(
   const effectiveInput = isResume && systemPromptSuffix ? `${systemPromptSuffix}\n\n${input}` : input;
 
   try {
-    await session.runTurn(effectiveInput, timeoutMs, onEntry);
+    const turnEndReason = await session.runTurn(effectiveInput, timeoutMs, onEntry);
     threadStore.updateThread(threadId, { lastActiveAt: Date.now() });
     callbacks.persistSessionIds(threadId, rawOutput);
     output.flushSideEffectsOnly(threadId, rawOutput);
@@ -150,8 +150,8 @@ export async function execClaudeInteractiveTurn(
         eventLogger.warn('thread', 'Idle stop failed', { threadId, error: String(err) });
       });
     });
-    eventLogger.info('queue', 'Queued input completed (claude interactive)', { threadId, source });
-    return { rawOutput };
+    eventLogger.info('queue', 'Queued input completed (claude interactive)', { threadId, source, turnEndReason });
+    return { rawOutput, turnEndReason };
   } finally {
     emitTurnEnded({ threadId });
   }
