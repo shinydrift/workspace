@@ -45,9 +45,9 @@ export class AutopilotStateService {
     threadStore.updateThread(threadId, patch);
     this.broadcastAutopilotStatus(threadId, { ...thread, ...patch });
 
-    // Watchdog: if a kanban-assigned thread's autopilot fails (blocked), move its task back
-    // to refining so a human / next run can retake it. `stopped` is the planner's intentional
-    // halt (e.g. task already done) and must NOT revert the task.
+    // Watchdog: when a kanban-assigned thread's autopilot lands in `blocked`, notify the
+    // kanban watchdog so it can record the failure on the task. `stopped` is the planner's
+    // intentional halt (e.g. task already done) and must NOT trigger the watchdog.
     if (this.kanbanWatchdog && patch.autopilotState === 'blocked' && thread.taskId && thread.projectId) {
       this.kanbanWatchdog(thread.taskId, thread.projectId, patch.autopilotLastReason ?? 'Autopilot blocked');
     }

@@ -253,7 +253,7 @@ export function bootServices(
           if (!task) return;
           if (isTerminalStatus(task.status)) return;
           // Record the autopilot failure as a note without reverting the stage —
-          // silently moving implementing/reviewing → refining destroys in-flight work.
+          // silently rewinding to an earlier stage destroys in-flight work.
           kanbanService.addNote(projectId, taskId, `Autopilot blocked on ${task.status}: ${reason}`);
         } catch (err) {
           const msg = getErrorMessage(err);
