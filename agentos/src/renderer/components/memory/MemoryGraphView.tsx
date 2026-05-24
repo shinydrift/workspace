@@ -1,9 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ForceGraph3D, { type ForceGraphMethods } from 'react-force-graph-3d';
 // d3-force-3d ships no published @types — typed locally to avoid `any` casts.
-import { forceCollide } from 'd3-force-3d';
+import { forceCollide, forceRadial } from 'd3-force-3d';
 import type { EntityNode, EntityType } from '../../../main/memory/graph';
-import { useTheme } from '@/hooks/useTheme';
 import { GraphToolbar } from './GraphToolbar';
 import { EntityDetailPanel } from './EntityDetailPanel';
 import { GraphEmptyState } from './GraphEmptyState';
@@ -62,9 +61,27 @@ function endpointId(end: string | ForceNode): string {
   return typeof end === 'string' ? end : end.id;
 }
 
+function readIsDark(): boolean {
+  if (typeof document === 'undefined') return false;
+  return document.documentElement.classList.contains('dark');
+}
+
+function useIsDark(): boolean {
+  const [isDark, setIsDark] = useState<boolean>(readIsDark);
+  useEffect(() => {
+    const root = document.documentElement;
+    const sync = () => setIsDark(root.classList.contains('dark'));
+    sync();
+    const mo = new MutationObserver(sync);
+    mo.observe(root, { attributes: true, attributeFilter: ['class'] });
+    return () => mo.disconnect();
+  }, []);
+  return isDark;
+}
+
 export function MemoryGraphView({ threadId }: Props) {
   const scene = useMemoryGraphScene(threadId);
-  const { isDark } = useTheme();
+  const isDark = useIsDark();
   const fgRef = useRef<ForceGraphMethods<ForceNode, ForceLink> | undefined>(undefined);
   const containerRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
@@ -179,20 +196,49 @@ export function MemoryGraphView({ threadId }: Props) {
     return dist;
   }, [hoveredId, adjacency]);
 
+  // Fit the camera once the simulation has settled, so the node cloud isn't
+  // framed out of view (which manifests as an empty canvas).
+  const didFitRef = useRef(false);
+  const handleEngineStop = useCallback(() => {
+    if (didFitRef.current) return;
+    const fg = fgRef.current;
+    if (!fg) return;
+    didFitRef.current = true;
+    fg.zoomToFit?.(600, 60);
+  }, []);
+
   // Re-apply detangle forces whenever the library re-initialises the simulation
   // (i.e. whenever the graphData reference changes — pagination, filter toggle,
   // reindex). Depending on graphData itself rather than its length catches the
   // case where node count stays equal but the set of nodes changes.
   useEffect(() => {
-    const fg = fgRef.current;
-    if (!fg) return;
-    fg.d3Force('charge')?.strength?.(-180);
-    fg.d3Force('link')?.distance?.(45);
-    fg.d3Force(
-      'collide',
-      forceCollide((n: ForceNode) => 4 + Math.sqrt(n.connections) * 2)
-    );
-    fg.d3ReheatSimulation();
+    if (graphData.nodes.length === 0) return;
+    let cancelled = false;
+    // Defer to a frame so the underlying lib has bootstrapped its simulation
+    // before we mutate forces. Without this, d3ReheatSimulation can run
+    // against an uninitialised layout and crash inside the lib's tick loop.
+    const raf = requestAnimationFrame(() => {
+      if (cancelled) return;
+      const fg = fgRef.current;
+      if (!fg) return;
+      const charge = fg.d3Force('charge');
+      const link = fg.d3Force('link');
+      if (!charge || !link) return;
+      charge.strength?.(-20);
+      link.distance?.(20);
+      fg.d3Force(
+        'collide',
+        forceCollide((n: ForceNode) => 1.5 + Math.sqrt(n.connections) * 0.5)
+      );
+      // Pull every node toward the origin so the layout collapses into a
+      // compact sphere instead of drifting outward.
+      fg.d3Force('radial', forceRadial(0).strength(0.075));
+      fg.d3ReheatSimulation();
+    });
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(raf);
+    };
   }, [graphData]);
 
   const nodeColor = useCallback(
@@ -274,7 +320,7 @@ export function MemoryGraphView({ threadId }: Props) {
               graphData={graphData}
               width={size.width}
               height={size.height}
-              backgroundColor="rgba(0,0,0,0)"
+              backgroundColor={isDark ? '#0a0a0a' : '#ffffff'}
               showNavInfo={false}
               numDimensions={3}
               cooldownTicks={300}
@@ -288,6 +334,7 @@ export function MemoryGraphView({ threadId }: Props) {
               linkOpacity={1}
               onNodeHover={handleHover}
               onNodeClick={handleClick}
+              onEngineStop={handleEngineStop}
             />
           )}
         </div>
