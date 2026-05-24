@@ -37,7 +37,7 @@ export function MemoryPanelBody({
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {!showSearch && (
-        <div className="flex items-center gap-2 px-3 py-2">
+        <div className="mx-auto flex w-full max-w-[1200px] items-center gap-2 px-3 py-2">
           <span
             className={`flex-1 text-xs text-muted-foreground transition-opacity ${inspector.busy ? 'opacity-50' : ''}`}
           >

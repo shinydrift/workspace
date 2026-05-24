@@ -20,7 +20,7 @@ const PLACEHOLDER: Record<MemorySourceFilter, string> = {
 
 export function MemoryPanelHeader({ source, query, onQueryChange, onSearch, busy }: Props) {
   return (
-    <div className="flex items-center gap-2 px-3 py-2">
+    <div className="mx-auto flex w-full max-w-[1200px] items-center gap-2 px-3 py-2">
       <Input
         value={query}
         onChange={(e) => onQueryChange(e.target.value)}
