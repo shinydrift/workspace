@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import ForceGraph3D, { type ForceGraphMethods } from 'react-force-graph-3d';
-// d3-force-3d ships no published @types — typed locally to avoid `any` casts.
-import { forceCollide, forceRadial } from 'd3-force-3d';
+import ForceGraph2D, { type ForceGraphMethods } from 'react-force-graph-2d';
+import { forceCollide, forceRadial, type SimulationNodeDatum } from 'd3-force';
 import type { EntityNode, EntityType } from '../../../main/memory/graph';
 import { GraphToolbar } from './GraphToolbar';
 import { EntityDetailPanel } from './EntityDetailPanel';
@@ -40,7 +39,7 @@ function hexToRgba(hex: string, alpha: number): string {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
-interface ForceNode {
+interface ForceNode extends SimulationNodeDatum {
   id: string;
   name: string;
   type: string;
@@ -87,7 +86,7 @@ export function MemoryGraphView({ threadId }: Props) {
   const [hoveredId, setHoveredId] = useState<string | null>(null);
 
   // Cache ForceNode/ForceLink objects across renders so d3-force's attached
-  // x/y/z/vx/vy/vz persist when scene.nodes/edges update (pagination, filter
+  // x/y/vx/vy persist when scene.nodes/edges update (pagination, filter
   // toggles). Without this, every state update would reset the layout.
   const nodeCacheRef = useRef<Map<string, ForceNode>>(new Map());
   const linkCacheRef = useRef<Map<string, ForceLink>>(new Map());
@@ -105,13 +104,34 @@ export function MemoryGraphView({ threadId }: Props) {
   // Resolve the canvas background from the container's computed style so it
   // tracks the active theme exactly (including custom color themes) rather
   // than hardcoded near-black/white. Re-read on theme flip.
+  //
+  // Round-trip through a canvas: themes are defined in oklch(), and modern
+  // Chromium returns computed background-color as oklab(...), which
+  // react-force-graph-2d's `polished` dep cannot parse (hex/rgb/hsl only).
+  // Painting into a 1px canvas normalizes any browser-supported color to rgba.
   const [bgColor, setBgColor] = useState<string>('#ffffff');
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
     const raf = requestAnimationFrame(() => {
       const resolved = window.getComputedStyle(el).backgroundColor;
-      if (resolved) setBgColor(resolved);
+      if (!resolved) return;
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = 1;
+        canvas.height = 1;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          setBgColor(resolved);
+          return;
+        }
+        ctx.fillStyle = resolved;
+        ctx.fillRect(0, 0, 1, 1);
+        const [r, g, b, a] = ctx.getImageData(0, 0, 1, 1).data;
+        setBgColor(`rgba(${r}, ${g}, ${b}, ${a / 255})`);
+      } catch {
+        setBgColor(resolved);
+      }
     });
     return () => cancelAnimationFrame(raf);
   }, [isDark]);
@@ -255,7 +275,7 @@ export function MemoryGraphView({ threadId }: Props) {
       link.distance?.(20);
       fg.d3Force(
         'collide',
-        forceCollide((n: ForceNode) => 1.5 + Math.sqrt(n.connections) * 0.5)
+        forceCollide<ForceNode>((n) => 1.5 + Math.sqrt(n.connections) * 0.5)
       );
       // Pull every node toward the origin so the layout collapses into a
       // compact sphere instead of drifting outward.
@@ -341,14 +361,12 @@ export function MemoryGraphView({ threadId }: Props) {
             </div>
           )}
           {scene.hasData && size.width > 0 && size.height > 0 && (
-            <ForceGraph3D<ForceNode, ForceLink>
+            <ForceGraph2D<ForceNode, ForceLink>
               ref={fgRef}
               graphData={graphData}
               width={size.width}
               height={size.height}
               backgroundColor={bgColor}
-              showNavInfo={false}
-              numDimensions={3}
               cooldownTicks={300}
               d3AlphaDecay={0.015}
               d3VelocityDecay={0.3}
@@ -357,7 +375,6 @@ export function MemoryGraphView({ threadId }: Props) {
               nodeColor={nodeColor}
               nodeLabel={(n: ForceNode) => `${n.name} (${n.type})`}
               linkColor={linkColor}
-              linkOpacity={1}
               onNodeHover={handleHover}
               onNodeClick={handleClick}
               onEngineStop={handleEngineStop}
