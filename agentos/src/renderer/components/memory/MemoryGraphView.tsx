@@ -7,7 +7,6 @@ import { GraphToolbar } from './GraphToolbar';
 import { EntityDetailPanel } from './EntityDetailPanel';
 import { GraphEmptyState } from './GraphEmptyState';
 import { useMemoryGraphScene } from './useMemoryGraphScene';
-import { ScrollFade } from '@/components/ui/scroll-fade';
 
 interface Props {
   threadId: string;
@@ -103,6 +102,20 @@ export function MemoryGraphView({ threadId }: Props) {
     return () => ro.disconnect();
   }, []);
 
+  // Resolve the canvas background from the container's computed style so it
+  // tracks the active theme exactly (including custom color themes) rather
+  // than hardcoded near-black/white. Re-read on theme flip.
+  const [bgColor, setBgColor] = useState<string>('#ffffff');
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const raf = requestAnimationFrame(() => {
+      const resolved = window.getComputedStyle(el).backgroundColor;
+      if (resolved) setBgColor(resolved);
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [isDark]);
+
   const graphData = useMemo(() => {
     const connCount: Record<string, number> = {};
     for (const e of scene.edges) {
@@ -196,15 +209,29 @@ export function MemoryGraphView({ threadId }: Props) {
     return dist;
   }, [hoveredId, adjacency]);
 
-  // Fit the camera once the simulation has settled, so the node cloud isn't
-  // framed out of view (which manifests as an empty canvas).
-  const didFitRef = useRef(false);
+  // Auto-fit the camera every time the simulation settles, but only while the
+  // initial load (and any subsequent reindex/thread switch) is still streaming
+  // pages in. Once the load completes we freeze auto-fit so later interactions
+  // (filter toggles, hover) don't yank the camera around.
+  const shouldAutoFitRef = useRef(true);
+  useEffect(() => {
+    shouldAutoFitRef.current = true;
+  }, [threadId]);
+  useEffect(() => {
+    if (scene.loading) {
+      shouldAutoFitRef.current = true;
+      return;
+    }
+    // Loading just flipped false — keep auto-fitting briefly so the final
+    // post-pagination layout gets framed, then freeze.
+    const t = window.setTimeout(() => {
+      shouldAutoFitRef.current = false;
+    }, 1500);
+    return () => window.clearTimeout(t);
+  }, [scene.loading]);
   const handleEngineStop = useCallback(() => {
-    if (didFitRef.current) return;
-    const fg = fgRef.current;
-    if (!fg) return;
-    didFitRef.current = true;
-    fg.zoomToFit?.(600, 60);
+    if (!shouldAutoFitRef.current) return;
+    fgRef.current?.zoomToFit?.(600, 60);
   }, []);
 
   // Re-apply detangle forces whenever the library re-initialises the simulation
@@ -303,7 +330,6 @@ export function MemoryGraphView({ threadId }: Props) {
         className="relative grid min-h-0 flex-1"
         style={{ gridTemplateColumns: scene.selectedEntity ? '1fr 260px' : '1fr' }}
       >
-        <ScrollFade />
         <div ref={containerRef} className="relative min-h-0 bg-background" style={{ minHeight: 400 }}>
           {!scene.hasData && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-6 text-center">
@@ -320,7 +346,7 @@ export function MemoryGraphView({ threadId }: Props) {
               graphData={graphData}
               width={size.width}
               height={size.height}
-              backgroundColor={isDark ? '#0a0a0a' : '#ffffff'}
+              backgroundColor={bgColor}
               showNavInfo={false}
               numDimensions={3}
               cooldownTicks={300}
