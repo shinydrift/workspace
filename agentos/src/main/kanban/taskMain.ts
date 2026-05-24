@@ -82,11 +82,26 @@ export async function createMainThread(projectId: string, task: KanbanTask): Pro
     });
     const threadId = thread.id;
 
+    // If ThreadFactory created a fresh worktree (workingDirectory unset on the task),
+    // persist it on the task so subsequent restarts reuse the same worktree instead
+    // of orphaning it and spawning a duplicate.
+    if (!task.worktreePath && thread.usingWorktree && thread.workingDirectory !== project.path) {
+      try {
+        kanbanDb.updateTaskWorktree(projectId, task.id, null, thread.workingDirectory);
+      } catch (err) {
+        eventLogger.warn('kanban', 'Failed to persist task worktree path', {
+          taskId: task.id,
+          worktreePath: thread.workingDirectory,
+          error: String(err),
+        });
+      }
+    }
+
     threadStore.updateThread(threadId, {
       agentRole: 'task-main',
       taskId: task.id,
       ...(task.skillTags.length ? { skillTags: task.skillTags } : {}),
-      ...(task.worktreePath ? { usingWorktree: true } : {}),
+      ...(task.worktreePath || thread.usingWorktree ? { usingWorktree: true } : {}),
     });
 
     kanbanDb.setTaskMainThread(projectId, task.id, threadId);

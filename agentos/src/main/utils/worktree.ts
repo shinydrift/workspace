@@ -3,6 +3,7 @@ import path from 'path';
 import { execFile, execFileSync } from 'child_process';
 import { promisify } from 'util';
 import type { KanbanTaskGitSummary } from '../../shared/types/kanban';
+import { eventLogger } from './eventLog';
 
 const execFileAsync = promisify(execFile);
 
@@ -286,8 +287,26 @@ export async function createSessionWorktree(
 
     await runGitAsync(['-C', repoRoot, 'worktree', 'add', '-b', branchName, worktreePath, startPoint]);
 
+    // Verify the worktree actually materialized on disk before reporting success.
+    // git worktree add can claim success in edge cases (e.g. concurrent prune) where
+    // the directory doesn't end up present, and downstream callers will mount this
+    // path into a docker container — a missing source becomes a phantom mount that
+    // breaks every subsequent `docker exec`.
+    if (!fs.existsSync(worktreePath)) {
+      eventLogger.warn('worktree', 'createSessionWorktree: path missing after git worktree add', {
+        worktreePath,
+        branchName,
+      });
+      return null;
+    }
+
     return worktreePath;
-  } catch {
+  } catch (err) {
+    eventLogger.warn('worktree', 'createSessionWorktree failed', {
+      sessionName,
+      sessionId,
+      error: String(err),
+    });
     return null;
   }
 }

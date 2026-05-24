@@ -1,3 +1,4 @@
+import fs from 'fs';
 import path from 'path';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
@@ -18,6 +19,14 @@ export interface DockerArgs {
 function validateBindMount(hostPath: string, containerPath: string): void {
   if (!path.isAbsolute(hostPath)) throw new Error(`Bind mount host path must be absolute: ${hostPath}`);
   if (!path.isAbsolute(containerPath)) throw new Error(`Bind mount container path must be absolute: ${containerPath}`);
+  // On macOS Docker Desktop, mounting a non-existent host path silently creates a
+  // phantom directory that satisfies `docker run` but breaks every subsequent
+  // `docker exec` with "current working directory is outside of container mount
+  // namespace root". Fail loudly here so the caller (worktree creation, auth seeding)
+  // fixes the source path instead of leaking a broken container.
+  if (!fs.existsSync(hostPath)) {
+    throw new Error(`Bind mount host path does not exist: ${hostPath} (would mount at ${containerPath})`);
+  }
 }
 
 export function buildDockerRunArgs(
