@@ -68,6 +68,13 @@ export async function execClaudeInteractiveTurn(
     length: trimmed.length,
   });
 
+  // `--session-id` allocates a new session and fails if the jsonl already exists; `--resume`
+  // attaches to an existing one. `thread.claudeSessionId` was set before this call only when
+  // the thread has already produced a session (idle-stopped container restart, app restart,
+  // or any in-thread respawn). Compute once here and reuse for both the args switch below
+  // and the per-turn system-prompt-suffix injection downstream.
+  const isResume = Boolean(thread.claudeSessionId);
+
   let session = claudeInteractiveSessions.get(threadId);
   if (!session) {
     const launchMode = store.launchModes.get(threadId);
@@ -87,6 +94,7 @@ export async function execClaudeInteractiveTurn(
       {
         threadId,
         sessionId,
+        isResume,
         claudeOauthToken,
         apiKey: null,
         mcpBearerToken: null,
@@ -130,10 +138,8 @@ export async function execClaudeInteractiveTurn(
 
   // Mirror headless/sandbox.ts: --append-system-prompt is ignored by Claude Code when
   // resuming a session, so inject the per-turn suffix (e.g. Slack context note) into
-  // the user message instead. Only inject on resumed sessions (claudeSessionId was
-  // already set before this call) — on a fresh session --append-system-prompt works
-  // and the suffix would otherwise be injected twice.
-  const isResume = Boolean(thread.claudeSessionId);
+  // the user message instead. Only inject on resumed sessions — on a fresh session the
+  // suffix is already applied via --append-system-prompt and would otherwise be doubled.
   const effectiveInput = isResume && systemPromptSuffix ? `${systemPromptSuffix}\n\n${input}` : input;
 
   try {

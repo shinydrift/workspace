@@ -26,6 +26,11 @@ export class ClaudeInteractiveSession {
   private pty: PtyProcess | null = null;
   private readonly watcher: ClaudeJsonlWatcher;
   private disposed = false;
+  // Tracks whether we've spawned claude at least once for this thread's session jsonl.
+  // After the first spawn the jsonl exists on disk, so any subsequent respawn (liveness-
+  // probe path after macOS sleep, container recreated underneath us, etc.) must use
+  // `--resume` rather than `--session-id` to avoid the "session id already in use" exit.
+  private hasSpawnedBefore: boolean;
 
   constructor(
     private readonly threadId: string,
@@ -36,6 +41,7 @@ export class ClaudeInteractiveSession {
   ) {
     const claudeDataDir = path.join(app.getPath('home'), '.claude');
     this.watcher = new ClaudeJsonlWatcher(claudeDataDir);
+    this.hasSpawnedBefore = args.isResume;
   }
 
   private ensureSpawned(): { proc: PtyProcess; freshlySpawned: boolean } {
@@ -66,10 +72,11 @@ export class ClaudeInteractiveSession {
     // and the first turn never reaches the model.
     seedClaudeHostConfigOnce(app.getPath('home'));
 
-    const { command, args } = buildClaudeInteractiveArgs(this.args);
+    const { command, args } = buildClaudeInteractiveArgs({ ...this.args, isResume: this.hasSpawnedBefore });
     eventLogger.info('claudeIO', 'interactive: spawning claude PTY', {
       threadId: this.threadId,
       sessionId: this.sessionId,
+      resume: this.hasSpawnedBefore,
     });
     const proc = new PtyProcess(command, args, this.workingDirectory);
     proc.on('exit', (code) => {
@@ -85,33 +92,56 @@ export class ClaudeInteractiveSession {
       this.dispose();
     });
     this.pty = proc;
+    this.hasSpawnedBefore = true;
     return { proc, freshlySpawned: true };
   }
 
   // Wait for the TUI to emit anything (proves claude has started) or a hard
-  // timeout. Only called on the first turn of a freshly spawned PTY.
-  private waitForBootReady(proc: PtyProcess): Promise<void> {
+  // timeout. Only called on the first turn of a freshly spawned PTY. If the PTY
+  // exits during boot (e.g. claude rejects --session-id as in-use, auth fails),
+  // capture the death-throes output and surface it — otherwise the data emitted
+  // immediately before exit looks identical to a normal boot, runTurn proceeds
+  // to write input to a corpse, and the JSONL watcher hangs forever.
+  private waitForBootReady(proc: PtyProcess): Promise<{ exited: false } | { exited: true; output: string }> {
     return new Promise((resolve) => {
       let settled = false;
-      const onData = (): void => {
+      let buffer = '';
+      const cleanup = (): void => {
+        proc.off('data', onData);
+        proc.off('exit', onExit);
+        clearTimeout(timer);
+      };
+      const onData = (chunk: string): void => {
+        buffer += chunk;
         if (settled) return;
         settled = true;
-        proc.off('data', onData);
-        clearTimeout(timer);
+        cleanup();
         // Brief settle delay so the TUI's prompt input box is ready to receive
         // characters rather than catching them mid-render.
-        setTimeout(resolve, 300);
+        setTimeout(() => resolve({ exited: false }), 300);
+      };
+      const onExit = (code: number | undefined): void => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        eventLogger.warn('claudeIO', 'interactive: claude PTY exited during boot', {
+          threadId: this.threadId,
+          exitCode: code,
+          output: buffer.slice(-2000),
+        });
+        resolve({ exited: true, output: buffer });
       };
       const timer = setTimeout(() => {
         if (settled) return;
         settled = true;
-        proc.off('data', onData);
+        cleanup();
         eventLogger.warn('claudeIO', 'interactive: boot-ready timeout, writing input anyway', {
           threadId: this.threadId,
         });
-        resolve();
+        resolve({ exited: false });
       }, BOOT_READY_TIMEOUT_MS);
       proc.on('data', onData);
+      proc.on('exit', onExit);
     });
   }
 
@@ -164,7 +194,14 @@ export class ClaudeInteractiveSession {
       eventLogger.info('claudeIO', 'interactive: waiting for claude TUI to boot', {
         threadId: this.threadId,
       });
-      await this.waitForBootReady(proc);
+      const bootResult = await this.waitForBootReady(proc);
+      if (bootResult.exited) {
+        // PTY exited before reaching the input prompt. Writing input now would race
+        // a dead process and the watcher would hang waiting for JSONL output. Fail
+        // fast with the captured output so the user sees the real error.
+        const trimmed = bootResult.output.trim().slice(-500) || '(no output captured)';
+        throw new Error(`claude PTY exited during boot for thread ${this.threadId}: ${trimmed}`);
+      }
       eventLogger.info('claudeIO', 'interactive: claude TUI booted', { threadId: this.threadId });
     }
 

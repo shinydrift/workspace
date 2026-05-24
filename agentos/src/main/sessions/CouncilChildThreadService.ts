@@ -216,6 +216,7 @@ export class CouncilChildThreadService {
           // so we pass the resolved container thread id, not the child's id.
           threadId: opts.containerThreadId,
           sessionId,
+          isResume: false,
           claudeOauthToken: opts.claudeOauthToken,
           apiKey: opts.apiKey,
           mcpBearerToken: getMcpToken(),

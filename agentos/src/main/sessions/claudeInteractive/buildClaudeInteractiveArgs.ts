@@ -10,7 +10,8 @@ import { getMcpAuthHeaders } from '../../mcp/mcpAuth';
 // of band via the JSONL file the session writes to ~/.claude/projects/-workspace/.
 export type ClaudeInteractiveArgsOpts = {
   threadId: string;
-  sessionId: string; // pre-allocated UUID, passed via --session-id
+  sessionId: string; // pre-allocated UUID, passed via --session-id on first spawn or --resume on respawn
+  isResume: boolean;
   claudeOauthToken: string | null;
   apiKey: string | null;
   mcpBearerToken: string | null;
@@ -63,8 +64,7 @@ export function buildClaudeInteractiveArgs(opts: ClaudeInteractiveArgsOpts): {
     ...Object.entries(opts.extraEnv ?? {}).flatMap(([k, v]) => ['-e', `${k}=${v}`]),
     `agentos-session-${opts.threadId}`,
     'claude',
-    '--session-id',
-    opts.sessionId,
+    ...(opts.isResume ? ['--resume', opts.sessionId] : ['--session-id', opts.sessionId]),
     ...(skipPermissions ? ['--dangerously-skip-permissions'] : []),
     ...(opts.model ? ['--model', opts.model] : []),
     ...(opts.effort ? ['--effort', opts.effort] : []),

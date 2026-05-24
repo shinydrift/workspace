@@ -264,6 +264,7 @@ export class StageWorkerService {
           // so the docker exec must target the parent's id, not the child's.
           threadId: opts.parentThreadId,
           sessionId,
+          isResume: false,
           claudeOauthToken: opts.claudeOauthToken,
           // Subscription auth only — injecting an API key would make Claude Code bill via the API,
           // defeating the reason to run interactively.
