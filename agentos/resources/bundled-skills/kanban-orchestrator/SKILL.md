@@ -50,37 +50,45 @@ orchestrating — do not spawn another worker until the user resumes you.
 
 ## Workflow
 
-1. Call `get_task({ task_id: AGENTOS_TASK_ID })`. Note the current `status`.
+1. Call `list_stages({ project_id: AGENTOS_PROJECT_ID })` to learn this project's stage
+   pipeline. Stages are user-configurable — never hardcode names. Identify which stages
+   are terminal (you cannot transition out of them) and note the `order` of each.
+2. Call `get_task({ task_id: AGENTOS_TASK_ID })`. Note the current `status`.
    If `task.blockedBy.length > 0`, the task has unresolved dependencies — call
    `add_note({ content: "[BLOCKER] waiting on: <blockedBy task IDs>" })` and stop.
    Do not spawn a worker. The system will send `[KANBAN EVENT] Task unblocked` (see
    Failure handling) when the last dependency resolves; resume from step 1 at that point.
-2. Call `spawn_stage_worker({ task_id: AGENTOS_TASK_ID, stage: <current status>, thread_id: AGENTOS_THREAD_ID })`.
-3. **Stop.** Do not poll, do not call `get_task` in a loop, do not disable autopilot.
+3. Call `spawn_stage_worker({ task_id: AGENTOS_TASK_ID, stage: <current status>, thread_id: AGENTOS_THREAD_ID })`.
+4. **Stop.** Do not poll, do not call `get_task` in a loop, do not disable autopilot.
    When the worker finishes, a `[STAGE COMPLETE]` message is automatically appended
    to this thread — that message is your cue to decide the next action.
-4. When `[STAGE COMPLETE]` arrives, read its `summary` and `suggested_next_stage`.
+5. When `[STAGE COMPLETE]` arrives, read its `summary` and `suggested_next_stage`.
 
-   **Refining approval gate** (skip for `refine`-type tasks — they end at `refining → done`):
-   If the completed stage is `refining` and status is `success`, call `ask_clarification`
-   posting the refinement summary so the user can confirm the scope and plan before any
-   implementation begins. Wait for their reply.
+   **Approval gate before long-running work**: if the next stage (per the order-based
+   advance below) is a heavy execution stage — typically the first stage where the
+   worker writes code or makes destructive changes — call `ask_clarification` posting
+   the prior stage's summary so the user can confirm the scope and plan before that
+   work begins. Wait for their reply.
    - If they approve or have no objections → proceed to **Advance** below.
-   - If they request changes → **Retry** the refining stage with a note describing what
+   - If they request changes → **Retry** the prior stage with a note describing what
      to adjust (counts toward the two-retry limit).
 
+   Use judgment: the gate exists to protect the user from unbounded work that's
+   expensive to undo. In a default pipeline this lands between the plan-shaped stages
+   and the code-writing stage. If the project's stages don't have a clear "before code"
+   point, skip the gate.
+
    Then choose one:
-   - **Advance**: the work looks complete. **You must call `list_stages`** to get the
-     full ordered stage list — it may contain custom stages the skill description does
-     not enumerate. Find the current stage's `order` and advance to the **next
-     non-terminal stage** with a higher `order` value (skip any terminal stages such as
-     `done` when scanning). That next stage may be a custom stage, not necessarily a
-     built-in one. **Exception**: if `suggested_next_stage` refers to a stage with a
-     *lower* order than the current stage (a backward move, e.g. `reviewing →
-     implementing` after `changes_requested`), honor that instead of the order-based
-     next stage. Call
+   - **Advance**: the work looks complete. Refresh the stage list via `list_stages` if
+     more than one stage has been completed since you last fetched it (projects can be
+     reconfigured mid-flight). Find the current stage's `order` and advance to the
+     **next non-terminal stage** with a higher `order` value (skip any terminal stages
+     when scanning). **Exception**: if `suggested_next_stage` refers to a stage with a
+     *lower* order than the current stage (a backward move, e.g. routing back to an
+     earlier stage after a changes-requested review), honor that instead of the
+     order-based next stage. Call
      `move_task({ task_id: AGENTOS_TASK_ID, status: <next stage>, thread_id: AGENTOS_THREAD_ID })`,
-     then go to step 2 with the new stage.
+     then go to step 3 with the new stage.
    - **Retry**: the worker reported insufficient progress or the result is unusable.
      Call `add_note` first explaining what needs to differ, then `spawn_stage_worker`
      for the **same** stage. Do not loop more than twice on the same stage without
@@ -88,36 +96,41 @@ orchestrating — do not spawn another worker until the user resumes you.
    - **Block**: the worker hit something you can't resolve (missing context, external
      dependency, ambiguous requirements). Call `add_note({ content: "[BLOCKER] <reason>" })`
      and stop. Do not spawn another worker.
-   - **Done**: according to `list_stages`, no non-terminal stage has a higher `order`
-     than the current stage — i.e. the current stage is the last non-terminal one. Call
-     `move_task({ task_id: AGENTOS_TASK_ID, status: 'done', thread_id: AGENTOS_THREAD_ID })`
-     and stop. Do not spawn another worker.
-5. The `[STAGE COMPLETE]` message may also arrive with status `blocker` or
-   `error` — treat those as Block (step 4, "Block").
+   - **Done**: no non-terminal stage has a higher `order` than the current stage —
+     i.e. the current stage is the last non-terminal one. Move to a terminal stage
+     (`done` in default pipelines; consult `list_stages` for the project's terminal
+     stages) and stop. Do not spawn another worker.
+6. The `[STAGE COMPLETE]` message may also arrive with status `blocker` or
+   `error` — treat those as Block (step 5, "Block").
 
 ## Stage progression
 
-**Always call `list_stages` to determine the actual stage order** — projects may insert
-custom stages at any position (e.g. a "Create PR" stage between `reviewing` and `done`).
-Never assume the pipeline contains only the four built-in stages.
+**Always derive the pipeline from `list_stages`** — stage ids, labels, and orderings
+are user-configurable per project. Never hardcode stage names or counts in your
+reasoning; never assume a particular id (`planning`, `reviewing`, etc.) exists.
 
-The built-in stages are `refining` (order 0), `implementing` (order 1), `reviewing`
-(order 2), and `done` (terminal). Custom stages can appear at any order between these.
+For reference, a default project ships with `backlog (-1) → researching (0) → planning
+(1) → implementing (2) → reviewing (3) → done (4)`, but any of these can be renamed,
+reordered, or have custom stages inserted (e.g. a "Create PR" stage between reviewing
+and done). Treat that list as illustrative, not authoritative.
 
-New tasks default to `refining`. The pipeline is **not auto-collapsed** by `taskType` —
-the orchestrator decides the path based on the task and worker feedback:
+New tasks land at whatever the project defines as the starting stage. The pipeline
+is **not auto-collapsed** by `taskType` — the orchestrator decides the path based on
+the task, the stage list, and worker feedback:
 
 - `dev` tasks: walk the full stage list in order.
-- `research` tasks: walk the full stage list; `implementing` is the research phase and
-  `reviewing` is the report writeup. (When a research task moves into `reviewing`, the
-  system also persists a research report to memory automatically.)
-- `review` tasks: skip directly from `refining` to `reviewing` once scope is clear.
-- `refine` tasks: end at `refining → done` once the refinement note lands.
+- `research` tasks: walk the full stage list. The execution stage is the research
+  phase; the review stage is the report writeup. (When a research task moves into the
+  review stage, the system persists a research report to memory automatically.)
+- `review` tasks: skip from the early refinement stages directly into a review stage
+  once scope is clear.
+- `refine` tasks: end after the refinement step lands — move directly to a terminal
+  stage.
 
 Always start from the task's current `status` (per `get_task`) and advance by stage
 `order` (via `list_stages`). Only honor `suggested_next_stage` when it is a backward
-move (lower order than the current stage), such as routing back to `implementing` after
-a `changes_requested` review.
+move (lower order than the current stage), such as routing back to an earlier stage
+after a changes-requested review.
 
 ## Things NOT to do
 
