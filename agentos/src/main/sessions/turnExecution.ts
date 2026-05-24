@@ -14,6 +14,7 @@ import { PtyProcess } from './PtyProcess';
 import { ThreadRuntimeStore } from './ThreadRuntimeStore';
 import { execHeadlessTurn, isProviderLimitError, type TurnEndReason } from './headlessRunner';
 import { execClaudeInteractiveTurn } from './claudeInteractive/execClaudeInteractiveTurn';
+import { claudeInteractiveSessions } from './claudeInteractive/sessionRegistry';
 import { emitTurnStarted, emitTurnEnded } from '../events';
 import { getStore } from '../store/index';
 import { loadProjectConfig } from '../config/projectConfig';
@@ -289,6 +290,10 @@ export class TurnExecutor {
     if (!options?.preserveQueue) {
       this.inputQueue.clearQueue(threadId);
     }
+    // Tear down any claude-interactive session before the container goes. Its inner
+    // `docker exec` PTY would otherwise be orphaned in the registry and reused by the
+    // next turn, writing input into a dead exec that never reaches the model.
+    claudeInteractiveSessions.disposeThread(threadId);
     const proc = this.store.ptys.get(threadId);
     if (!proc) {
       await removeDockerContainer(`agentos-session-${threadId}`).catch((err) => {

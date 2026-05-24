@@ -15,6 +15,13 @@ export const claudeInteractiveSessions = {
   delete(threadId: string): void {
     sessions.delete(threadId);
   },
+  // Synchronously tear down one thread's session (and its inner `docker exec` PTY).
+  // Called from thread shutdown so a stale session can't outlive its container and
+  // wedge the next turn by writing input into a dead exec. dispose() removes the
+  // registry entry via its onDispose callback. No-op if no session exists.
+  disposeThread(threadId: string): void {
+    sessions.get(threadId)?.dispose();
+  },
   disposeAll(): void {
     for (const s of sessions.values()) s.dispose();
     sessions.clear();
