@@ -331,23 +331,33 @@ class KanbanService {
     kanbanDb.upsertStage(projectId, stage);
   }
 
-  renameStage(projectId: string, oldId: string, newId: string, overrides?: Partial<KanbanStage>): void {
-    // Block rename while any stage worker for oldId is still running. The worker's agentRole
-    // (`stage-<oldId>`) is not migrated, so its eventual report_stage_result would inject a
-    // [STAGE COMPLETE] message naming a now-nonexistent stage and stall the orchestrator.
-    const activeRole = `stage-${oldId}`;
-    const liveWorker = threadStore
-      .getThreadsByProject(projectId)
-      .find((t) => t.agentRole === activeRole && t.status === 'running');
-    if (liveWorker) {
+  // A stage worker's label/role (`stage-<id>`) is frozen at spawn and never migrated, so a
+  // worker that outlives its stage renders as a phantom stage on the board and may still fire
+  // report_stage_result for a stage that no longer exists. Block rename/delete while such a
+  // worker is live. "Live" = running, or still its task's assignedThreadId (covers a hung or
+  // just-settled worker whose assignment hasn't been cleared yet — the status-only check missed
+  // these).
+  private assertStageNotInUse(projectId: string, stageId: string, verb: 'rename' | 'delete'): void {
+    const role = `stage-${stageId}`;
+    const worker = threadStore.getThreadsByProject(projectId).find((t) => {
+      if (t.agentRole !== role) return false;
+      if (t.status === 'running') return true;
+      return !!t.taskId && kanbanDb.getTask(projectId, t.taskId)?.assignedThreadId === t.id;
+    });
+    if (worker) {
       throw new Error(
-        `Cannot rename stage "${oldId}" while a stage worker is running (thread ${liveWorker.id}). Stop the worker first.`
+        `Cannot ${verb} stage "${stageId}" while a stage worker is assigned (thread ${worker.id}). Stop the worker first.`
       );
     }
+  }
+
+  renameStage(projectId: string, oldId: string, newId: string, overrides?: Partial<KanbanStage>): void {
+    this.assertStageNotInUse(projectId, oldId, 'rename');
     kanbanDb.renameStage(projectId, oldId, newId, overrides);
   }
 
   deleteStage(projectId: string, stageId: string): void {
+    this.assertStageNotInUse(projectId, stageId, 'delete');
     kanbanDb.deleteStage(projectId, stageId);
   }
 
