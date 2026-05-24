@@ -14,7 +14,7 @@ export type SetAutopilotOptions = {
 export class AutopilotStateService {
   private kanbanWatchdog: ((taskId: string, projectId: string, reason: string) => void) | null = null;
   private afterTurnHook: ((threadId: string, source: QueueSource) => void) | null = null;
-  // Last completed turn's end reason per thread. Used to mirror runTurn's silence_fallback
+  // Last completed turn's end reason per thread. Used to mirror runTurn's timeout
   // skip when setAutopilot tries to kick the planner on re-enable.
   private lastTurnEndReason = new Map<string, TurnEndReason>();
 
@@ -59,7 +59,7 @@ export class AutopilotStateService {
 
   // Called from runTurn after a clean settle. Not called on the throw path — a thrown
   // turn leaves the previous reason in place, which is safe (over-conservative if the
-  // previous reason was silence_fallback) and self-heals on the next clean turn.
+  // previous reason was timeout) and self-heals on the next clean turn.
   recordTurnEndReason(threadId: string, reason: TurnEndReason | undefined): void {
     if (reason === undefined) {
       this.lastTurnEndReason.delete(threadId);
@@ -84,12 +84,12 @@ export class AutopilotStateService {
     if (enabled && options?.triggerAfterTurn !== false) {
       const lastMsg = this.listMessages(threadId).at(-1);
       if (lastMsg?.role === 'assistant') {
-        // Mirror runTurn's silence_fallback guard: if the last completed turn was incomplete,
+        // Mirror runTurn's timeout guard: if the last completed turn was incomplete,
         // the assistant message we'd hand the planner is half-finished. Skip and wait for the
         // next clean turn.
         const lastReason = this.lastTurnEndReason.get(threadId);
-        if (lastReason === 'silence_fallback') {
-          eventLogger.info('autopilot', 'Skipped: setAutopilot trigger after silence_fallback turn', {
+        if (lastReason === 'timeout') {
+          eventLogger.info('autopilot', 'Skipped: setAutopilot trigger after timeout turn', {
             threadId,
           });
         } else {

@@ -11,7 +11,7 @@ export const claudeInteractiveSessions = {
   },
   // True when a claude-interactive turn is currently in flight for this thread.
   // Used by autopilot to avoid firing a follow-up turn while the in-container claude
-  // is still working — the watcher's silence_fallback can resolve runTurn() before
+  // is still working — the watcher's timeout can resolve runTurn() before
   // the model is actually done writing.
   isInTurn(threadId: string): boolean {
     return sessions.get(threadId)?.isInTurn() ?? false;

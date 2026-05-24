@@ -327,7 +327,7 @@ export class AutopilotService {
     // (in report_stage_result and notifyExitedWithoutReport) before the in-container
     // claude has finished, so the DB check can return false while the model is still
     // writing. The interactive session registry is the in-memory source of truth for
-    // "claude is mid-turn right now". Without this guard the watcher's silence_fallback
+    // "claude is mid-turn right now". Without this guard the watcher's timeout
     // resolution lets autopilot fire while the previous turn is still running.
     if (this.callbacks.hasInFlightInteractiveTurn(threadId)) {
       eventLogger.info('autopilot', 'Skipped: claude-interactive turn still in flight', { threadId });

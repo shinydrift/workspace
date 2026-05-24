@@ -32,18 +32,23 @@ function userContent(entry: JsonlEntry): UserContentBlock[] {
   return Array.isArray(content) ? (content as UserContentBlock[]) : [];
 }
 
-// Silence-based fallback for turns that never emit stop_reason="end_turn" (interrupts,
-// crashes). Generous so we don't cut off long-running tool sequences.
-const TURN_SILENCE_MS = 30_000;
-// Once stop_reason="end_turn" arrives, give claude a brief window to flush any trailing
-// entries (final tool_result, usage summary) before resolving the turn.
-const TURN_END_GRACE_MS = 500;
 const SESSION_DIR_WATCH_TIMEOUT_MS = 10_000;
 
-// `system` JSONL entries cover several lifecycle events; only these subtypes signal a real
-// turn end. Anything else (api_error retry, compact_boundary, etc.) is mid-turn and must
-// not arm the system-marker grace timer — that would resolve the turn while claude is
-// still working, and autopilot would fire prematurely.
+// Hard cap on turn duration when the caller doesn't pass one. If claude-interactive hasn't
+// written a turn-end system marker within this window, we settle as 'timeout' so the queue
+// can't get pinned by a hung tool call.
+const DEFAULT_TURN_TIMEOUT_MS = 10 * 60_000;
+
+// Fast-fail when claude-interactive never emits its first assistant entry — startup crash,
+// auth failure, model API down, container OOM mid-spawn. Without this, those failures wait
+// out the full DEFAULT_TURN_TIMEOUT_MS (10 min) before surfacing.
+const NO_ASSISTANT_TIMEOUT_MS = 60_000;
+
+// claude-interactive writes one of these system entries when (and only when) the entire
+// turn — including every tool call — is complete. `turn_duration` is the always-emitted
+// timing record; `stop_hook_summary` is added when a Stop hook fires. Either one is the
+// CLI's own statement that the turn is done, so settling on it needs no grace window and
+// no pending-tool gate (any tool_use IDs we're still tracking are stale).
 const TURN_END_SYSTEM_SUBTYPES = new Set(['turn_duration', 'stop_hook_summary']);
 
 type PreparedState = {
@@ -232,24 +237,15 @@ export class ClaudeJsonlWatcher {
       let pos = startPos;
       let tail = '';
       let hasSeenAssistant = false;
-      let endTurnSeen = false;
-      let systemMarkerSeen = false;
-      let silenceTimer: NodeJS.Timeout | undefined;
-      let timeoutTimer: NodeJS.Timeout | undefined;
       let settled = false;
-      // Last reason the silence timer was set, for diagnostic logging at settle().
-      let lastSilenceReason: 'none' | 'end_turn_grace' | 'system_marker_grace' | 'silence_fallback' = 'none';
       let totalEntriesSeen = 0;
       let assistantEntriesSeen = 0;
       // Cumulative tool_result count across the whole turn; logged once at settle to avoid
       // per-resolve log spam (a turn with 20 tool calls would otherwise produce 20 lines).
       let toolResultsResolved = 0;
-
-      // Track tool_use IDs that have been issued by the assistant but not yet resolved
-      // by a matching tool_result entry. Long-running tools (subagents, MCP calls) can go
-      // 30s+ without writing to the main JSONL, which previously tripped the silence
-      // fallback mid-turn — autopilot then saw an incomplete response. While anything is
-      // pending, only end_turn / system marker may settle the turn.
+      // Diagnostic only — claude wrote turn_duration regardless of what we tallied here,
+      // so leftovers at settle just mean the JSONL didn't surface the matching tool_result
+      // through the main file (subagent/MCP boundary), not that the turn was incomplete.
       const pendingToolUseIds = new Set<string>();
 
       // Interactive claude appends one JSONL entry per content block (thinking, tool_use,
@@ -265,22 +261,17 @@ export class ClaudeJsonlWatcher {
         }
       };
 
-      const settle = (err?: Error): void => {
+      const settle = (reason: TurnEndReason, err?: Error): void => {
         if (settled) return;
         settled = true;
-        clearTimeout(silenceTimer);
         clearTimeout(timeoutTimer);
+        clearTimeout(noAssistantTimer);
         try {
           fs.unwatchFile(jsonlPath);
         } catch {
           // best-effort cleanup; watcher may already be torn down
         }
         if (!err) flushPendingAssistant();
-        const reason: TurnEndReason = endTurnSeen
-          ? 'end_turn'
-          : systemMarkerSeen
-            ? 'system_marker'
-            : 'silence_fallback';
         eventLogger.info('claudeIO', 'watcher: turn settled', {
           threadId,
           reason: err ? 'error' : reason,
@@ -290,43 +281,17 @@ export class ClaudeJsonlWatcher {
           toolResultsResolved,
           pendingToolUseIds: pendingToolUseIds.size,
           pendingToolUseSample: Array.from(pendingToolUseIds).slice(0, 3),
-          lastSilenceReason,
           error: err ? String(err) : undefined,
         });
-        if (!err && pendingToolUseIds.size > 0) {
-          eventLogger.warn('claudeIO', 'watcher: turn settled with unresolved tool_use IDs', {
-            threadId,
-            pendingCount: pendingToolUseIds.size,
-            ids: Array.from(pendingToolUseIds).slice(0, 5),
-            reason,
-          });
-        }
         this.cancelFn = null;
         if (err) reject(err);
         else resolve(reason);
       };
 
-      // Turn-end detection (in priority order):
-      //   1. assistant entry with stop_reason="end_turn" (clean text reply, no tools)
-      //   2. a "system" entry written after the last tool_result — interactive claude's
-      //      actual turn-end marker when the response is delivered via tool calls
-      //      (e.g. Slack post_update), since no final assistant/end_turn entry is emitted
-      //   3. silence fallback (TURN_SILENCE_MS) for interrupted/crashed turns
-      const resetSilence = (): void => {
-        clearTimeout(silenceTimer);
-        if (!hasSeenAssistant) return;
-        // Tool call in flight — do not silence-settle on any branch; wait for tool_result
-        // + next entries. (end_turn followed by trailing tool_result is normal; settling
-        // here would resolve the turn before the assistant's tool finishes.)
-        if (pendingToolUseIds.size > 0) return;
-        if (endTurnSeen || systemMarkerSeen) {
-          lastSilenceReason = endTurnSeen ? 'end_turn_grace' : 'system_marker_grace';
-          silenceTimer = setTimeout(() => settle(), TURN_END_GRACE_MS);
-          return;
-        }
-        lastSilenceReason = 'silence_fallback';
-        silenceTimer = setTimeout(() => settle(), TURN_SILENCE_MS);
-      };
+      // Set when the loop parses a turn-end system marker. We finish draining the rest of
+      // the batch (so trailing entries — last-prompt, ai-title, pr-link, an extra system
+      // marker — still reach onEntry) and then settle after the loop.
+      let settleReason: TurnEndReason | null = null;
 
       const handleNewBytes = (newSize: number): void => {
         if (newSize <= pos) return;
@@ -348,87 +313,92 @@ export class ClaudeJsonlWatcher {
         for (const line of lines) {
           const trimmed = line.trim();
           if (!trimmed) continue;
+          let entry: JsonlEntry;
           try {
-            const entry = JSON.parse(trimmed) as JsonlEntry;
-            totalEntriesSeen += 1;
-            if (entry.type === 'assistant') {
-              assistantEntriesSeen += 1;
-              const msg = assistantMsg(entry);
-              const pendingMsg = assistantMsg(pendingAssistant);
-              if (pendingAssistant && pendingMsg && msg && pendingMsg.id === msg.id) {
-                pendingMsg.content = [...(pendingMsg.content ?? []), ...(msg.content ?? [])];
-                if (msg.stop_reason !== undefined) pendingMsg.stop_reason = msg.stop_reason;
-                if (msg.usage !== undefined) pendingMsg.usage = msg.usage;
-              } else {
-                flushPendingAssistant();
-                pendingAssistant = entry;
-              }
-              if (!hasSeenAssistant) {
-                eventLogger.info('claudeIO', 'watcher: first assistant entry observed', {
-                  threadId,
-                  elapsedMs: Date.now() - tailStart,
-                  messageId: msg?.id,
-                });
-                hasSeenAssistant = true;
-              }
-              if (msg?.stop_reason === 'end_turn' && !endTurnSeen) {
-                endTurnSeen = true;
-                eventLogger.info('claudeIO', 'watcher: end_turn observed', {
-                  threadId,
-                  elapsedMs: Date.now() - tailStart,
-                  messageId: msg.id,
-                });
-              }
-              for (const block of msg?.content ?? []) {
-                if (block.type === 'tool_use' && typeof block.id === 'string') {
-                  pendingToolUseIds.add(block.id);
-                }
-              }
-            } else {
-              flushPendingAssistant();
-              onEntry(entry);
-              if (entry.type === 'system' && hasSeenAssistant && !systemMarkerSeen) {
-                const subtype = typeof entry.subtype === 'string' ? entry.subtype : undefined;
-                if (subtype && TURN_END_SYSTEM_SUBTYPES.has(subtype)) {
-                  systemMarkerSeen = true;
-                  eventLogger.info('claudeIO', 'watcher: system marker observed (post-assistant)', {
-                    threadId,
-                    elapsedMs: Date.now() - tailStart,
-                    subtype,
-                  });
-                } else {
-                  eventLogger.info('claudeIO', 'watcher: system entry ignored (not turn-end subtype)', {
-                    threadId,
-                    elapsedMs: Date.now() - tailStart,
-                    subtype: subtype ?? '<none>',
-                  });
-                }
-              }
-              // Resolve tool_results against the pending set. Tallied here, logged once at
-              // settle as `toolResultsResolved` to avoid per-tool log spam.
-              if (entry.type === 'user') {
-                for (const block of userContent(entry)) {
-                  if (block.type === 'tool_result' && typeof block.tool_use_id === 'string') {
-                    if (pendingToolUseIds.delete(block.tool_use_id)) toolResultsResolved += 1;
-                  }
-                }
-              }
-            }
+            entry = JSON.parse(trimmed) as JsonlEntry;
           } catch {
             // incomplete or non-JSON line — skip
+            continue;
+          }
+          totalEntriesSeen += 1;
+
+          if (entry.type === 'assistant') {
+            assistantEntriesSeen += 1;
+            const msg = assistantMsg(entry);
+            const pendingMsg = assistantMsg(pendingAssistant);
+            if (pendingAssistant && pendingMsg && msg && pendingMsg.id === msg.id) {
+              pendingMsg.content = [...(pendingMsg.content ?? []), ...(msg.content ?? [])];
+              if (msg.stop_reason !== undefined) pendingMsg.stop_reason = msg.stop_reason;
+              if (msg.usage !== undefined) pendingMsg.usage = msg.usage;
+            } else {
+              flushPendingAssistant();
+              pendingAssistant = entry;
+            }
+            if (!hasSeenAssistant) {
+              eventLogger.info('claudeIO', 'watcher: first assistant entry observed', {
+                threadId,
+                elapsedMs: Date.now() - tailStart,
+                messageId: msg?.id,
+              });
+              hasSeenAssistant = true;
+              clearTimeout(noAssistantTimer);
+            }
+            for (const block of msg?.content ?? []) {
+              if (block.type === 'tool_use' && typeof block.id === 'string') {
+                pendingToolUseIds.add(block.id);
+              }
+            }
+            continue;
+          }
+
+          flushPendingAssistant();
+          onEntry(entry);
+
+          if (entry.type === 'user') {
+            for (const block of userContent(entry)) {
+              if (block.type === 'tool_result' && typeof block.tool_use_id === 'string') {
+                if (pendingToolUseIds.delete(block.tool_use_id)) toolResultsResolved += 1;
+              }
+            }
+            continue;
+          }
+
+          // The only settle trigger: a `system` entry whose subtype claude-interactive uses
+          // to mark end-of-turn. When this lands, the turn is done by definition — no grace
+          // window, no pending-tool gate. Everything else (api_error retry, compact_boundary,
+          // permission-mode, etc.) is mid-turn and ignored.
+          //
+          // Gate on hasSeenAssistant as defense-in-depth: a stale turn_duration flushed at
+          // startPos (resume race) or a future wire-format change emitting the same subtype
+          // for a non-turn-end event would otherwise settle a turn before any model output.
+          if (
+            settleReason === null &&
+            hasSeenAssistant &&
+            entry.type === 'system' &&
+            typeof entry.subtype === 'string' &&
+            TURN_END_SYSTEM_SUBTYPES.has(entry.subtype)
+          ) {
+            settleReason = entry.subtype as TurnEndReason;
           }
         }
-        resetSilence();
+
+        if (settleReason !== null) settle(settleReason);
       };
 
-      this.cancelFn = () => settle(new Error('JSONL watcher cancelled'));
+      this.cancelFn = () => settle('timeout', new Error('JSONL watcher cancelled'));
 
-      if (timeoutMs && timeoutMs > 0) {
-        timeoutTimer = setTimeout(
-          () => settle(new Error(`Turn timed out after ${timeoutMs}ms (thread ${threadId})`)),
-          timeoutMs
-        );
-      }
+      const effectiveTimeoutMs = timeoutMs && timeoutMs > 0 ? timeoutMs : DEFAULT_TURN_TIMEOUT_MS;
+      const timeoutTimer = setTimeout(() => settle('timeout'), effectiveTimeoutMs);
+      const noAssistantTimer = setTimeout(() => {
+        if (!hasSeenAssistant) {
+          eventLogger.warn('claudeIO', 'watcher: no assistant entry within fast-fail window', {
+            threadId,
+            elapsedMs: Date.now() - tailStart,
+            timeoutMs: NO_ASSISTANT_TIMEOUT_MS,
+          });
+          settle('timeout');
+        }
+      }, NO_ASSISTANT_TIMEOUT_MS);
 
       fs.watchFile(jsonlPath, { interval: 200, persistent: false }, (curr) => {
         handleNewBytes(curr.size);
@@ -441,8 +411,6 @@ export class ClaudeJsonlWatcher {
       } catch {
         // file may not exist yet on first poll — watchFile will fire when it does
       }
-
-      resetSilence();
     });
   }
 }

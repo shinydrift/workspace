@@ -306,22 +306,22 @@ export class StageWorkerService {
     }
 
     let cleanedUp = false;
-    // 10-minute fuse for the silence_fallback case below. Long enough that legitimate
-    // long-running stages report via `report_stage_result` first, short enough that a
-    // truly hung worker doesn't leak its session/PTY/log stream indefinitely.
+    // 10-minute fuse for the timeout case below. Long enough that legitimate long-running
+    // stages report via `report_stage_result` first, short enough that a truly hung worker
+    // doesn't leak its session/PTY/log stream indefinitely.
     const SILENCE_HANG_TIMEOUT_MS = 10 * 60 * 1000;
     let silenceHangTimer: NodeJS.Timeout | null = null;
     const finalize = (status: ThreadStatus, reason: TurnEndReason | 'error'): void => {
       if (cleanedUp) return;
-      // silence_fallback means the JSONL went quiet for the silence window — the model
-      // may well still be running and about to call `report_stage_result`. Tearing the
-      // session down immediately would kill the in-flight claude process and trigger a
-      // duplicate stage worker on the parent. Defer cleanup: if the worker reports via
-      // MCP before the fuse fires, the kanban assignment is cleared and the watchdog's
+      // timeout means the JSONL never wrote a turn_duration / stop_hook_summary marker —
+      // the model may well still be running and about to call `report_stage_result`.
+      // Tearing the session down immediately would kill the in-flight claude process and
+      // trigger a duplicate stage worker on the parent. Defer cleanup: if the worker reports
+      // via MCP before the fuse fires, the kanban assignment is cleared and the watchdog's
       // notifyExitedWithoutReport becomes a no-op; if not, we run the normal exit path
       // so the parent is told and resources are reclaimed.
-      if (reason === 'silence_fallback' && silenceHangTimer == null) {
-        eventLogger.warn('kanban', 'Interactive stage worker settled on silence_fallback — arming watchdog', {
+      if (reason === 'timeout' && silenceHangTimer == null) {
+        eventLogger.warn('kanban', 'Interactive stage worker settled on timeout — arming watchdog', {
           childThreadId: childId,
           taskId: opts.taskId,
           stage: opts.stage,

@@ -224,16 +224,14 @@ export class TurnExecutor {
       this.autopilotState.recordTurnEndReason(threadId, turnEndReason);
       if (wasThisTurnInterrupted) {
         eventLogger.info('autopilot', 'Skipped: turn was interrupted by new user input', { threadId });
-      } else if (turnEndReason === 'silence_fallback') {
-        // claude-interactive only: the JSONL went silent for the full window without writing
-        // end_turn or a turn_duration system marker. Overwhelmingly this means the turn didn't
-        // complete cleanly (crash, interrupt, stuck TUI) and the planner would be reading a
-        // half-finished response. We accept a narrow false-positive: if claude legitimately
-        // ended a turn but skipped writing turn_duration (rare CLI bug), we'll suppress one
-        // autopilot tick. The next user turn will re-evaluate normally.
+      } else if (turnEndReason === 'timeout') {
+        // claude-interactive only: the JSONL never wrote a turn_duration / stop_hook_summary
+        // system marker within the turn budget. Overwhelmingly this means the turn didn't
+        // complete cleanly (crash, hung tool, stuck TUI) and the planner would be reading a
+        // half-finished response.
         // (Note: this is unrelated to TurnWaiterManager's kebab-case 'silence-fallback', which
         // is the normal turn-end signal for codex/gemini PTY output — those still fire autopilot.)
-        eventLogger.info('autopilot', 'Skipped: turn ended on silence_fallback (incomplete)', { threadId });
+        eventLogger.info('autopilot', 'Skipped: turn ended on timeout (incomplete)', { threadId });
       } else {
         this.autopilot.maybeRunAfterTurn(threadId, source);
       }

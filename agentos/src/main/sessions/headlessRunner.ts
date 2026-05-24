@@ -47,13 +47,15 @@ export function isProviderLimitError(error: unknown): error is ProviderLimitErro
   return error instanceof ProviderLimitError;
 }
 
-export type TurnEndReason = 'end_turn' | 'system_marker' | 'silence_fallback';
+export type TurnEndReason = 'turn_duration' | 'stop_hook_summary' | 'timeout';
 
 export type TurnExecutionResult = {
   rawOutput: string;
-  // Only populated by the claude-interactive harness today. `silence_fallback` means the
-  // JSONL never wrote end_turn or a turn_duration system marker — the turn is incomplete
-  // (claude crashed / interrupted / TUI hung) and autopilot must not run against it.
+  // Only populated by the claude-interactive harness today. `turn_duration` /
+  // `stop_hook_summary` are the system markers claude-interactive writes when a turn
+  // completes cleanly. `timeout` means the JSONL never wrote either within the budget —
+  // the turn is incomplete (claude crashed / hung tool / TUI stuck) and autopilot must
+  // not run against it.
   turnEndReason?: TurnEndReason;
 };
 
