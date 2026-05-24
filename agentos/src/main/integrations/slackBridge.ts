@@ -15,6 +15,7 @@ import { SlackCatchupService, type SlackInboundEvent } from './slackCatchupServi
 import { SlackRoutingService } from './slackRoutingService';
 import { SlackThreadResolver } from './slackThreadResolver';
 import { getProject } from '../threads/db';
+import { getThread } from '../threads/threadStore';
 
 /** Sanitizes user-provided strings for safe inclusion in Slack mrkdwn. */
 function escapeMrkdwn(text: string): string {
@@ -315,6 +316,24 @@ class SlackBridge extends BaseBridge<SlackBridgeDeps> {
       });
       return null;
     }
+  }
+
+  /**
+   * Persist a Slack thread binding for a bot-initiated thread (kanban main thread,
+   * automation run). `setSlackContext` only records the channel/ts in-memory, but
+   * inbound replies are routed solely via SlackBinding rows — so without this the
+   * first reply finds no binding and spawns a brand-new thread.
+   *
+   * Won't steal a binding that already points to a still-running thread (e.g. a
+   * user's own Slack-initiated thread). Reconcile is unaffected: the dead main
+   * thread's binding is reclaimable because that thread is no longer running.
+   */
+  bindThreadToSlackThread(threadId: string, channelId: string, threadTs: string, workspacePath: string): void {
+    const binding = this.workspaceManager.resolveOrCreateBinding(channelId, threadTs, workspacePath);
+    if (binding.threadId && binding.threadId !== threadId && getThread(binding.threadId)?.status === 'running') {
+      return;
+    }
+    this.workspaceManager.updateBinding(binding.key, { threadId });
   }
 
   isConnected(): boolean {
