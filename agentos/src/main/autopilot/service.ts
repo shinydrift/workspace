@@ -278,6 +278,7 @@ export class AutopilotService {
       getMessages: (threadId: string) => Message[];
       hasPendingCouncilSubmission: (threadId: string) => boolean;
       hasActiveStageWorker: (threadId: string) => boolean;
+      hasInFlightInteractiveTurn: (threadId: string) => boolean;
       isThreadTaskTerminal: (threadId: string) => boolean;
       enqueueAutopilot: (threadId: string, input: string) => void;
       appendAutopilotDecision: (threadId: string, action: string, reason: string) => void;
@@ -320,6 +321,16 @@ export class AutopilotService {
     }
     if (this.callbacks.hasActiveStageWorker(threadId)) {
       eventLogger.info('autopilot', 'Skipped: kanban stage worker running', { threadId });
+      return;
+    }
+    // Belt-and-suspenders with hasActiveStageWorker: the kanban assignment is cleared
+    // (in report_stage_result and notifyExitedWithoutReport) before the in-container
+    // claude has finished, so the DB check can return false while the model is still
+    // writing. The interactive session registry is the in-memory source of truth for
+    // "claude is mid-turn right now". Without this guard the watcher's silence_fallback
+    // resolution lets autopilot fire while the previous turn is still running.
+    if (this.callbacks.hasInFlightInteractiveTurn(threadId)) {
+      eventLogger.info('autopilot', 'Skipped: claude-interactive turn still in flight', { threadId });
       return;
     }
     if (this.callbacks.isThreadTaskTerminal(threadId)) {

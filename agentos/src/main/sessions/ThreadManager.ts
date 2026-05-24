@@ -18,6 +18,7 @@ import { ThreadInputQueue, type QueueSource } from './ThreadInputQueue';
 import { ThreadInputService } from './ThreadInputService';
 import { TurnWaiterManager } from './TurnWaiterManager';
 import { ContainerManager } from './ContainerManager';
+import { claudeInteractiveSessions } from './claudeInteractive/sessionRegistry';
 import { councilService } from '../council/service';
 import * as kanbanDb from '../kanban/db';
 import { EmbeddedChildThreadRunner } from './EmbeddedChildThreadRunner';
@@ -84,6 +85,7 @@ class ThreadManager implements Disposable {
         if (!thread?.projectId) return false;
         return kanbanDb.hasActiveStageWorker(thread.projectId, threadId);
       },
+      hasInFlightInteractiveTurn: (threadId) => claudeInteractiveSessions.isInTurn(threadId),
       isThreadTaskTerminal: (threadId) => {
         const thread = threadStore.getThread(threadId);
         if (!thread?.projectId || !thread.taskId) return false;

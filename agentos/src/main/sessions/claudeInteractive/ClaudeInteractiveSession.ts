@@ -26,6 +26,24 @@ export class ClaudeInteractiveSession {
   private pty: PtyProcess | null = null;
   private readonly watcher: ClaudeJsonlWatcher;
   private disposed = false;
+  private turnInFlight = false;
+  private lastTurnEndedAt = 0;
+  // Hold "in-turn" true briefly after the watcher settles. End_turn_grace can fire
+  // while a trailing tool dispatch (e.g. final MCP write) is still flushing to JSONL,
+  // so autopilot would otherwise enqueue a follow-up turn before claude is really idle.
+  // 1s is enough to soak up the typical trailing-tool window without noticeably delaying
+  // legitimate autopilot continuations.
+  private static readonly POST_TURN_QUIESCENCE_MS = 1_000;
+
+  /** True while a turn is mid-flight, or within the quiescence window after the
+   * watcher settled. Used by autopilot to avoid firing a follow-up turn while
+   * claude may still be flushing trailing tool calls. */
+  isInTurn(): boolean {
+    if (this.disposed) return false;
+    if (this.turnInFlight) return true;
+    if (this.lastTurnEndedAt === 0) return false;
+    return Date.now() - this.lastTurnEndedAt < ClaudeInteractiveSession.POST_TURN_QUIESCENCE_MS;
+  }
   // Tracks whether we've spawned claude at least once for this thread's session jsonl.
   // After the first spawn the jsonl exists on disk, so any subsequent respawn (liveness-
   // probe path after macOS sleep, container recreated underneath us, etc.) must use
@@ -228,6 +246,7 @@ export class ClaudeInteractiveSession {
       onEntry(entry);
     };
 
+    this.turnInFlight = true;
     try {
       return await this.watcher.watchTurn({
         threadId: this.threadId,
@@ -239,6 +258,8 @@ export class ClaudeInteractiveSession {
         timeoutMs,
       });
     } finally {
+      this.turnInFlight = false;
+      this.lastTurnEndedAt = Date.now();
       disposePasteWatcher();
     }
   }

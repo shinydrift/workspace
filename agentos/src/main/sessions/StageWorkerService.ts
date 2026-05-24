@@ -22,6 +22,7 @@ import { broadcastThreadCreated, broadcastStatus } from './broadcaster';
 import { ClaudeInteractiveSession } from './claudeInteractive/ClaudeInteractiveSession';
 import { claudeInteractiveSessions } from './claudeInteractive/sessionRegistry';
 import type { JsonlEntry } from './claudeInteractive/ClaudeJsonlWatcher';
+import type { TurnEndReason } from './headlessRunner';
 import type { Thread, ThreadStatus } from '../../shared/types';
 import type { ClaudeEffort, CodexReasoning, Provider } from '../../shared/types/provider';
 
@@ -305,9 +306,48 @@ export class StageWorkerService {
     }
 
     let cleanedUp = false;
-    const finalize = (status: ThreadStatus): void => {
+    // 10-minute fuse for the silence_fallback case below. Long enough that legitimate
+    // long-running stages report via `report_stage_result` first, short enough that a
+    // truly hung worker doesn't leak its session/PTY/log stream indefinitely.
+    const SILENCE_HANG_TIMEOUT_MS = 10 * 60 * 1000;
+    let silenceHangTimer: NodeJS.Timeout | null = null;
+    const finalize = (status: ThreadStatus, reason: TurnEndReason | 'error'): void => {
       if (cleanedUp) return;
+      // silence_fallback means the JSONL went quiet for the silence window — the model
+      // may well still be running and about to call `report_stage_result`. Tearing the
+      // session down immediately would kill the in-flight claude process and trigger a
+      // duplicate stage worker on the parent. Defer cleanup: if the worker reports via
+      // MCP before the fuse fires, the kanban assignment is cleared and the watchdog's
+      // notifyExitedWithoutReport becomes a no-op; if not, we run the normal exit path
+      // so the parent is told and resources are reclaimed.
+      if (reason === 'silence_fallback' && silenceHangTimer == null) {
+        eventLogger.warn('kanban', 'Interactive stage worker settled on silence_fallback — arming watchdog', {
+          childThreadId: childId,
+          taskId: opts.taskId,
+          stage: opts.stage,
+          watchdogMs: SILENCE_HANG_TIMEOUT_MS,
+        });
+        silenceHangTimer = setTimeout(() => {
+          if (cleanedUp) return;
+          // If `report_stage_result` ran in the meantime, the assignment is cleared and
+          // this is a graceful late-cleanup; otherwise the worker genuinely hung.
+          const task = kanbanDb.getTask(projectId, opts.taskId);
+          const stillAssigned = task?.assignedThreadId === childId;
+          eventLogger.warn('kanban', 'Interactive stage worker watchdog fired', {
+            childThreadId: childId,
+            taskId: opts.taskId,
+            stage: opts.stage,
+            stillAssigned,
+          });
+          finalize(stillAssigned ? 'error' : 'stopped', 'error');
+        }, SILENCE_HANG_TIMEOUT_MS);
+        return;
+      }
       cleanedUp = true;
+      if (silenceHangTimer) {
+        clearTimeout(silenceHangTimer);
+        silenceHangTimer = null;
+      }
       this.output.flushAssistantMessage(childId, { multiTurn: true });
       this.output.closeLogStream(childId);
       // exitCode is null because interactive lifecycle is driven by turn settlement, not a
@@ -320,6 +360,7 @@ export class StageWorkerService {
         childThreadId: childId,
         taskId: opts.taskId,
         stage: opts.stage,
+        reason,
       });
     };
 
@@ -341,7 +382,7 @@ export class StageWorkerService {
     // initialPayload), so the turn input is just the stage prompt.
     session
       .runTurn(opts.prompt, undefined, onEntry)
-      .then(() => finalize('stopped'))
+      .then((reason) => finalize('stopped', reason))
       .catch((err: unknown) => {
         if (cleanedUp) return;
         eventLogger.warn('kanban', 'Interactive stage worker turn failed', {
@@ -350,7 +391,7 @@ export class StageWorkerService {
           stage: opts.stage,
           error: String(err),
         });
-        finalize('error');
+        finalize('error', 'error');
       });
 
     return { childThreadId: childId };

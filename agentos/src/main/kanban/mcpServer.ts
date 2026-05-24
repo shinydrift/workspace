@@ -335,13 +335,17 @@ class KanbanMcpServer extends BaseMcpServer {
             thread_id
           );
 
-          kanbanDb.assignTask(project_id, task_id, null);
-
           const injection = [
             `[STAGE COMPLETE] task=${task_id} stage=${stageId} status=${finalStatus}`,
             `summary: ${summary}`,
             `suggested_next_stage: ${suggested_next_stage ?? 'none'}`,
           ].join('\n');
+          // Order matters: send the injection BEFORE clearing assignedThreadId so the
+          // main thread's autopilot guard (hasActiveStageWorker) keeps returning true
+          // across the handoff. Clearing first opens a window where any unrelated
+          // source (user input, autopilot continuation) sees no active worker and
+          // fires a duplicate turn while this report is still in flight.
+          //
           // Fire-and-forget: awaiting would reject if the main thread is stopped
           // or idle-pruned before the injection completes.
           void threadManager.sendInput(task.mainThreadId, injection, 'automation').catch((err: unknown) => {
@@ -350,6 +354,8 @@ class KanbanMcpServer extends BaseMcpServer {
               error: String(err),
             });
           });
+
+          kanbanDb.assignTask(project_id, task_id, null);
 
           // Do NOT call stopThread here — it would kill the process before the MCP
           // server can deliver this return value back as a tool_result, causing the
