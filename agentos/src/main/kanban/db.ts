@@ -41,6 +41,9 @@ function safeParseJson<T>(value: string, fallback: T): T {
 
 export const TERMINAL_STATUSES: ReadonlySet<string> = new Set(['done', 'archived']);
 export const BACKLOG_STATUS = 'backlog';
+// Stage ids that are re-seeded by ensureDefaultStages or otherwise system-managed.
+// Renaming away from these would silently duplicate on the next listStages() call.
+export const RESERVED_STAGE_IDS: ReadonlySet<string> = new Set(['backlog', 'done', 'archived']);
 
 export function isTerminalStatus(status: string): boolean {
   return TERMINAL_STATUSES.has(status);
@@ -702,6 +705,63 @@ export function upsertStage(projectId: string, stage: KanbanStage): void {
       },
     })
     .run();
+}
+
+export function renameStage(projectId: string, oldId: string, newId: string, overrides?: Partial<KanbanStage>): void {
+  if (oldId === newId) return;
+  if (RESERVED_STAGE_IDS.has(oldId)) {
+    throw new Error(`Cannot rename system-managed stage "${oldId}" — it is re-seeded automatically.`);
+  }
+  if (RESERVED_STAGE_IDS.has(newId)) {
+    throw new Error(`Cannot rename to reserved system id "${newId}".`);
+  }
+  if (!newId.trim()) {
+    throw new Error('New stage id is empty.');
+  }
+  const db = getDb(projectId);
+  db.transaction((tx) => {
+    const existing = tx
+      .select()
+      .from(kanbanStages)
+      .where(and(eq(kanbanStages.projectId, projectId), eq(kanbanStages.id, oldId)))
+      .get();
+    if (!existing) {
+      throw new Error(`Stage "${oldId}" does not exist for project ${projectId}.`);
+    }
+    const collision = tx
+      .select({ id: kanbanStages.id })
+      .from(kanbanStages)
+      .where(and(eq(kanbanStages.projectId, projectId), eq(kanbanStages.id, newId)))
+      .get();
+    if (collision) {
+      throw new Error(`Stage id "${newId}" already exists for project ${projectId}.`);
+    }
+    const merged = {
+      ...existing,
+      id: newId,
+      ...(overrides?.label !== undefined ? { label: overrides.label } : {}),
+      ...(overrides?.order !== undefined ? { stageOrder: overrides.order } : {}),
+      ...(overrides?.prompt !== undefined ? { prompt: overrides.prompt ?? '' } : {}),
+      ...(overrides?.provider !== undefined ? { provider: overrides.provider ?? null } : {}),
+      ...(overrides?.model !== undefined ? { model: overrides.model ?? null } : {}),
+      ...(overrides?.effort !== undefined ? { effort: overrides.effort ?? null } : {}),
+      ...(overrides?.reasoning !== undefined ? { reasoning: overrides.reasoning ?? null } : {}),
+      ...(overrides?.saveToMemory !== undefined ? { saveToMemory: overrides.saveToMemory } : {}),
+    };
+    tx.insert(kanbanStages).values(merged).run();
+    tx.update(kanbanTasks)
+      .set({ status: newId })
+      .where(and(eq(kanbanTasks.projectId, projectId), eq(kanbanTasks.status, oldId)))
+      .run();
+    // wip_limits PK is (project_id, status); collision guard above ensures no row at newId.
+    tx.update(kanbanWipLimits)
+      .set({ status: newId })
+      .where(and(eq(kanbanWipLimits.projectId, projectId), eq(kanbanWipLimits.status, oldId)))
+      .run();
+    tx.delete(kanbanStages)
+      .where(and(eq(kanbanStages.projectId, projectId), eq(kanbanStages.id, oldId)))
+      .run();
+  });
 }
 
 export function ensureDefaultStages(projectId: string): KanbanStage[] {

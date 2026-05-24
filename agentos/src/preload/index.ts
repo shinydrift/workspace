@@ -253,6 +253,8 @@ const api = {
     listStages: (projectId: string) => invoke('kanban:listStages', { projectId }),
     updateStage: (projectId: string, stage: IPCInput<'kanban:updateStage'>['stage']) =>
       invoke('kanban:updateStage', { projectId, stage }),
+    renameStage: (projectId: string, oldId: string, newId: string) =>
+      invoke('kanban:renameStage', { projectId, oldId, newId }),
     deleteStage: (projectId: string, stageId: string) => invoke('kanban:deleteStage', { projectId, stageId }),
     getCfdData: (projectId: string, days: number) => invoke('kanban:getCfdData', { projectId, days }),
     updateClassOfService: (

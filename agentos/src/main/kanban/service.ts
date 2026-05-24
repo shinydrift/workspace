@@ -1,6 +1,7 @@
 import { EventEmitter } from 'node:events';
 import * as kanbanDb from './db';
 import { TERMINAL_STATUSES } from './db';
+import * as threadStore from '../threads/threadStore';
 import { eventLogger } from '../utils/eventLog';
 import { getErrorMessage } from '../../shared/utils/errorMessage';
 import { removeSessionWorktree } from '../utils/worktree';
@@ -328,6 +329,22 @@ class KanbanService {
 
   updateStage(projectId: string, stage: KanbanStage): void {
     kanbanDb.upsertStage(projectId, stage);
+  }
+
+  renameStage(projectId: string, oldId: string, newId: string, overrides?: Partial<KanbanStage>): void {
+    // Block rename while any stage worker for oldId is still running. The worker's agentRole
+    // (`stage-<oldId>`) is not migrated, so its eventual report_stage_result would inject a
+    // [STAGE COMPLETE] message naming a now-nonexistent stage and stall the orchestrator.
+    const activeRole = `stage-${oldId}`;
+    const liveWorker = threadStore
+      .getThreadsByProject(projectId)
+      .find((t) => t.agentRole === activeRole && t.status === 'running');
+    if (liveWorker) {
+      throw new Error(
+        `Cannot rename stage "${oldId}" while a stage worker is running (thread ${liveWorker.id}). Stop the worker first.`
+      );
+    }
+    kanbanDb.renameStage(projectId, oldId, newId, overrides);
   }
 
   deleteStage(projectId: string, stageId: string): void {

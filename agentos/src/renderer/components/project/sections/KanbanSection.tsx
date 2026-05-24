@@ -16,8 +16,9 @@ function toSlug(s: string): string {
     .replace(/^-|-$/g, '');
 }
 
-function uniqueSlug(base: string, existingIds: string[]): string {
-  const slug = toSlug(base) || 'stage';
+function uniqueSlug(base: string, existingIds: string[]): string | null {
+  const slug = toSlug(base);
+  if (!slug) return null;
   if (!existingIds.includes(slug)) return slug;
   let n = 2;
   while (existingIds.includes(`${slug}-${n}`)) n++;
@@ -82,6 +83,9 @@ export function KanbanSection({ projectId, kanban, savingKey, onPatch }: Props) 
   const saveTimers = useRef<Record<number, ReturnType<typeof setTimeout>>>({});
   const pendingIdChanges = useRef<Map<string, string>>(new Map());
   const stagesRef = useRef<KanbanStage[]>([]);
+  // Per-row save chain — guarantees rename(A,B) commits before rename(B,C) can start,
+  // even if the user edits the label faster than the IPC roundtrip.
+  const saveChains = useRef<Record<number, Promise<void>>>({});
 
   useEffect(() => {
     stagesRef.current = stages;
@@ -95,9 +99,9 @@ export function KanbanSection({ projectId, kanban, savingKey, onPatch }: Props) 
 
   async function saveStage(stage: KanbanStage) {
     const oldId = pendingIdChanges.current.get(stage.id);
-    if (oldId) {
+    if (oldId && oldId !== stage.id) {
       pendingIdChanges.current.delete(stage.id);
-      await window.electronAPI.kanban.deleteStage(projectId, oldId);
+      await window.electronAPI.kanban.renameStage(projectId, oldId, stage.id);
     }
     await window.electronAPI.kanban.updateStage(projectId, stage);
   }
@@ -112,7 +116,11 @@ export function KanbanSection({ projectId, kanban, savingKey, onPatch }: Props) 
       if (pending) {
         delete pendingSaves.current[index];
         const hasDupe = stagesRef.current.some((s, j) => j !== index && s.id === pending.id);
-        if (!hasDupe) void saveStage(pending);
+        const labelEmpty = !pending.label.trim();
+        if (!hasDupe && !labelEmpty) {
+          const prev = saveChains.current[index] ?? Promise.resolve();
+          saveChains.current[index] = prev.then((): Promise<void> => saveStage(pending)).catch((): void => undefined);
+        }
       }
     }, 300);
   }
@@ -138,6 +146,7 @@ export function KanbanSection({ projectId, kanban, savingKey, onPatch }: Props) 
   function addStage() {
     const existingIds = stages.map((s) => s.id);
     const id = uniqueSlug('New Stage', existingIds);
+    if (!id) return; // unreachable: toSlug('New Stage') is always non-empty.
     const label = id
       .split('-')
       .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
@@ -178,8 +187,17 @@ export function KanbanSection({ projectId, kanban, savingKey, onPatch }: Props) 
                         placeholder="Stage name"
                         onChange={(e) => {
                           const newLabel = e.target.value;
+                          // Only auto-derive the id from the label when the current id was itself
+                          // derived from the current label. Once the user breaks that link (custom id
+                          // or empty label), edits update only the label and leave the id alone.
                           if (stage.id === toSlug(stage.label)) {
-                            const newSlug = toSlug(newLabel) || 'stage';
+                            const newSlug = toSlug(newLabel);
+                            if (!newSlug) {
+                              // Don't collapse to a placeholder id — keep the current id and just
+                              // update the label. The row's empty-label state is visible in the input.
+                              updateStage(i, { label: newLabel });
+                              return;
+                            }
                             const originalId = pendingIdChanges.current.get(stage.id) ?? stage.id;
                             pendingIdChanges.current.delete(stage.id);
                             if (newSlug !== originalId) pendingIdChanges.current.set(newSlug, originalId);
@@ -242,7 +260,12 @@ export function KanbanSection({ projectId, kanban, savingKey, onPatch }: Props) 
                                 effort={stage.effort}
                                 reasoning={stage.reasoning}
                                 onProviderChange={(p: Provider) =>
-                                  updateStage(i, { provider: p, model: undefined, effort: undefined, reasoning: undefined })
+                                  updateStage(i, {
+                                    provider: p,
+                                    model: undefined,
+                                    effort: undefined,
+                                    reasoning: undefined,
+                                  })
                                 }
                                 onModelChange={(m: string | undefined) => updateStage(i, { model: m })}
                                 onEffortChange={(e: ClaudeEffort | undefined) => updateStage(i, { effort: e })}
@@ -254,7 +277,12 @@ export function KanbanSection({ projectId, kanban, savingKey, onPatch }: Props) 
                                 size="icon"
                                 className="h-5 w-5 text-muted-foreground hover:text-foreground"
                                 onClick={() =>
-                                  updateStage(i, { provider: undefined, model: undefined, effort: undefined, reasoning: undefined })
+                                  updateStage(i, {
+                                    provider: undefined,
+                                    model: undefined,
+                                    effort: undefined,
+                                    reasoning: undefined,
+                                  })
                                 }
                                 title="Inherit from project"
                                 aria-label="Clear provider override"

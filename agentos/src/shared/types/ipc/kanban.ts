@@ -17,6 +17,7 @@ export const KANBAN_IPC_CHANNELS = {
   KANBAN_LIST_SUBTASKS: 'kanban:listSubtasks',
   KANBAN_LIST_STAGES: 'kanban:listStages',
   KANBAN_UPDATE_STAGE: 'kanban:updateStage',
+  KANBAN_RENAME_STAGE: 'kanban:renameStage',
   KANBAN_DELETE_STAGE: 'kanban:deleteStage',
   KANBAN_GET_CFD_DATA: 'kanban:getCfdData',
   KANBAN_UPDATE_CLASS: 'kanban:updateClassOfService',

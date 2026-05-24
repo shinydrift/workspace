@@ -286,6 +286,7 @@ export type IPCMap = {
   'kanban:listSubtasks': { input: { projectId: string; parentTaskId: string }; output: KanbanTask[] };
   'kanban:listStages': { input: { projectId: string }; output: KanbanStage[] };
   'kanban:updateStage': { input: { projectId: string; stage: KanbanStage }; output: void };
+  'kanban:renameStage': { input: { projectId: string; oldId: string; newId: string }; output: void };
   'kanban:deleteStage': { input: { projectId: string; stageId: string }; output: void };
   'kanban:getCfdData': { input: { projectId: string; days: number }; output: CfdSnapshot[] };
   'kanban:updateClassOfService': {
@@ -477,6 +478,7 @@ export const TYPED_CHANNEL_SET: ReadonlySet<string> = new Set<IPCChannel>([
   'kanban:listSubtasks',
   'kanban:listStages',
   'kanban:updateStage',
+  'kanban:renameStage',
   'kanban:deleteStage',
   'kanban:getCfdData',
   'kanban:updateClassOfService',

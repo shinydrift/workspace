@@ -207,6 +207,23 @@ export function registerKanbanHandlers(): void {
   );
 
   defineHandler(
+    IPC_CHANNELS.KANBAN_RENAME_STAGE,
+    z.object({
+      projectId: shortId,
+      oldId: z.string().min(1).max(64),
+      newId: z
+        .string()
+        .min(1)
+        .max(64)
+        .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, 'Stage id must be a kebab-case slug (no leading/trailing hyphen).'),
+    }),
+    ({ projectId, oldId, newId }) => {
+      kanbanService.renameStage(projectId, oldId, newId);
+      broadcastToWindows(IPC_EVENTS.KANBAN_STAGES_UPDATED, { projectId });
+    }
+  );
+
+  defineHandler(
     IPC_CHANNELS.KANBAN_GET_CFD_DATA,
     z.object({ projectId: shortId, days: z.number().int().min(1).max(90) }),
     ({ projectId, days }) => kanbanService.getCfdData(projectId, days)

@@ -186,10 +186,17 @@ class KanbanMcpServer extends BaseMcpServer {
 
     server.tool(
       'update_stage',
-      'Update a kanban stage label, order, or prompt. Provide the full stage object with your changes.',
+      'Update a kanban stage label, order, prompt, or id. Provide the full stage object with your changes. Pass new_id to rename the stage — referencing rows in kanban_tasks and kanban_wip_limits are migrated atomically.',
       {
         project_id: z.string().describe('The project ID. Use the AGENTOS_PROJECT_ID environment variable.'),
         id: z.string().describe('Stage id to update (must match an existing stage id).'),
+        new_id: z
+          .string()
+          .min(1)
+          .max(64)
+          .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, 'Stage id must be a kebab-case slug (no leading/trailing hyphen).')
+          .optional()
+          .describe('Optional new id (kebab-case slug). Omit to keep the existing id.'),
         label: z.string().min(1).max(128),
         order: z.number().int().min(0),
         prompt: z.string().max(50_000).optional().describe('Agent prompt for this stage. Omit to clear.'),
@@ -198,10 +205,21 @@ class KanbanMcpServer extends BaseMcpServer {
           .optional()
           .describe('When true, save the task output to memory when this stage is entered.'),
       },
-      ({ project_id, id, label, order, prompt, save_to_memory }) =>
+      ({ project_id, id, new_id, label, order, prompt, save_to_memory }) =>
         this.runTool(() => {
           const existing = kanbanService.listStages(project_id).find((s) => s.id === id);
           if (!existing) throw new Error(`Stage "${id}" is not defined for project ${project_id}.`);
+          if (new_id && new_id !== id) {
+            // Rename + field updates run in one transaction so a partial commit can't leave
+            // the stage at the new id with stale label/order/prompt.
+            kanbanService.renameStage(project_id, id, new_id, {
+              label,
+              order,
+              prompt: prompt || undefined,
+              saveToMemory: save_to_memory ?? existing.saveToMemory,
+            });
+            return `Stage "${id}" renamed to "${new_id}" and updated.`;
+          }
           const stage: KanbanStage = {
             ...existing,
             label,
