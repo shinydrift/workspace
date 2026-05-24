@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import { nanoid } from 'nanoid';
 import { getStore } from '../store/index';
 import * as threadStore from '../threads/threadStore';
@@ -16,7 +17,12 @@ import { kanbanMcpServer } from '../kanban/mcpServer';
 import { recordingsMcpServer } from '../integrations/recordingsMcpServer';
 import { ThreadRuntimeStore } from './ThreadRuntimeStore';
 import { EmbeddedChildThreadRunner } from './EmbeddedChildThreadRunner';
-import type { Thread } from '../../shared/types';
+import { ThreadOutputManager } from './threadOutput';
+import { broadcastThreadCreated, broadcastStatus } from './broadcaster';
+import { ClaudeInteractiveSession } from './claudeInteractive/ClaudeInteractiveSession';
+import { claudeInteractiveSessions } from './claudeInteractive/sessionRegistry';
+import type { JsonlEntry } from './claudeInteractive/ClaudeJsonlWatcher';
+import type { Thread, ThreadStatus } from '../../shared/types';
 import type { ClaudeEffort, CodexReasoning, Provider } from '../../shared/types/provider';
 
 function buildStageBootInstructions(opts: { childThreadId: string; taskId: string; stage: string }): string {
@@ -37,6 +43,7 @@ export class StageWorkerService {
   constructor(
     private readonly store: ThreadRuntimeStore,
     private readonly runner: EmbeddedChildThreadRunner,
+    private readonly output: ThreadOutputManager,
     private readonly sendInput: (parentThreadId: string, input: string, source: 'automation') => Promise<void>
   ) {}
 
@@ -89,7 +96,12 @@ export class StageWorkerService {
 
     const settings = getStore().get('settings');
     const apiKey = getApiKey(effectiveProvider, settings.apiKeys) ?? null;
-    const claudeOauthToken = effectiveProvider === 'claude' ? await readClaudeOauthToken() : null;
+    // claude-interactive authenticates via the subscription OAuth token (same token as headless
+    // claude), so it must be read for both providers — not just 'claude'.
+    const claudeOauthToken =
+      effectiveProvider === 'claude' || effectiveProvider === 'claude-interactive'
+        ? await readClaudeOauthToken()
+        : null;
 
     const {
       effectiveSystemPrompt,
@@ -114,6 +126,32 @@ export class StageWorkerService {
       taskCtx: null,
       agentRole,
     });
+
+    // claude-interactive runs the stage through a persistent PTY (`claude --session-id`)
+    // instead of one-shot `claude -p`, so usage is billed against the Claude subscription
+    // rather than the API. Anthropic treats `-p` (headless) as API usage; the interactive
+    // harness authenticates via CLAUDE_CODE_OAUTH_TOKEN only.
+    if (effectiveProvider === 'claude-interactive') {
+      return this.spawnInteractive({
+        parentThreadId: opts.parentThreadId,
+        taskId: opts.taskId,
+        stage: opts.stage,
+        prompt: opts.prompt,
+        childId,
+        childThread,
+        workingDirectory: parent.workingDirectory,
+        model: effectiveModel,
+        effort: opts.effort,
+        claudeOauthToken,
+        systemPrompt: effectiveSystemPrompt,
+        extraEnv,
+        memoryMcpUrl,
+        threadMcpUrl,
+        councilMcpUrl,
+        kanbanMcpUrl,
+        recordingsMcpUrl,
+      });
+    }
 
     const execArgs = buildDockerExecArgs(opts.parentThreadId, opts.prompt, {
       provider: effectiveProvider,
@@ -161,6 +199,158 @@ export class StageWorkerService {
         }
       },
     });
+
+    return { childThreadId: childId };
+  }
+
+  // Interactive harness branch — runs the stage worker through a ClaudeInteractiveSession
+  // (PTY `claude --session-id`) instead of a one-shot `claude -p` process, so the work bills
+  // against the Claude subscription. The session shares the main thread's container and is
+  // registered under the child id so `stop_stage_worker` can tear it down. The stage worker
+  // reports via `report_stage_result` (which notifies the main thread and unassigns the task)
+  // and then ends its turn; runTurn resolves at that point. If the turn ends while the task is
+  // still assigned to this child, the worker stopped without reporting — mirror the headless
+  // onExit and nudge the main thread so it isn't left waiting.
+  private spawnInteractive(opts: {
+    parentThreadId: string;
+    taskId: string;
+    stage: string;
+    prompt: string;
+    childId: string;
+    childThread: Omit<Thread, 'logBuffer'>;
+    workingDirectory: string;
+    model?: string;
+    effort?: ClaudeEffort;
+    claudeOauthToken: string | null;
+    systemPrompt: string | null;
+    extraEnv: Record<string, string> | undefined;
+    memoryMcpUrl: string | null;
+    threadMcpUrl: string | null;
+    councilMcpUrl: string | null;
+    kanbanMcpUrl: string | null;
+    recordingsMcpUrl: string | null;
+  }): { childThreadId: string } {
+    const childId = opts.childId;
+    const projectId = opts.childThread.projectId;
+    const sessionId = randomUUID();
+    const childThreadWithSession = { ...opts.childThread, claudeSessionId: sessionId };
+
+    const notifyExitedWithoutReport = (): void => {
+      const task = kanbanDb.getTask(projectId, opts.taskId);
+      if (task?.assignedThreadId !== childId) return;
+      kanbanDb.assignTask(projectId, opts.taskId, null);
+      const injection = `[STAGE WORKER EXITED] task=${opts.taskId} stage=${opts.stage} — interactive worker ended without reporting a stage result.`;
+      this.sendInput(opts.parentThreadId, injection, 'automation').catch((err: unknown) => {
+        eventLogger.warn('kanban', 'Interactive stage worker exit injection failed', {
+          parentThreadId: opts.parentThreadId,
+          error: String(err),
+        });
+      });
+    };
+
+    let session: ClaudeInteractiveSession;
+    try {
+      threadStore.saveThread(childThreadWithSession);
+      this.output.initLogBuffer(childId);
+      this.output.openLogStream(childId);
+      broadcastThreadCreated({ ...childThreadWithSession, logBuffer: [] });
+
+      session = new ClaudeInteractiveSession(
+        opts.parentThreadId,
+        sessionId,
+        opts.workingDirectory,
+        {
+          // The stage worker shares the main thread's container (agentos-session-<parentThreadId>),
+          // so the docker exec must target the parent's id, not the child's.
+          threadId: opts.parentThreadId,
+          sessionId,
+          claudeOauthToken: opts.claudeOauthToken,
+          // Subscription auth only — injecting an API key would make Claude Code bill via the API,
+          // defeating the reason to run interactively.
+          apiKey: null,
+          mcpBearerToken: getMcpToken(),
+          model: opts.model || undefined,
+          effort: opts.effort,
+          systemPrompt: opts.systemPrompt,
+          skipPermissions: true,
+          extraEnv: opts.extraEnv,
+          mcp: {
+            memoryMcpUrl: opts.memoryMcpUrl,
+            threadMcpUrl: opts.threadMcpUrl,
+            councilMcpUrl: opts.councilMcpUrl,
+            kanbanMcpUrl: opts.kanbanMcpUrl,
+            recordingsMcpUrl: opts.recordingsMcpUrl,
+          },
+        },
+        () => claudeInteractiveSessions.delete(childId)
+      );
+      claudeInteractiveSessions.set(childId, session);
+    } catch (err) {
+      eventLogger.warn('kanban', 'Failed to spawn interactive stage worker', {
+        childThreadId: childId,
+        taskId: opts.taskId,
+        stage: opts.stage,
+        error: String(err),
+      });
+      try {
+        this.output.closeLogStream(childId);
+      } catch {
+        /* best-effort */
+      }
+      threadStore.updateThread(childId, { status: 'error', exitCode: null });
+      broadcastStatus({ threadId: childId, status: 'error' });
+      notifyExitedWithoutReport();
+      return { childThreadId: childId };
+    }
+
+    let cleanedUp = false;
+    const finalize = (status: ThreadStatus): void => {
+      if (cleanedUp) return;
+      cleanedUp = true;
+      this.output.flushAssistantMessage(childId, { multiTurn: true });
+      this.output.closeLogStream(childId);
+      // exitCode is null because interactive lifecycle is driven by turn settlement, not a
+      // process exit code — matches the council interactive path.
+      threadStore.updateThread(childId, { status, exitCode: null });
+      broadcastStatus({ threadId: childId, status });
+      notifyExitedWithoutReport();
+      session.dispose();
+      eventLogger.info('kanban', 'Interactive stage worker ended', {
+        childThreadId: childId,
+        taskId: opts.taskId,
+        stage: opts.stage,
+      });
+    };
+
+    // Mirror EmbeddedChildThreadRunner: log each JSONL entry and flush assistant/user
+    // rounds as their own messages. No broadcastTerminalData — the interactive harness
+    // emits JSONL, not stream-json, so the live token stream view is unavailable; final
+    // messages still reach the renderer via flushAssistantMessage.
+    const onEntry = (entry: JsonlEntry): void => {
+      const data = JSON.stringify(entry) + '\n';
+      this.output.appendLog(childId, data);
+      if (entry.type === 'assistant' || entry.type === 'user') {
+        this.output.flushAssistantMessage(childId, { multiTurn: true, skipSideEffects: true });
+      } else {
+        this.output.clearPendingOutput(childId);
+      }
+    };
+
+    // Boot instructions are baked into the system prompt (buildHeadlessSystemPrompt's
+    // initialPayload), so the turn input is just the stage prompt.
+    session
+      .runTurn(opts.prompt, undefined, onEntry)
+      .then(() => finalize('stopped'))
+      .catch((err: unknown) => {
+        if (cleanedUp) return;
+        eventLogger.warn('kanban', 'Interactive stage worker turn failed', {
+          childThreadId: childId,
+          taskId: opts.taskId,
+          stage: opts.stage,
+          error: String(err),
+        });
+        finalize('error');
+      });
 
     return { childThreadId: childId };
   }

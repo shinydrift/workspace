@@ -188,7 +188,7 @@ class ThreadManager implements Disposable {
 
     this.runner = new EmbeddedChildThreadRunner(this.store, this.output);
     this.councilChildService = new CouncilChildThreadService(this.store, this.runner, this.output);
-    this.stageWorkerService = new StageWorkerService(this.store, this.runner, (parentThreadId, input) =>
+    this.stageWorkerService = new StageWorkerService(this.store, this.runner, this.output, (parentThreadId, input) =>
       this.sendInput(parentThreadId, input, 'automation')
     );
 
