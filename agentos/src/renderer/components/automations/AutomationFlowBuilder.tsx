@@ -4,10 +4,14 @@ import { Textarea } from '@/components/ui/textarea';
 import { useDragResize, DragHandle } from '../../hooks/useDragResize';
 import type { AutomationJob, SavedProject } from '../../../shared/types';
 import type { FormState } from './scheduleUtils';
+import { computeNextRun } from './scheduleUtils';
 import { RightPanel } from './RightPanel';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { ScrollFade } from '@/components/ui/scroll-fade';
 import { FlowBuilderHeader } from './FlowBuilderHeader';
+
+// computeNextRun returns these status strings instead of a real time; keep them out of the header label.
+const NON_TIME_NEXT_RUN = ['—', 'In the past', 'Not yet run', 'Pending'];
 
 interface Props {
   editing: FormState;
@@ -63,6 +67,13 @@ export function AutomationFlowBuilder({
     return () => clearTimeout(t);
   }, [editing]);
 
+  // Cron next-run can't be computed client-side, so only show the header label for `every`/`at` times.
+  const computedNextRun =
+    editing.triggerKind === 'schedule' && editing.enabled && editing.scheduleKind !== 'cron'
+      ? computeNextRun(editing, job)
+      : null;
+  const nextRunLabel = computedNextRun && !NON_TIME_NEXT_RUN.includes(computedNextRun) ? computedNextRun : null;
+
   return (
     <ContentCard>
       <FlowBuilderHeader
@@ -70,6 +81,7 @@ export function AutomationFlowBuilder({
         enabled={editing.enabled}
         saveBusy={saveBusy}
         saveError={saveError}
+        nextRunLabel={nextRunLabel}
         onBack={onBack}
         onNameChange={(name) => patch('name', name)}
         onToggleEnabled={() => patch('enabled', !editing.enabled)}

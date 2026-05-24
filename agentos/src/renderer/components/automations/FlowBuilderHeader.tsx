@@ -1,13 +1,16 @@
 import React from 'react';
-import { CaretRight, CircleNotch, Pause, Play, Trash } from '@phosphor-icons/react';
+import { CaretRight, CircleNotch, Clock, Play, Trash } from '@phosphor-icons/react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Switch } from '@/components/ui/switch';
+import { StatusBadge } from '@/components/ui/status-badge';
 
 interface Props {
   name: string;
   enabled: boolean;
   saveBusy: boolean;
   saveError: string | null;
+  nextRunLabel?: string | null;
   onBack: () => void;
   onNameChange: (name: string) => void;
   onToggleEnabled: () => void;
@@ -20,6 +23,7 @@ export function FlowBuilderHeader({
   enabled,
   saveBusy,
   saveError,
+  nextRunLabel,
   onBack,
   onNameChange,
   onToggleEnabled,
@@ -38,8 +42,6 @@ export function FlowBuilderHeader({
           Automations
         </Button>
         <CaretRight className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0" />
-        <span className="text-muted-foreground/60 shrink-0">Edit</span>
-        <CaretRight className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0" />
         <Input
           value={name}
           onChange={(e) => onNameChange(e.target.value)}
@@ -48,20 +50,23 @@ export function FlowBuilderHeader({
         />
       </div>
 
-      <div className="flex items-center gap-1.5 shrink-0">
+      <div className="flex items-center gap-2 shrink-0">
         {saveBusy && <CircleNotch className="h-3.5 w-3.5 animate-spin text-muted-foreground/50" />}
         {saveError && <span className="text-xs text-destructive mr-1">{saveError}</span>}
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          onClick={onToggleEnabled}
-          title={enabled ? 'Disable' : 'Enable'}
-          aria-label={enabled ? 'Disable' : 'Enable'}
-          className="h-8 w-8 rounded-lg text-muted-foreground hover:text-foreground"
-        >
-          {enabled ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
-        </Button>
+        {nextRunLabel && (
+          <span className="hidden md:inline text-xs text-muted-foreground truncate max-w-[200px]">
+            Next run: {nextRunLabel}
+          </span>
+        )}
+        <StatusBadge status={enabled ? 'success' : 'idle'} className="gap-1">
+          <Clock className="h-3 w-3" />
+          {enabled ? 'Active' : 'Disabled'}
+        </StatusBadge>
+        <Switch
+          checked={enabled}
+          onCheckedChange={() => onToggleEnabled()}
+          aria-label={enabled ? 'Disable automation' : 'Enable automation'}
+        />
         {onDelete && (
           <Button
             type="button"
@@ -76,16 +81,9 @@ export function FlowBuilderHeader({
           </Button>
         )}
         {onRunNow && (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            onClick={onRunNow}
-            title="Run now"
-            aria-label="Run now"
-            className="h-8 w-8 rounded-lg text-muted-foreground hover:text-foreground"
-          >
-            <Play className="h-4 w-4" />
+          <Button type="button" size="sm" onClick={onRunNow} className="h-8 gap-1.5" title="Run now">
+            <Play className="h-4 w-4" weight="fill" />
+            Run now
           </Button>
         )}
       </div>

@@ -1,3 +1,4 @@
+import { toString as describeCron } from 'cronstrue';
 import type { AutomationJob, AutomationSchedule, AutomationTrigger } from '../../../shared/types';
 import { formatTimestamp } from '../../lib/analyticsFormatters';
 
@@ -132,6 +133,16 @@ export function computeNextRun(editing: FormState, job?: AutomationJob): string 
     return formatTimestamp(nextTs);
   }
   return triggerLabel(editing);
+}
+
+export function humanizeCron(expr: string): string | null {
+  const trimmed = expr.trim();
+  if (!trimmed) return null;
+  try {
+    return describeCron(trimmed, { verbose: false, throwExceptionOnParseError: true });
+  } catch {
+    return null;
+  }
 }
 
 export function triggerLabel(editing: FormState): string {

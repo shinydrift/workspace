@@ -5,10 +5,10 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Switch } from '@/components/ui/switch';
 import type { AutomationJob, SavedProject } from '../../../shared/types';
 import type { FormState } from './scheduleUtils';
-import { triggerLabel, computeNextRun } from './scheduleUtils';
+import { triggerLabel, humanizeCron } from './scheduleUtils';
 import { AutomationRunHistory } from '../insights/AutomationRunHistory';
 import { ScheduleFields } from './ScheduleFields';
-import { SectionHeader, PropertyRow, InlineSelect, timeAgo } from './RightPanelHelpers';
+import { SectionHeader, PropertyRow, InlineSelect } from './RightPanelHelpers';
 import { useSlackChannelData } from '../../hooks/useSlackChannelData';
 
 interface Props {
@@ -22,46 +22,16 @@ export function RightPanel({ editing, patch, job, projects }: Props) {
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const { slackChannels } = useSlackChannelData(editing.projectId);
   const projectOptions = projects.map((p) => ({ value: p.id, label: p.name }));
+  const cronDescription =
+    editing.triggerKind === 'schedule' && editing.scheduleKind === 'cron' ? humanizeCron(editing.cronExpr) : null;
 
   return (
     <div className="relative h-full">
       <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-8 bg-gradient-to-b from-background to-transparent" />
       <ScrollArea className="h-full">
         <div className="flex flex-col divide-y divide-border">
-          {job && (
-            <section className="px-4 py-3 space-y-1.5">
-              <SectionHeader>Status</SectionHeader>
-              <PropertyRow label="Status">
-                {editing.enabled ? (
-                  <span className="flex items-center gap-1.5 text-emerald-500 font-medium">
-                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                    Active
-                  </span>
-                ) : (
-                  <span className="flex items-center gap-1.5 text-muted-foreground">
-                    <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/60" />
-                    Disabled
-                  </span>
-                )}
-              </PropertyRow>
-              <PropertyRow label="Next run">
-                <span className="text-sm text-right">{computeNextRun(editing, job)}</span>
-              </PropertyRow>
-              {job.lastRunAt && (
-                <PropertyRow label="Last ran">
-                  <span className="text-sm">{timeAgo(job.lastRunAt)}</span>
-                </PropertyRow>
-              )}
-              {!job.lastRunAt && (
-                <PropertyRow label="Last ran">
-                  <span className="text-sm text-muted-foreground">—</span>
-                </PropertyRow>
-              )}
-            </section>
-          )}
-
           <section className="px-4 py-3 space-y-1.5">
-            <SectionHeader>Details</SectionHeader>
+            <SectionHeader>Project</SectionHeader>
             <PropertyRow label="Folder">
               {projectOptions.length > 0 ? (
                 <InlineSelect
@@ -73,7 +43,11 @@ export function RightPanel({ editing, patch, job, projects }: Props) {
                 <span className="text-sm text-muted-foreground">No projects</span>
               )}
             </PropertyRow>
-            <PropertyRow label="Repeats">
+          </section>
+
+          <section className="px-4 py-3 space-y-1.5">
+            <SectionHeader>Repeats</SectionHeader>
+            <PropertyRow label="Schedule">
               <Button
                 type="button"
                 variant="ghost"
@@ -86,13 +60,18 @@ export function RightPanel({ editing, patch, job, projects }: Props) {
                 />
               </Button>
             </PropertyRow>
+            {cronDescription && <p className="text-xs text-muted-foreground leading-relaxed">{cronDescription}</p>}
             {scheduleOpen && (
               <div className="pl-0">
                 <ScheduleFields editing={editing} patch={patch} />
               </div>
             )}
-            {slackChannels.length > 0 && (
-              <PropertyRow label="Channel">
+          </section>
+
+          <section className="px-4 py-3 space-y-1.5">
+            <SectionHeader>Channel</SectionHeader>
+            {slackChannels.length > 0 ? (
+              <PropertyRow label="Notify">
                 <InlineSelect
                   value={editing.notificationSlackChannelId !== '' ? editing.notificationSlackChannelId : '__none__'}
                   onChange={(v) => {
@@ -106,12 +85,20 @@ export function RightPanel({ editing, patch, job, projects }: Props) {
                   ]}
                 />
               </PropertyRow>
+            ) : (
+              <PropertyRow label="Notify">
+                <span className="text-sm text-muted-foreground">No channels</span>
+              </PropertyRow>
             )}
             {editing.notificationChannel === 'slack' && (
               <PropertyRow label="Notify on failure">
                 <Switch checked={editing.notifyOnFailure} onCheckedChange={(v) => patch('notifyOnFailure', v)} />
               </PropertyRow>
             )}
+          </section>
+
+          <section className="px-4 py-3 space-y-1.5">
+            <SectionHeader>Options</SectionHeader>
             <PropertyRow label="Delete after run">
               <Switch checked={editing.deleteAfterRun} onCheckedChange={(v) => patch('deleteAfterRun', v)} />
             </PropertyRow>

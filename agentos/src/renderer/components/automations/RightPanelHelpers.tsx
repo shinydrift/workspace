@@ -38,13 +38,3 @@ export function InlineSelect({
     </Select>
   );
 }
-
-export function timeAgo(ts: number): string {
-  const diff = Date.now() - ts;
-  const m = Math.floor(diff / 60_000);
-  if (m < 1) return 'Just now';
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `Today at ${new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
-  return new Date(ts).toLocaleDateString([], { month: 'short', day: 'numeric' });
-}

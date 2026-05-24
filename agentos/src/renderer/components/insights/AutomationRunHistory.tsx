@@ -46,7 +46,7 @@ export function AutomationRunHistory({ job }: Props) {
 
   return (
     <div className="px-3 py-2">
-      <p className="text-xs font-medium text-muted-foreground mb-2">Run History</p>
+      <p className="text-xs font-medium text-muted-foreground mb-2">Recent Activity</p>
 
       {loading && runs === null && <p className="text-xs text-muted-foreground py-2">Loading…</p>}
 
