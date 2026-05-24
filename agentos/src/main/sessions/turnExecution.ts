@@ -135,7 +135,7 @@ export class TurnExecutor {
     startThread: (threadId: string) => Promise<void>;
     renameThread: (threadId: string, name: string) => void;
     sendInput: (threadId: string, input: string, source: QueueSource) => Promise<void>;
-    stopThread: (threadId: string) => Promise<void>;
+    stopThread: (threadId: string, opts?: { preserveQueue?: boolean }) => Promise<void>;
   };
   private readonly stateService: ThreadStateService;
 
@@ -152,7 +152,7 @@ export class TurnExecutor {
       startThread: (threadId: string) => Promise<void>;
       renameThread: (threadId: string, name: string) => void;
       sendInput: (threadId: string, input: string, source: QueueSource) => Promise<void>;
-      stopThread: (threadId: string) => Promise<void>;
+      stopThread: (threadId: string, opts?: { preserveQueue?: boolean }) => Promise<void>;
     };
   }) {
     this.store = args.store;
@@ -404,7 +404,7 @@ export class TurnExecutor {
         containers: this.containers,
         callbacks: {
           sendInput: (id, inp, src) => this.callbacks.sendInput(id, inp, src),
-          stopThread: (id) => this.callbacks.stopThread(id),
+          stopThread: (id, opts) => this.callbacks.stopThread(id, opts),
           persistUserInput: (id, src, trimmed, raw) => this.persistUserInput(id, src, trimmed, raw),
           persistSessionIds: (id, out) => this.persistSessionIds(id, out),
         },

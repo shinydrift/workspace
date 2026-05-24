@@ -146,7 +146,9 @@ export async function execClaudeInteractiveTurn(
     // stopThread). cancelIdleStop at the top of this function clears it on next turn.
     containers.scheduleIdleStop(threadId, INTERACTIVE_IDLE_STOP_MS, () => {
       eventLogger.info('thread', 'Idle timeout reached, stopping container', { threadId });
-      callbacks.stopThread(threadId).catch((err: unknown) => {
+      // preserveQueue so a Slack reply that races the teardown isn't rejected with
+      // 'Thread queue cleared' — the next sendInput restarts and drains it.
+      callbacks.stopThread(threadId, { preserveQueue: true }).catch((err: unknown) => {
         eventLogger.warn('thread', 'Idle stop failed', { threadId, error: String(err) });
       });
     });

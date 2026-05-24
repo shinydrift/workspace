@@ -52,7 +52,12 @@ export class SlackRoutingService {
     if (!message.text && !hasFiles) return;
 
     const messageKey = `${params.channelId}:${message.ts}`;
-    if (this.args.processedMessageKeys.has(messageKey)) return;
+    // Dedup hit: message was already processed in this session — release the
+    // pending marker that dispatchInboundSlackEvent added so it doesn't hold the cursor.
+    if (this.args.processedMessageKeys.has(messageKey)) {
+      this.args.catchupService.markCompleted(params.channelId, message.ts);
+      return;
+    }
 
     const task = (message.text ?? '')
       .trim()
@@ -64,6 +69,7 @@ export class SlackRoutingService {
     if (params.requireMention && message.ts === params.rootThreadTs) {
       if (!/<@[A-Z0-9]+>/.test(message.text ?? '')) {
         this.args.processedMessageKeys.add(messageKey);
+        this.args.catchupService.markCompleted(params.channelId, message.ts);
         this.args.catchupService.updateChannelCursor(params.channelId, message.ts);
         return;
       }
@@ -71,6 +77,7 @@ export class SlackRoutingService {
 
     if (!task && !hasFiles) {
       this.args.processedMessageKeys.add(messageKey);
+      this.args.catchupService.markCompleted(params.channelId, message.ts);
       this.args.catchupService.updateChannelCursor(params.channelId, message.ts);
       return;
     }
@@ -82,6 +89,7 @@ export class SlackRoutingService {
         params.rootThreadTs
       );
       this.args.processedMessageKeys.add(messageKey);
+      this.args.catchupService.markCompleted(params.channelId, message.ts);
       this.args.catchupService.updateChannelCursor(params.channelId, message.ts);
       return;
     }
@@ -96,8 +104,11 @@ export class SlackRoutingService {
     // slow providers (claude-interactive's first turn can take 60-90s) racked up
     // duplicate user inputs from each catchup sweep that ran mid-turn.
     this.args.processedMessageKeys.add(messageKey);
+    // Note: dispatchInboundSlackEvent (slackBridge.ts) already called markPending
+    // before the resolve* awaits. Leaving it in place; success below will clear it.
     try {
       const threadId = await this.executeTask(binding, params, task, message.ts, message.files);
+      this.args.catchupService.markCompleted(params.channelId, message.ts);
       this.args.catchupService.updateChannelCursor(params.channelId, message.ts);
       eventLogger.info('slack', 'Slack task queued', {
         channelId: params.channelId,
@@ -107,7 +118,8 @@ export class SlackRoutingService {
     } catch (error) {
       // Roll back the in-flight mark so a future catchup can retry. Without this,
       // a transient failure (docker not ready, container build slow) would silently
-      // swallow the message permanently.
+      // swallow the message permanently. Leave the pending marker in place so the
+      // cursor stays below this ts and the next catchup re-fetches it.
       this.args.processedMessageKeys.delete(messageKey);
       eventLogger.warn('slack', 'Failed to process inbound Slack message', {
         channelId: params.channelId,
@@ -126,7 +138,8 @@ export class SlackRoutingService {
     },
     task: string,
     messageTs: string,
-    files?: SlackFile[]
+    files?: SlackFile[],
+    retriedAfterDangling = false
   ): Promise<string> {
     const deps = this.args.getDeps();
     if (!deps || !params.defaultWorkingDirectory) throw new Error('Slack bridge dependencies unavailable.');
@@ -162,12 +175,6 @@ export class SlackRoutingService {
     }
 
     const autopilotEnabled = Boolean(deps.setAutopilot) && Boolean(getStore().get('settings').autopilot?.enabled);
-    if (autopilotEnabled) {
-      // triggerAfterTurn: false — we're about to call sendInput below; letting setAutopilot
-      // fire its post-enable hook here would race the queue (planner reads pre-input state,
-      // then logs "state changed during planning" as soon as the input lands).
-      deps.setAutopilot?.(threadId, true, { triggerAfterTurn: false });
-    }
 
     let input = task;
     let uploadedPaths: string[] = [];
@@ -226,6 +233,13 @@ export class SlackRoutingService {
     void this.args.addReaction(params.channelId, messageTs, 'eyes');
     const slackContextNote = `[Slack: reply via post_update(channel_id='${params.channelId}', thread_ts='${params.rootThreadTs}')]`;
     try {
+      if (autopilotEnabled) {
+        // triggerAfterTurn: false — we're about to call sendInput below; letting setAutopilot
+        // fire its post-enable hook here would race the queue (planner reads pre-input state,
+        // then logs "state changed during planning" as soon as the input lands).
+        // Inside the try block so a 'Thread … not found' throw routes through the dangling-binding handler.
+        deps.setAutopilot?.(threadId, true, { triggerAfterTurn: false });
+      }
       await deps.sendInput(threadId, `${input}\n`, 'user', { systemPromptSuffix: slackContextNote });
       void this.args.removeReaction(params.channelId, messageTs, 'eyes');
       if (autopilotEnabled) {
@@ -241,13 +255,40 @@ export class SlackRoutingService {
         void this.args.addReaction(params.channelId, messageTs, 'white_check_mark');
         return threadId;
       }
+      const errMessage = getErrorMessage(error);
       eventLogger.error('slack', 'sendInput failed for Slack-triggered thread', {
         channelId: params.channelId,
         threadId,
-        error: getErrorMessage(error),
+        error: errMessage,
         stack: error instanceof Error ? error.stack : undefined,
       });
+
+      // Dangling binding: thread row gone OR PTY/container missing. Clear the cached
+      // threadId and recurse once with a fresh thread so the user's input is processed
+      // instead of asking them to retype. `retriedAfterDangling` guards infinite recursion.
+      if (!retriedAfterDangling && /Thread .+ (not found|is not running)/.test(errMessage)) {
+        this.args.workspaceManager.updateBinding(binding.key, { threadId: undefined });
+        binding.threadId = undefined;
+        eventLogger.info('slack', 'Cleared dangling Slack binding, retrying with fresh thread', {
+          channelId: params.channelId,
+          slackThreadTs: params.rootThreadTs,
+          deadThreadId: threadId,
+        });
+        return await this.executeTask(binding, params, task, messageTs, files, true);
+      }
+
       void this.args.addReaction(params.channelId, messageTs, 'x');
+      // Only notify once per ts to keep periodic-catchup retries from spamming the
+      // channel with duplicate '[failed]' posts. void to avoid masking `error`.
+      if (this.args.catchupService.tryMarkFailureNotified(params.channelId, messageTs)) {
+        const userMsg = retriedAfterDangling
+          ? 'AgentOS: failed to start a fresh thread for this reply. Check logs for details.'
+          : 'AgentOS: failed to process this reply. Check logs for details.';
+        void this.args.postMessage(params.channelId, userMsg, params.rootThreadTs);
+      }
+      // Re-throw so processInboundMessage rolls back the dedup mark and leaves the
+      // pending marker in place. The capped cursor + periodic catchup will retry.
+      throw error;
     }
 
     return threadId;

@@ -59,6 +59,8 @@ type SlackSocketEnvelope = {
 
 const AUTOPILOT_STATUS_PREFIX = '🤖';
 
+const PERIODIC_CATCHUP_MS = 10 * 60 * 1000;
+
 class SlackBridge extends BaseBridge<SlackBridgeDeps> {
   private socketClient: SocketModeClient | null = null;
   private socketEventHandler: ((envelope: unknown) => void) | null = null;
@@ -67,6 +69,7 @@ class SlackBridge extends BaseBridge<SlackBridgeDeps> {
   private startedSocketConfigKey: string | null = null;
   private processedMessageKeys = new DedupCache();
   private catchingUp = false;
+  private periodicCatchupTimer: NodeJS.Timeout | null = null;
   private workspaceManager = new SlackWorkspaceManager();
   private fileService = new SlackFileService(() => this.webClient);
   private threadResolver = new SlackThreadResolver(() => this.webClient);
@@ -152,16 +155,36 @@ class SlackBridge extends BaseBridge<SlackBridgeDeps> {
       void this.handleSocketEnvelope(envelopeUnknown);
     };
     this.socketClient.on('slack_event', this.socketEventHandler);
+    // Silent SDK reconnects (network blip, OS sleep, etc.) re-emit 'connected'
+    // without a fresh start().then(...). Trigger catchUp on every connect so a
+    // transient failure during the disconnect window is retried immediately
+    // instead of waiting up to PERIODIC_CATCHUP_MS. catchUp() guards reentrancy.
+    this.socketClient.on('connected', () => this.catchUp());
 
     this.socketClient
       .start()
       .then(() => {
         void this.logSlackAuthDiagnostics(slack.watchedChannelIds.length, slack.watchedChannelIds);
         this.catchUp();
+        this.startPeriodicCatchup();
       })
       .catch((error: unknown) => {
         eventLogger.error('slack', 'Slack socket mode start failed', { error: getErrorMessage(error) });
       });
+  }
+
+  private startPeriodicCatchup(): void {
+    if (this.periodicCatchupTimer) return;
+    // Backstop for the gap between socket reconnects. Catches messages whose original
+    // processing failed (their channel cursor is held by the pending set) without
+    // waiting for a socket drop + reconnect to trigger catchUp().
+    this.periodicCatchupTimer = setInterval(() => this.catchUp(), PERIODIC_CATCHUP_MS);
+  }
+
+  private stopPeriodicCatchup(): void {
+    if (!this.periodicCatchupTimer) return;
+    clearInterval(this.periodicCatchupTimer);
+    this.periodicCatchupTimer = null;
   }
 
   onThreadStatus(payload: ThreadStatusEvent): void {
@@ -334,10 +357,15 @@ class SlackBridge extends BaseBridge<SlackBridgeDeps> {
   stop(): void {
     // Don't unregister the settings listener — applySettings() must still fire after stop()
     // so Slack can recover when re-enabled without an app restart.
+    this.stopPeriodicCatchup();
     this.stopSocketMode();
     this.startedBotToken = null;
     this.processedMessageKeys.clear();
     this.pendingAutopilotChecks.clear();
+    // catchupService lives across stop()/applySettings cycles — clear its in-memory
+    // pending and notification state so a re-enabled bridge doesn't inherit phantom
+    // entries that would pin the cursor or suppress error notices forever.
+    this.catchupService.clear();
     this.workspaceManager.setWebClient(null);
     this.webClient = null;
     slackMcpServer.stop();
@@ -349,6 +377,7 @@ class SlackBridge extends BaseBridge<SlackBridgeDeps> {
   }
 
   private stopSocketMode(): void {
+    this.stopPeriodicCatchup();
     this.startedSocketConfigKey = null;
     const socket = this.socketClient;
     const handler = this.socketEventHandler;
@@ -375,6 +404,12 @@ class SlackBridge extends BaseBridge<SlackBridgeDeps> {
     if ((event.subtype && event.subtype !== 'file_share') || event.bot_id || !event.user) return;
     const hasFiles = (event.files?.length ?? 0) > 0;
     if (!event.text && !hasFiles) return;
+
+    // Mark pending BEFORE the resolveChannelWorkspace/resolveRootThreadTs awaits —
+    // otherwise two concurrent inbound events can race so that a newer-ts success
+    // advances the cursor past an older-ts message that hasn't yet reached
+    // routingService's markPending call.
+    this.catchupService.markPending(channelId, event.ts);
 
     const defaultWorkingDirectory = await this.workspaceManager.resolveChannelWorkspace(
       channelId,

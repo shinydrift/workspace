@@ -135,7 +135,7 @@ class ThreadManager implements Disposable {
           this.renameThread(id, name);
         },
         sendInput: (id, input, source) => this.sendInput(id, input, source),
-        stopThread: async (id) => {
+        stopThread: async (id, opts) => {
           await this.chunkManager.saveBeforeStop(id);
           // consumeStopAborted is set synchronously in clearPending when new input
           // arrives — checked here instead of queue depth to avoid a microtask race
@@ -144,7 +144,7 @@ class ThreadManager implements Disposable {
             eventLogger.info('thread', 'New input during pre-stop save, aborting stop', { threadId: id });
             return;
           }
-          return this.lifecycle.stopThread(id);
+          return this.lifecycle.stopThread(id, opts);
         },
       },
     });

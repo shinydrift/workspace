@@ -63,7 +63,7 @@ export type HeadlessTurnDeps = {
   containers: ContainerManager;
   callbacks: {
     sendInput: (threadId: string, input: string, source: QueueSource) => Promise<void>;
-    stopThread: (threadId: string) => Promise<void>;
+    stopThread: (threadId: string, opts?: { preserveQueue?: boolean }) => Promise<void>;
     persistUserInput: (threadId: string, source: QueueSource, trimmed: string, raw: string) => void;
     persistSessionIds: (threadId: string, rawOutput: string) => void;
   };
@@ -292,7 +292,9 @@ export async function execHeadlessTurn(
 
   containers.scheduleIdleStop(threadId, HEADLESS_IDLE_STOP_MS, () => {
     eventLogger.info('thread', 'Idle timeout reached, stopping container', { threadId });
-    callbacks.stopThread(threadId).catch((err: unknown) => {
+    // preserveQueue so a Slack reply that races the teardown isn't rejected with
+    // 'Thread queue cleared' — the next sendInput restarts and drains it.
+    callbacks.stopThread(threadId, { preserveQueue: true }).catch((err: unknown) => {
       eventLogger.warn('thread', 'Idle stop failed', { threadId, error: String(err) });
     });
   });
