@@ -306,48 +306,9 @@ export class StageWorkerService {
     }
 
     let cleanedUp = false;
-    // 10-minute fuse for the timeout case below. Long enough that legitimate long-running
-    // stages report via `report_stage_result` first, short enough that a truly hung worker
-    // doesn't leak its session/PTY/log stream indefinitely.
-    const SILENCE_HANG_TIMEOUT_MS = 10 * 60 * 1000;
-    let silenceHangTimer: NodeJS.Timeout | null = null;
     const finalize = (status: ThreadStatus, reason: TurnEndReason | 'error'): void => {
       if (cleanedUp) return;
-      // timeout means the JSONL never wrote a turn_duration / stop_hook_summary marker —
-      // the model may well still be running and about to call `report_stage_result`.
-      // Tearing the session down immediately would kill the in-flight claude process and
-      // trigger a duplicate stage worker on the parent. Defer cleanup: if the worker reports
-      // via MCP before the fuse fires, the kanban assignment is cleared and the watchdog's
-      // notifyExitedWithoutReport becomes a no-op; if not, we run the normal exit path
-      // so the parent is told and resources are reclaimed.
-      if (reason === 'timeout' && silenceHangTimer == null) {
-        eventLogger.warn('kanban', 'Interactive stage worker settled on timeout — arming watchdog', {
-          childThreadId: childId,
-          taskId: opts.taskId,
-          stage: opts.stage,
-          watchdogMs: SILENCE_HANG_TIMEOUT_MS,
-        });
-        silenceHangTimer = setTimeout(() => {
-          if (cleanedUp) return;
-          // If `report_stage_result` ran in the meantime, the assignment is cleared and
-          // this is a graceful late-cleanup; otherwise the worker genuinely hung.
-          const task = kanbanDb.getTask(projectId, opts.taskId);
-          const stillAssigned = task?.assignedThreadId === childId;
-          eventLogger.warn('kanban', 'Interactive stage worker watchdog fired', {
-            childThreadId: childId,
-            taskId: opts.taskId,
-            stage: opts.stage,
-            stillAssigned,
-          });
-          finalize(stillAssigned ? 'error' : 'stopped', 'error');
-        }, SILENCE_HANG_TIMEOUT_MS);
-        return;
-      }
       cleanedUp = true;
-      if (silenceHangTimer) {
-        clearTimeout(silenceHangTimer);
-        silenceHangTimer = null;
-      }
       this.output.flushAssistantMessage(childId, { multiTurn: true });
       this.output.closeLogStream(childId);
       // exitCode is null because interactive lifecycle is driven by turn settlement, not a

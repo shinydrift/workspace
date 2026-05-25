@@ -34,16 +34,6 @@ function userContent(entry: JsonlEntry): UserContentBlock[] {
 
 const SESSION_DIR_WATCH_TIMEOUT_MS = 10_000;
 
-// Hard cap on turn duration when the caller doesn't pass one. If claude-interactive hasn't
-// written a turn-end system marker within this window, we settle as 'timeout' so the queue
-// can't get pinned by a hung tool call.
-const DEFAULT_TURN_TIMEOUT_MS = 10 * 60_000;
-
-// Fast-fail when claude-interactive never emits its first assistant entry — startup crash,
-// auth failure, model API down, container OOM mid-spawn. Without this, those failures wait
-// out the full DEFAULT_TURN_TIMEOUT_MS (10 min) before surfacing.
-const NO_ASSISTANT_TIMEOUT_MS = 60_000;
-
 // claude-interactive writes one of these system entries when (and only when) the entire
 // turn — including every tool call — is complete. `turn_duration` is the always-emitted
 // timing record; `stop_hook_summary` is added when a Stop hook fires. Either one is the
@@ -161,11 +151,7 @@ export class ClaudeJsonlWatcher {
       startPos = 0;
     }
 
-    // Recompute remaining budget after detection phase.
-    const tailMs =
-      timeoutMs !== undefined && prep ? Math.max(100, timeoutMs - (Date.now() - prep.preparedAt)) : timeoutMs;
-
-    return this.tailFile(threadId, jsonlPath, startPos, onEntry, tailMs);
+    return this.tailFile(threadId, jsonlPath, startPos, onEntry);
   }
 
   cancel(): void {
@@ -229,8 +215,7 @@ export class ClaudeJsonlWatcher {
     threadId: string,
     jsonlPath: string,
     startPos: number,
-    onEntry: (entry: JsonlEntry) => void,
-    timeoutMs?: number
+    onEntry: (entry: JsonlEntry) => void
   ): Promise<TurnEndReason> {
     return new Promise<TurnEndReason>((resolve, reject) => {
       const tailStart = Date.now();
@@ -264,8 +249,6 @@ export class ClaudeJsonlWatcher {
       const settle = (reason: TurnEndReason, err?: Error): void => {
         if (settled) return;
         settled = true;
-        clearTimeout(timeoutTimer);
-        clearTimeout(noAssistantTimer);
         try {
           fs.unwatchFile(jsonlPath);
         } catch {
@@ -341,7 +324,6 @@ export class ClaudeJsonlWatcher {
                 messageId: msg?.id,
               });
               hasSeenAssistant = true;
-              clearTimeout(noAssistantTimer);
             }
             for (const block of msg?.content ?? []) {
               if (block.type === 'tool_use' && typeof block.id === 'string') {
@@ -386,19 +368,6 @@ export class ClaudeJsonlWatcher {
       };
 
       this.cancelFn = () => settle('timeout', new Error('JSONL watcher cancelled'));
-
-      const effectiveTimeoutMs = timeoutMs && timeoutMs > 0 ? timeoutMs : DEFAULT_TURN_TIMEOUT_MS;
-      const timeoutTimer = setTimeout(() => settle('timeout'), effectiveTimeoutMs);
-      const noAssistantTimer = setTimeout(() => {
-        if (!hasSeenAssistant) {
-          eventLogger.warn('claudeIO', 'watcher: no assistant entry within fast-fail window', {
-            threadId,
-            elapsedMs: Date.now() - tailStart,
-            timeoutMs: NO_ASSISTANT_TIMEOUT_MS,
-          });
-          settle('timeout');
-        }
-      }, NO_ASSISTANT_TIMEOUT_MS);
 
       fs.watchFile(jsonlPath, { interval: 200, persistent: false }, (curr) => {
         handleNewBytes(curr.size);
