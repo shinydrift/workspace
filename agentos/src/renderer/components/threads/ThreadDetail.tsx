@@ -10,6 +10,7 @@ import { ThreadInsightsPanel } from '../insights/ThreadInsightsPanel';
 import { useMessages } from '../../hooks/useMessages';
 import { ThreadDetailHeader } from './ThreadDetailHeader';
 import { CouncilRunPanel } from '../chat/CouncilRunPanel';
+import { TaskSheetPanel } from '../board/TaskSheetPanel';
 import { ContentCard } from '@/components/ui/content-card';
 import { ScrollFade } from '@/components/ui/scroll-fade';
 
@@ -93,6 +94,7 @@ export function ThreadDetail({ thread, noCard, initialView }: Props) {
       <div className={detailView === 'insights' ? 'flex-1 min-h-0' : 'hidden'}>
         <ThreadInsightsPanel thread={thread} />
       </div>
+      {detailView === 'chat' && <TaskSheetPanel threadId={thread.id} />}
       {detailView === 'chat' && <CouncilRunPanel threadId={thread.id} />}
       {detailView === 'chat' && (
         <div className="p-3 max-w-[1200px] w-full mx-auto">
