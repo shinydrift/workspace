@@ -135,6 +135,7 @@ type McpOpts = {
   slackMcpUrl?: string | null;
   kanbanMcpUrl?: string | null;
   recordingsMcpUrl?: string | null;
+  autopilotMcpUrl?: string | null;
 };
 
 type McpServer = { name: string; url: string };
@@ -147,6 +148,7 @@ function enabledMcpServers(opts: McpOpts): McpServer[] {
     { name: 'agentos-slack', url: opts.slackMcpUrl },
     { name: 'agentos-kanban', url: opts.kanbanMcpUrl },
     { name: 'agentos-recordings', url: opts.recordingsMcpUrl },
+    { name: 'agentos-autopilot', url: opts.autopilotMcpUrl },
   ];
   return candidates.flatMap(({ name, url }) => (url ? [{ name, url }] : []));
 }
@@ -164,6 +166,7 @@ export function buildDockerExecArgs(
     systemPrompt?: string | null;
     systemPromptSuffix?: string | null;
     disallowedTools?: string[];
+    allowedTools?: string[];
     claudeOauthToken?: string | null;
     apiKey?: string | null;
     mcpBearerToken?: string | null;
@@ -314,6 +317,16 @@ export function buildDockerExecArgs(
 
   if (opts.disallowedTools?.length) {
     args.push('--disallowed-tools', opts.disallowedTools.join(','));
+  }
+
+  // Whitelist specific tools so they run without prompting under default permissions
+  // (used by the autopilot planner to call its single submit tool autonomously).
+  // NOTE: allowedTools is consumed ONLY by this Claude branch. Codex/Gemini have no per-tool
+  // allow-list; their isolation comes from which MCP servers are wired via enabledMcpServers
+  // (e.g. the planner enables only agentos-autopilot). Do not rely on allowedTools to restrict
+  // codex/gemini — restrict their tool surface by limiting the MCP servers passed instead.
+  if (opts.allowedTools?.length) {
+    args.push('--allowed-tools', opts.allowedTools.join(','));
   }
 
   return { command: 'docker', args };

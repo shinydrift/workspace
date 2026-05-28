@@ -5,6 +5,7 @@ import { threadManager } from '../sessions/ThreadManager';
 import { setThreadRunner, councilService } from '../council/service';
 import { createCouncilThreadRunner } from '../council/threadRunner';
 import { councilMcpServer } from '../integrations/councilMcpServer';
+import { autopilotMcpServer } from '../integrations/autopilotMcpServer';
 import { eventLogger, initEventLog } from '../utils/eventLog';
 import { ensureBundledClaudeSkills } from '../utils/claudePlugins';
 import { automationService } from '../automations/service';
@@ -225,6 +226,7 @@ export function bootServices(
   });
 
   safeInit('council-mcp', () => councilMcpServer.start());
+  safeInit('autopilot-mcp', () => autopilotMcpServer.start());
   safeInit('recordings-mcp', () => recordingsMcpServer.start());
 
   safeInit('slack', () => {
@@ -425,6 +427,7 @@ export function bootServices(
   disposables.push(memoryMcpServer);
   disposables.push(recordingsMcpServer);
   disposables.push(councilMcpServer);
+  disposables.push(autopilotMcpServer);
   disposables.push(slackBridge);
   disposables.push(trayManager);
   disposables.push(analyticsService);

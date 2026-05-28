@@ -1,6 +1,7 @@
 /**
- * Tests for autopilot/service.ts — extractFirstJsonObject, parseAutopilotAction,
- * buildTranscript, extractTextContent, AutopilotService state machine.
+ * Tests for autopilot/service.ts — buildTranscript, extractTextContent,
+ * AutopilotService state machine. The planner's tool-call submission path is
+ * covered by autopilotSubmission.test.ts against the real registry module.
  */
 
 import test from 'node:test';
@@ -27,61 +28,6 @@ function buildTranscript(messages) {
       return `[${label}] ${extractTextContent(message)}`;
     })
     .join('\n\n');
-}
-
-function extractFirstJsonObject(text) {
-  const start = text.indexOf('{');
-  if (start === -1) return null;
-  let depth = 0;
-  let inString = false;
-  let escaped = false;
-  for (let i = start; i < text.length; i++) {
-    const ch = text[i];
-    if (escaped) {
-      escaped = false;
-      continue;
-    }
-    if (ch === '\\' && inString) {
-      escaped = true;
-      continue;
-    }
-    if (ch === '"') {
-      inString = !inString;
-      continue;
-    }
-    if (inString) continue;
-    if (ch === '{') depth += 1;
-    if (ch === '}') {
-      depth -= 1;
-      if (depth === 0) {
-        try {
-          return JSON.parse(text.slice(start, i + 1));
-        } catch {
-          return null;
-        }
-      }
-    }
-  }
-  return null;
-}
-
-function parseAutopilotAction(text) {
-  const parsed = extractFirstJsonObject(text);
-  if (!parsed) {
-    return { action: 'stop', reason: 'Planner did not return valid JSON.' };
-  }
-
-  const action = parsed.action;
-  const reason = typeof parsed.reason === 'string' ? parsed.reason.trim() : 'No reason provided.';
-  if (action === 'send_message') {
-    const message = typeof parsed.message === 'string' ? parsed.message.trim() : '';
-    if (!message) return { action: 'stop', reason: 'Planner requested send_message without content.' };
-    return { action, message, reason };
-  }
-  if (action === 'noop' || action === 'stop') {
-    return { action, reason };
-  }
-  return { action: 'stop', reason: 'Planner returned an unknown action.' };
 }
 
 // ── AutopilotService state machine (inlined pure logic) ───────────────────────
@@ -166,90 +112,6 @@ test('buildTranscript joins multiple messages with double newline', () => {
 
 test('buildTranscript returns empty string for no messages', () => {
   assert.equal(buildTranscript([]), '');
-});
-
-// ── extractFirstJsonObject ────────────────────────────────────────────────────
-
-test('extractFirstJsonObject returns null when no { found', () => {
-  assert.equal(extractFirstJsonObject('no json here'), null);
-});
-
-test('extractFirstJsonObject extracts plain object', () => {
-  const result = extractFirstJsonObject('{"action":"stop","reason":"done"}');
-  assert.deepEqual(result, { action: 'stop', reason: 'done' });
-});
-
-test('extractFirstJsonObject ignores preamble text', () => {
-  const result = extractFirstJsonObject('Here is my answer: {"action":"noop","reason":"wait"}');
-  assert.deepEqual(result, { action: 'noop', reason: 'wait' });
-});
-
-test('extractFirstJsonObject handles nested objects', () => {
-  const result = extractFirstJsonObject('{"a":{"b":1}}');
-  assert.deepEqual(result, { a: { b: 1 } });
-});
-
-test('extractFirstJsonObject handles strings with braces inside', () => {
-  const result = extractFirstJsonObject('{"action":"send_message","message":"use {brackets}","reason":"ok"}');
-  assert.equal(result?.message, 'use {brackets}');
-});
-
-test('extractFirstJsonObject returns null for malformed JSON', () => {
-  assert.equal(extractFirstJsonObject('{bad json}'), null);
-});
-
-test('extractFirstJsonObject stops at first complete object', () => {
-  const result = extractFirstJsonObject('{"a":1} {"b":2}');
-  assert.deepEqual(result, { a: 1 });
-});
-
-// ── parseAutopilotAction ──────────────────────────────────────────────────────
-
-test('parseAutopilotAction returns stop on non-JSON text', () => {
-  const result = parseAutopilotAction('not json');
-  assert.equal(result.action, 'stop');
-  assert.equal(result.reason, 'Planner did not return valid JSON.');
-});
-
-test('parseAutopilotAction returns stop action', () => {
-  const result = parseAutopilotAction('{"action":"stop","reason":"task done"}');
-  assert.equal(result.action, 'stop');
-  assert.equal(result.reason, 'task done');
-});
-
-test('parseAutopilotAction returns noop action', () => {
-  const result = parseAutopilotAction('{"action":"noop","reason":"in progress"}');
-  assert.equal(result.action, 'noop');
-  assert.equal(result.reason, 'in progress');
-});
-
-test('parseAutopilotAction returns send_message with message', () => {
-  const result = parseAutopilotAction('{"action":"send_message","message":"continue please","reason":"needs more"}');
-  assert.equal(result.action, 'send_message');
-  assert.equal(result.message, 'continue please');
-  assert.equal(result.reason, 'needs more');
-});
-
-test('parseAutopilotAction returns stop when send_message has empty message', () => {
-  const result = parseAutopilotAction('{"action":"send_message","message":"","reason":"x"}');
-  assert.equal(result.action, 'stop');
-  assert.equal(result.reason, 'Planner requested send_message without content.');
-});
-
-test('parseAutopilotAction returns stop for unknown action', () => {
-  const result = parseAutopilotAction('{"action":"dance","reason":"why not"}');
-  assert.equal(result.action, 'stop');
-  assert.equal(result.reason, 'Planner returned an unknown action.');
-});
-
-test('parseAutopilotAction trims message whitespace', () => {
-  const result = parseAutopilotAction('{"action":"send_message","message":"  hello  ","reason":"ok"}');
-  assert.equal(result.message, 'hello');
-});
-
-test('parseAutopilotAction defaults reason when not a string', () => {
-  const result = parseAutopilotAction('{"action":"stop","reason":null}');
-  assert.equal(result.reason, 'No reason provided.');
 });
 
 // ── AutopilotService.maybeRunAfterTurn ────────────────────────────────────────
