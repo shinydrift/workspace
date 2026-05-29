@@ -41,10 +41,11 @@ import { bootServices } from './bootstrap/services';
 import { registerAppIpcHandlers } from './bootstrap/ipc';
 import { setupLifecycle } from './bootstrap/lifecycle';
 
-// node-llama-cpp adds one beforeExit listener per concurrent embedding operation
-// (~11 during startup when all projects index simultaneously). Raise the limit to
-// avoid spurious MaxListenersExceededWarning from this known third-party pattern.
-process.setMaxListeners(20);
+// node-llama-cpp adds one beforeExit listener per concurrent embedding operation.
+// With many projects indexing simultaneously at startup, the count can exceed 20.
+// Raise the limit to avoid spurious MaxListenersExceededWarning from this known
+// third-party pattern.
+process.setMaxListeners(50);
 
 if (started) app.quit();
 
