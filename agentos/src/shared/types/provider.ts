@@ -44,16 +44,29 @@ export const DEFAULT_BACKEND: Record<Provider, ProviderBackend> = {
 // Hardcoded model lists per provider, surfaced in the Provider Priority UI.
 // First entry is treated as the provider's default when no model is selected.
 export const PROVIDER_MODELS: Record<Provider, string[]> = {
-  claude: ['claude-opus-4-7', 'claude-opus-4-7-1m', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001'],
-  'claude-interactive': ['claude-opus-4-7', 'claude-opus-4-7-1m', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001'],
+  claude: [
+    'claude-opus-4-8',
+    'claude-opus-4-7',
+    'claude-opus-4-7-1m',
+    'claude-sonnet-4-6',
+    'claude-haiku-4-5-20251001',
+  ],
+  'claude-interactive': [
+    'claude-opus-4-8',
+    'claude-opus-4-7',
+    'claude-opus-4-7-1m',
+    'claude-sonnet-4-6',
+    'claude-haiku-4-5-20251001',
+  ],
   codex: ['gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.3-codex'],
-  gemini: ['gemini-3-pro-preview', 'gemini-3-flash-preview', 'gemini-2.5-pro', 'gemini-2.5-flash'],
+  gemini: ['gemini-3.5-flash', 'gemini-3-pro-preview', 'gemini-3-flash-preview', 'gemini-2.5-pro', 'gemini-2.5-flash'],
   // Pi is model-agnostic and accepts any model string — free-text input is used in the UI.
   pi: [],
 };
 
 // User-friendly display names sourced from each provider's official documentation.
 export const MODEL_LABEL: Record<string, string> = {
+  'claude-opus-4-8': 'Opus 4.8',
   'claude-opus-4-7': 'Opus 4.7',
   'claude-opus-4-7-1m': 'Opus 4.7 1M',
   'claude-sonnet-4-6': 'Sonnet 4.6',
@@ -62,6 +75,7 @@ export const MODEL_LABEL: Record<string, string> = {
   'gpt-5.4': 'GPT-5.4',
   'gpt-5.4-mini': 'GPT-5.4 mini',
   'gpt-5.3-codex': 'GPT-5.3 Codex',
+  'gemini-3.5-flash': 'Gemini 3.5 Flash',
   'gemini-3-pro-preview': 'Gemini 3 Pro Preview',
   'gemini-3-flash-preview': 'Gemini 3 Flash Preview',
   'gemini-2.5-pro': 'Gemini 2.5 Pro',
