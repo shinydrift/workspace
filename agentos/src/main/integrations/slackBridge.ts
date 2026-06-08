@@ -14,7 +14,7 @@ import { SlackFileService } from './slackFileService';
 import { SlackCatchupService, type SlackInboundEvent } from './slackCatchupService';
 import { SlackRoutingService } from './slackRoutingService';
 import { SlackThreadResolver } from './slackThreadResolver';
-import { getProject } from '../threads/db';
+import { getProject, getSlackBinding } from '../threads/db';
 import { getThread } from '../threads/threadStore';
 
 /** Sanitizes user-provided strings for safe inclusion in Slack mrkdwn. */
@@ -121,7 +121,18 @@ class SlackBridge extends BaseBridge<SlackBridgeDeps> {
       this.stopSocketMode();
       this.webClient = new WebClient(botToken);
       this.workspaceManager.setWebClient(this.webClient);
-      slackMcpServer.init(this.webClient);
+      slackMcpServer.init(this.webClient, (channelId, threadTs) => {
+        if (threadTs === undefined) return null;
+        const binding = getSlackBinding(`${channelId}:${threadTs}`);
+        if (!binding) return null;
+        if (binding.workspacePath) return binding.workspacePath;
+        // Legacy binding rows can have a null workspace_path. Fall back to the thread's
+        // workingDirectory so old conversations don't fail upload_file with "No workspace bound".
+        if (binding.threadId) {
+          return getThread(binding.threadId)?.workingDirectory ?? null;
+        }
+        return null;
+      });
       slackMcpServer.start();
       this.startedBotToken = botToken;
     }

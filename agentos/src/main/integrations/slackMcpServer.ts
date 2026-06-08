@@ -1,14 +1,16 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { WebClient } from '@slack/web-api';
-import { realpathSync, statSync } from 'fs';
-import { readFile } from 'fs/promises';
+import { open } from 'fs/promises';
 import { basename } from 'path';
 import { z } from 'zod';
 import { clampSlackText, convertMarkdownToMrkdwn } from './slackFormatting';
 import { BaseMcpServer } from '../mcp/BaseMcpServer';
+import { translateContainerPath } from '../mcp/sandboxPath';
 
 /** Tools in this server that send messages externally. Import this in toolResolver to keep names in sync. */
 export const SLACK_EXTERNAL_TOOLS = ['post_update', 'ask_clarification', 'upload_file'] as const;
+
+const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
 
 const slackTarget = {
   channel_id: z.string().describe('Slack channel ID — use the value of env var SLACK_CHANNEL_ID'),
@@ -20,11 +22,19 @@ const slackTarget = {
     ),
 };
 
+/**
+ * Resolves the host filesystem path corresponding to the sandboxed agent's `/workspace` mount
+ * for a given Slack (channel, thread) pair. Returns null when no binding (or thread) is found.
+ */
+export type WorkspacePathResolver = (channelId: string, threadTs: string | undefined) => string | null;
+
 class SlackMcpServer extends BaseMcpServer {
   private webClient: WebClient | null = null;
+  private resolveWorkspacePath: WorkspacePathResolver | null = null;
 
-  init(webClient: WebClient): void {
+  init(webClient: WebClient, resolveWorkspacePath: WorkspacePathResolver): void {
     this.webClient = webClient;
+    this.resolveWorkspacePath = resolveWorkspacePath;
   }
 
   start(): void {
@@ -33,6 +43,7 @@ class SlackMcpServer extends BaseMcpServer {
 
   stop(): void {
     this.webClient = null;
+    this.resolveWorkspacePath = null;
     this.stopHttpServer();
   }
 
@@ -83,35 +94,46 @@ class SlackMcpServer extends BaseMcpServer {
       },
       ({ channel_id, thread_ts, file_path, filename, initial_comment }) => {
         const webClient = this.webClient;
+        const resolver = this.resolveWorkspacePath;
         return this.runTool(async () => {
           if (!webClient) throw new Error('Slack not connected.');
+          if (!resolver) throw new Error('Slack MCP server not initialized.');
 
-          // Resolve symlinks and restrict to safe prefixes to prevent path traversal
-          let resolved: string;
+          // Agents run in a sandbox container where the project lives at /workspace, but this MCP
+          // server runs on the host where that path doesn't exist. Translate to the host workingDir
+          // bound to this Slack thread.
+          const hostWorkingDir = resolver(channel_id, thread_ts);
+          if (!hostWorkingDir) {
+            throw new Error(`No workspace bound to channel ${channel_id} / thread ${thread_ts ?? '(none)'}`);
+          }
+          const resolved = translateContainerPath(file_path, hostWorkingDir);
+
+          // Open once, then stat + read against the same fd so a swap between checks can't bypass
+          // the type guard or the size cap.
+          const fd = await open(resolved, 'r');
+          let file: Buffer;
           try {
-            resolved = realpathSync(file_path);
-          } catch {
-            throw new Error(`File not found: ${file_path}`);
-          }
-          const ALLOWED_PREFIXES = ['/workspace', '/tmp'];
-          if (!ALLOWED_PREFIXES.some((p) => resolved === p || resolved.startsWith(p + '/'))) {
-            throw new Error(`file_path must be under /workspace or /tmp`);
+            const stats = await fd.stat();
+            if (!stats.isFile()) {
+              throw new Error(`file_path is not a regular file: ${file_path}`);
+            }
+            if (stats.size > MAX_UPLOAD_BYTES) {
+              throw new Error(`File too large: ${stats.size} bytes (max ${MAX_UPLOAD_BYTES} bytes)`);
+            }
+            file = await fd.readFile();
+          } finally {
+            await fd.close();
           }
 
-          // Reject files over 100 MB before reading into memory
-          const { size } = statSync(resolved);
-          const MAX_BYTES = 100 * 1024 * 1024;
-          if (size > MAX_BYTES) throw new Error(`File too large: ${size} bytes (max 100 MB)`);
-
-          const file = await readFile(resolved);
           const name = filename ?? basename(resolved);
-          await webClient.files.uploadV2({
-            channel_id,
-            ...(thread_ts ? { thread_ts } : {}),
-            file,
-            filename: name,
-            ...(initial_comment ? { initial_comment: clampSlackText(convertMarkdownToMrkdwn(initial_comment)) } : {}),
-          });
+          const initial = initial_comment
+            ? { initial_comment: clampSlackText(convertMarkdownToMrkdwn(initial_comment)) }
+            : {};
+          const args =
+            thread_ts === undefined
+              ? { channel_id, file, filename: name, ...initial }
+              : { channel_id, thread_ts, file, filename: name, ...initial };
+          await webClient.files.uploadV2(args);
           return 'File uploaded.';
         });
       }
