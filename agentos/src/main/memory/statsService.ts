@@ -1,4 +1,4 @@
-import { getAllProjects } from '../threads/db';
+import { runtimeProjects } from './runtime';
 import type { MemoryProjectStats, MemoryThreadChunk } from '../../shared/types';
 import { getProjectDb } from './projectDb';
 
@@ -28,7 +28,7 @@ export class MemoryStatsService {
     const fourteenDaysAgoMs = nowMs - 14 * 24 * 60 * 60 * 1000;
     let thisWeek = 0;
     let lastWeek = 0;
-    const projectIds = getAllProjects().map((p) => p.id);
+    const projectIds = runtimeProjects().map((p) => p.id);
     const stmt =
       'SELECT COALESCE(SUM(CASE WHEN expanded_at >= ? THEN 1 ELSE 0 END), 0) AS this_week, COALESCE(SUM(CASE WHEN expanded_at >= ? AND expanded_at < ? THEN 1 ELSE 0 END), 0) AS last_week FROM chunk_expansions';
     for (const projectId of projectIds) {

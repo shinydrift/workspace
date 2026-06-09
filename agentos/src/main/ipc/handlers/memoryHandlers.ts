@@ -7,7 +7,6 @@ import type {
   MemoryListRequest,
 } from '../../../shared/types';
 import { agentOSMemoryService } from '../../memory/service';
-import { getProjectDb } from '../../memory/db';
 import { type EdgeRelation } from '../../memory/graph';
 import { getProject } from '../../threads/db';
 import * as threadStore from '../../threads/threadStore';
@@ -163,19 +162,19 @@ export function registerMemoryHandlers(): void {
     (req) => agentOSMemoryService.graphAllPage(undefined, req.threadId, req.offset, req.limit)
   );
 
-  defineHandler(IPC_CHANNELS.MEMORY_GET_ENTITY_CHUNKS, MemoryGetEntityChunksSchema, ({ threadId: tid, entityId }) => {
-    const projectId = getThreadProjectId(tid);
-    return { chunkIds: agentOSMemoryService.getEntityChunks(projectId, entityId) };
-  });
+  defineHandler(
+    IPC_CHANNELS.MEMORY_GET_ENTITY_CHUNKS,
+    MemoryGetEntityChunksSchema,
+    async ({ threadId: tid, entityId }) => {
+      const projectId = getThreadProjectId(tid);
+      const chunkIds = await agentOSMemoryService.getEntityChunks(projectId, entityId);
+      return { chunkIds };
+    }
+  );
 
-  defineHandler(IPC_CHANNELS.MEMORY_REINDEX_GRAPH, ThreadIdSchema, ({ threadId: tid }) => {
+  defineHandler(IPC_CHANNELS.MEMORY_REINDEX_GRAPH, ThreadIdSchema, async ({ threadId: tid }) => {
     const projectId = getThreadProjectId(tid);
-    const db = getProjectDb(projectId);
-    db.transaction(() => {
-      db.exec('DELETE FROM entities');
-      db.exec('DELETE FROM edges');
-    })();
-    return { entityCount: 0, edgeCount: 0 };
+    return agentOSMemoryService.reindexGraph(projectId);
   });
 
   defineHandler(IPC_CHANNELS.MEMORY_GET_DECAY_CONFIG, MemoryGetDecayConfigSchema, async ({ threadId: tid }) => {
@@ -207,11 +206,15 @@ export function registerMemoryHandlers(): void {
     ({ threadId: tid, limit }) => agentOSMemoryService.getThreadChunks(tid, limit)
   );
 
-  defineHandler(IPC_CHANNELS.MEMORY_GET_PROJECT_STATS, z.object({ projectId: safeProjectId }), ({ projectId }) => {
-    const stats = agentOSMemoryService.getProjectStats(projectId);
-    const memoryGetCallCount = analyticsService.getProjectMemoryGetCount(projectId);
-    return { ...stats, memoryGetCallCount };
-  });
+  defineHandler(
+    IPC_CHANNELS.MEMORY_GET_PROJECT_STATS,
+    z.object({ projectId: safeProjectId }),
+    async ({ projectId }) => {
+      const stats = await agentOSMemoryService.getProjectStats(projectId);
+      const memoryGetCallCount = analyticsService.getProjectMemoryGetCount(projectId);
+      return { ...stats, memoryGetCallCount };
+    }
+  );
 
   defineHandler(IPC_CHANNELS.MEMORY_GET_GLOBAL_EXPANSION_COUNTS, z.object({}), () =>
     agentOSMemoryService.getGlobalExpansionCounts()

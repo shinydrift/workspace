@@ -6,7 +6,7 @@ import { createRequire } from 'module';
 import { Parser, Node, Language } from 'web-tree-sitter';
 import { MEMORY_SECTION_MAX_CHARS } from './chunking';
 import type { TextChunk } from './chunking';
-import { eventLogger } from '../utils/eventLog';
+import { runtimeLogger as eventLogger } from './runtime';
 
 const execFileAsync = promisify(execFile);
 

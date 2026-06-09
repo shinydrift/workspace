@@ -8,7 +8,7 @@ import type { EmbeddingProvider } from '../embedding/provider';
 import { splitMemoryByDelimiters, MEMORY_SECTION_MAX_CHARS } from '../chunking';
 import { listCodeFiles, splitCodeBySymbols } from '../codeChunking';
 import { embedChunks } from '../embedding/cache';
-import { eventLogger } from '../../utils/eventLog';
+import { runtimeLogger as eventLogger } from '../runtime';
 
 const yieldToEventLoop = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
 

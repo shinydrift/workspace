@@ -282,7 +282,7 @@ class MemoryMcpServer extends BaseMcpServer {
           .describe('AgentOS thread id. Prefer AGENTOS_THREAD_ID for the current thread.'),
       },
       async ({ entities, edges, chunk_id, project_id, thread_id }) => {
-        agentOSMemoryService.linkEntities({
+        await agentOSMemoryService.linkEntities({
           entities,
           edges,
           chunkId: chunk_id,
@@ -311,7 +311,7 @@ class MemoryMcpServer extends BaseMcpServer {
           .describe('AgentOS thread id. Prefer AGENTOS_THREAD_ID for the current thread.'),
       },
       async ({ entity_name, entity_type, observation, source_chunk_id, project_id, thread_id }) => {
-        agentOSMemoryService.addObservation({
+        await agentOSMemoryService.addObservation({
           entityName: entity_name,
           entityType: entity_type,
           observation,
@@ -338,7 +338,7 @@ class MemoryMcpServer extends BaseMcpServer {
           .describe('AgentOS thread id. Prefer AGENTOS_THREAD_ID for the current thread.'),
       },
       async ({ entry_id, project_id, thread_id }) => {
-        agentOSMemoryService.deleteChunk({ projectId: project_id, threadId: thread_id, chunkId: entry_id });
+        await agentOSMemoryService.deleteChunk({ projectId: project_id, threadId: thread_id, chunkId: entry_id });
         return this.jsonResult({ deleted: entry_id }, { sanitize: false });
       }
     );
@@ -359,7 +359,7 @@ class MemoryMcpServer extends BaseMcpServer {
           .describe('AgentOS thread id. Prefer AGENTOS_THREAD_ID for the current thread.'),
       },
       async ({ entry_id, pinned, project_id, thread_id }) => {
-        agentOSMemoryService.pinChunk({ projectId: project_id, threadId: thread_id, chunkId: entry_id, pinned });
+        await agentOSMemoryService.pinChunk({ projectId: project_id, threadId: thread_id, chunkId: entry_id, pinned });
         return this.jsonResult({ pinned, chunkId: entry_id }, { sanitize: false });
       }
     );

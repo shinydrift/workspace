@@ -1,5 +1,13 @@
-import { initDbDir, getProjectDb, closeProjectDb } from './projectDb';
-import { checkVecTable } from './vecSupport';
+// Main-process proxy for AgentOSMemoryService. Every method forwards to the
+// memory utilityProcess via workerClient — the heavy work (sqlite transactions,
+// tree-sitter parsing, local llama inference) runs there. Public API matches
+// the pre-Phase-4 service except that previously-sync methods are now async.
+
+import { installMemoryRuntime, runtimeProjects, runtimeLogger } from './runtime';
+import { createMainMemoryRuntime } from './runtime/mainImpl';
+import { initDbDir, getProjectDb } from './projectDb';
+import { type MemoryWorkerClient } from './workerClient';
+import { getMemoryWorkerClient } from './workerClientDefaults';
 import type {
   MemorySearchHit,
   CodeSearchHit,
@@ -11,10 +19,8 @@ import type {
   MemoryHealthReport,
 } from '../../shared/types';
 import type { CodeSearchParams } from './search';
+import type { EntityType, GraphQueryResult, EdgeRelation } from './graph';
 
-// Service-level search params accept the wider 'code' source value (the IPC
-// boundary's MemorySearchRequest also accepts 'code') plus optional projectId
-// for MCP callers that route by project rather than thread.
 type ServiceSearchParams = {
   projectId?: string | null;
   threadId?: string | null;
@@ -23,48 +29,67 @@ type ServiceSearchParams = {
   minScore?: number;
   source?: 'all' | 'memory' | 'sessions' | 'code';
 };
-import type { EntityType, GraphQueryResult, EdgeRelation } from './graph';
-import { MemoryStatsService } from './statsService';
-import { MemoryContentService } from './contentService';
-import { MemoryGraphService } from './graph';
-import { MemorySyncCoordinator } from './sync';
-import { eventLogger } from '../utils/eventLog';
 
 export class AgentOSMemoryService {
-  private stats = new MemoryStatsService();
-  private content = new MemoryContentService(this.stats);
-  private graph = new MemoryGraphService();
-  private sync = new MemorySyncCoordinator();
+  private homeDir: string | null = null;
+  private client: MemoryWorkerClient;
+  private runtimeInstalled = false;
+
+  constructor(client?: MemoryWorkerClient) {
+    this.client = client ?? getMemoryWorkerClient();
+  }
 
   configure(homeDir: string): void {
+    this.homeDir = homeDir;
+    if (!this.runtimeInstalled) {
+      installMemoryRuntime(createMainMemoryRuntime());
+      this.runtimeInstalled = true;
+    }
+    // Initialize the projectDb module on the main side too: kanban (kanban/db.ts),
+    // analytics (analyticsQueries.ts), and project deletion (projectHandlers.ts)
+    // still reach into the project sqlite files directly from main, so they need
+    // memoryDbDir set. Pre-open each known project DB so schema migrations run
+    // main-side once — that way the worker's later open is a no-op for the
+    // migrations check and the two processes don't race the __drizzle_migrations
+    // table create on first launch.
     initDbDir(homeDir);
-    this.sync.configure(homeDir);
+    for (const project of runtimeProjects()) {
+      try {
+        getProjectDb(project.id);
+      } catch (err) {
+        runtimeLogger.warn('memory', 'pre-warm project DB failed', {
+          projectId: project.id,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+    // Surface boot failures loudly — silent rejection here hides a missing
+    // indexer.js bundle or a native-module load crash.
+    this.client.ensureStarted(homeDir).catch((err) => {
+      runtimeLogger.error('memory', 'Memory indexer failed to start', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
   }
 
   async warmup(): Promise<void> {
-    await this.sync.warmup().catch((err) => {
-      eventLogger.warn('memory', 'Startup init failed', { error: err instanceof Error ? err.message : String(err) });
-    });
+    if (!this.homeDir) throw new Error('AgentOSMemoryService not configured.');
+    // ensureStarted now runs warmup as part of every spawn, so this is just a
+    // barrier to confirm the worker is ready. Kept as a public method for the
+    // bootstrap Phase 3 hook.
+    await this.client.ensureStarted(this.homeDir);
   }
 
   // ── Public API ───────────────────────────────────────────────────────────────
 
-  async saveChunk(params: {
+  saveChunk(params: {
     projectId?: string | null;
     threadId?: string | null;
     summary: string;
     text: string;
     chunkId?: string;
   }): Promise<{ chunkId: string }> {
-    const threadId = params.threadId?.trim();
-    if (!threadId) throw new Error('threadId is required to save a session chunk.');
-    const scope = this.sync.resolveScope(params.projectId, threadId);
-    return this.content.saveChunk(scope, {
-      threadId,
-      summary: params.summary,
-      text: params.text,
-      chunkId: params.chunkId,
-    });
+    return this.client.call('saveChunk', params);
   }
 
   linkEntities(params: {
@@ -73,10 +98,8 @@ export class AgentOSMemoryService {
     chunkId?: string;
     entities?: Array<{ name: string; type: EntityType; observation?: string }>;
     edges?: Array<{ from: string; to: string; relation: EdgeRelation }>;
-  }): void {
-    if (!params.entities?.length && !params.edges?.length) return;
-    const scope = this.sync.resolveScope(params.projectId, params.threadId);
-    this.graph.linkEntities(scope, { chunkId: params.chunkId, entities: params.entities, edges: params.edges });
+  }): Promise<void> {
+    return this.client.call('linkEntities', params);
   }
 
   addObservation(params: {
@@ -86,30 +109,30 @@ export class AgentOSMemoryService {
     entityType: EntityType;
     observation: string;
     sourceChunkId?: string;
-  }): void {
-    const scope = this.sync.resolveScope(params.projectId, params.threadId);
-    this.graph.addObservation(scope, {
-      entityName: params.entityName,
-      entityType: params.entityType,
-      observation: params.observation,
-      sourceChunkId: params.sourceChunkId,
-    });
+  }): Promise<void> {
+    return this.client.call('addObservation', params);
   }
 
-  async status(projectId?: string | null, threadId?: string | null): Promise<unknown> {
-    return this.sync.status(this.sync.resolveScope(projectId, threadId));
+  status(projectId?: string | null, threadId?: string | null): Promise<unknown> {
+    return this.client.call('status', { projectId, threadId });
   }
 
-  async reindex(projectId?: string | null, threadId?: string | null): Promise<unknown> {
-    return this.sync.reindex(this.sync.resolveScope(projectId, threadId));
+  reindex(projectId?: string | null, threadId?: string | null): Promise<unknown> {
+    // Full re-sync of memory + code; on a large project this can take many
+    // minutes. Opt out of the default per-call timeout (0 = no timeout).
+    return this.client.call('reindex', { projectId, threadId }, { timeoutMs: 0 });
   }
 
-  async flushPending(projectId?: string): Promise<void> {
-    return this.sync.flushPending(projectId);
+  flushPending(projectId?: string): Promise<void> {
+    return this.client.call('flushPending', { projectId });
   }
 
-  graphAll(projectId: string | null | undefined, threadId: string | null | undefined, topK = 2000): GraphQueryResult {
-    return this.graph.graphAll(this.sync.resolveScope(projectId, threadId), topK);
+  graphAll(
+    projectId: string | null | undefined,
+    threadId: string | null | undefined,
+    topK = 2000
+  ): Promise<GraphQueryResult> {
+    return this.client.call('graphAll', { projectId, threadId, topK });
   }
 
   graphAllPage(
@@ -117,61 +140,57 @@ export class AgentOSMemoryService {
     threadId: string | null | undefined,
     offset: number,
     limit: number
-  ): GraphQueryResult & { hasMore: boolean } {
-    return this.graph.graphAllPage(this.sync.resolveScope(projectId, threadId), offset, limit);
+  ): Promise<GraphQueryResult & { hasMore: boolean }> {
+    return this.client.call('graphAllPage', { projectId, threadId, offset, limit });
   }
 
-  async graphQuery(
+  graphQuery(
     projectId: string | null | undefined,
     threadId: string | null | undefined,
     entityName: string,
     options: { maxHops?: number; relationTypes?: EdgeRelation[]; topK?: number } = {}
   ): Promise<GraphQueryResult> {
-    return this.graph.graphQuery(this.sync.resolveScope(projectId, threadId), entityName, options);
+    return this.client.call('graphQuery', { projectId, threadId, entityName, options });
   }
 
-  getEntityChunks(projectId: string, entityId: string): string[] {
-    return this.graph.getEntityChunks(projectId, entityId);
+  getEntityChunks(projectId: string, entityId: string): Promise<string[]> {
+    return this.client.call('getEntityChunks', { projectId, entityId });
   }
 
-  async doctor(projectId?: string | null, threadId?: string | null): Promise<MemoryDoctorResult> {
-    return this.sync.doctor(this.sync.resolveScope(projectId, threadId));
+  doctor(projectId?: string | null, threadId?: string | null): Promise<MemoryDoctorResult> {
+    return this.client.call('doctor', { projectId, threadId });
   }
 
-  async healthCheck(projectId?: string | null, threadId?: string | null): Promise<MemoryHealthReport> {
-    return this.sync.healthCheck(this.sync.resolveScope(projectId, threadId));
+  healthCheck(projectId?: string | null, threadId?: string | null): Promise<MemoryHealthReport> {
+    return this.client.call('healthCheck', { projectId, threadId });
   }
 
-  async save(params: {
+  save(params: {
     projectId?: string | null;
     threadId?: string | null;
     path: string;
     content: string;
     mode?: 'overwrite' | 'append';
   }): Promise<{ savedPath: string; bytesWritten: number }> {
-    const scope = this.sync.resolveScope(params.projectId, params.threadId);
-    return this.content.save(scope, { path: params.path, content: params.content, mode: params.mode });
+    return this.client.call('save', params);
   }
 
-  async search(params: ServiceSearchParams): Promise<MemorySearchHit[]> {
-    const scope = this.sync.resolveScope(params.projectId, params.threadId);
-    return this.sync.search(scope, params);
+  search(params: ServiceSearchParams): Promise<MemorySearchHit[]> {
+    return this.client.call('search', params);
   }
 
-  async searchCode(params: CodeSearchParams): Promise<CodeSearchHit[]> {
-    const scope = this.sync.resolveScope(params.projectId, params.threadId);
-    return this.sync.searchCode(scope, params);
+  searchCode(params: CodeSearchParams): Promise<CodeSearchHit[]> {
+    return this.client.call('searchCode', params);
   }
 
-  async get(params: {
+  get(params: {
     projectId?: string | null;
     threadId?: string | null;
     entryId?: string;
     path?: string;
     skipExpansion?: boolean;
   }): Promise<MemoryEntryRecord | null> {
-    const scope = this.sync.resolveScope(params.projectId, params.threadId);
-    return this.content.get(scope, { entryId: params.entryId, path: params.path, skipExpansion: params.skipExpansion });
+    return this.client.call('get', params);
   }
 
   listChunks(params: {
@@ -180,111 +199,70 @@ export class AgentOSMemoryService {
     source?: 'all' | 'memory' | 'sessions' | 'code';
     page: number;
     pageSize: number;
-  }): MemoryListResult {
-    const scope = this.sync.resolveScope(params.projectId, params.threadId);
-    return this.content.listChunks(scope, { source: params.source, page: params.page, pageSize: params.pageSize });
+  }): Promise<MemoryListResult> {
+    return this.client.call('listChunks', params);
   }
 
-  deleteChunk(params: { projectId?: string | null; threadId?: string | null; chunkId: string }): void {
-    const scope = this.sync.resolveScope(params.projectId, params.threadId);
-    this.content.deleteChunk(scope, params.chunkId);
+  deleteChunk(params: { projectId?: string | null; threadId?: string | null; chunkId: string }): Promise<void> {
+    return this.client.call('deleteChunk', params);
   }
 
-  deleteFile(params: { projectId?: string | null; threadId?: string | null; path: string }): void {
-    const scope = this.sync.resolveScope(params.projectId, params.threadId);
-    this.content.deleteFile(scope, params.path);
+  deleteFile(params: { projectId?: string | null; threadId?: string | null; path: string }): Promise<void> {
+    return this.client.call('deleteFile', params);
   }
 
-  updateChunk(params: { projectId?: string | null; threadId?: string | null; chunkId: string; text: string }): void {
-    const scope = this.sync.resolveScope(params.projectId, params.threadId);
-    this.content.updateChunk(scope, params.chunkId, params.text);
+  updateChunk(params: {
+    projectId?: string | null;
+    threadId?: string | null;
+    chunkId: string;
+    text: string;
+  }): Promise<void> {
+    return this.client.call('updateChunk', params);
   }
 
-  pinChunk(params: { projectId?: string | null; threadId?: string | null; chunkId: string; pinned: boolean }): void {
-    const scope = this.sync.resolveScope(params.projectId, params.threadId);
-    this.content.pinChunk(scope, params.chunkId, params.pinned);
+  pinChunk(params: {
+    projectId?: string | null;
+    threadId?: string | null;
+    chunkId: string;
+    pinned: boolean;
+  }): Promise<void> {
+    return this.client.call('pinChunk', params);
   }
 
-  getThreadChunks(threadId: string, limit = 5): MemoryThreadChunk[] {
-    try {
-      const scope = this.sync.resolveScope(undefined, threadId);
-      return this.stats.getThreadChunks(scope.projectId, threadId, limit);
-    } catch {
-      return [];
-    }
+  getThreadChunks(threadId: string, limit = 5): Promise<MemoryThreadChunk[]> {
+    return this.client.call('getThreadChunks', { threadId, limit });
   }
 
-  getGlobalExpansionCounts(): { thisWeek: number; lastWeek: number } {
-    return this.stats.getGlobalExpansionCounts();
+  getGlobalExpansionCounts(): Promise<{ thisWeek: number; lastWeek: number }> {
+    return this.client.call('getGlobalExpansionCounts', null);
   }
 
-  getProjectStats(projectId: string): MemoryProjectStats {
-    return this.stats.getProjectStats(projectId);
+  getProjectStats(projectId: string): Promise<MemoryProjectStats> {
+    return this.client.call('getProjectStats', { projectId });
   }
 
-  invalidateProject(projectId: string): void {
-    closeProjectDb(projectId);
-    this.sync.clearProject(projectId);
-    this.stats.invalidate(projectId);
+  invalidateProject(projectId: string): Promise<void> {
+    return this.client.call('invalidateProject', { projectId });
   }
 
-  private clearDataTransaction(
-    db: ReturnType<typeof getProjectDb>,
-    hasVecTable: boolean,
-    target: 'memory' | 'sessions' | 'code' | 'graph'
-  ): number {
-    let cleared = 0;
-    db.transaction(() => {
-      if (target === 'memory' || target === 'sessions') {
-        if (hasVecTable) {
-          db.prepare('DELETE FROM chunks_vec WHERE id IN (SELECT id FROM chunks WHERE source = ?)').run(target);
-        }
-        db.prepare('DELETE FROM chunks_fts WHERE source = ?').run(target);
-        db.prepare('DELETE FROM embedding_cache WHERE hash IN (SELECT DISTINCT hash FROM chunks WHERE source = ?)').run(
-          target
-        );
-        cleared = db.prepare('DELETE FROM chunks WHERE source = ?').run(target).changes;
-      } else if (target === 'code') {
-        if (hasVecTable) {
-          db.prepare("DELETE FROM chunks_vec WHERE id IN (SELECT id FROM chunks WHERE source = 'code')").run();
-        }
-        db.prepare("DELETE FROM chunks_fts WHERE source = 'code'").run();
-        db.prepare(
-          "DELETE FROM embedding_cache WHERE hash IN (SELECT DISTINCT hash FROM chunks WHERE source = 'code')"
-        ).run();
-        cleared = db.prepare("DELETE FROM chunks WHERE source = 'code'").run().changes;
-        db.prepare('DELETE FROM files').run();
-      } else {
-        // graph: clear all graph tables including the FTS shadow table
-        db.prepare('DELETE FROM observations_fts').run();
-        db.prepare('DELETE FROM observations').run();
-        db.prepare('DELETE FROM edges').run();
-        cleared = db.prepare('DELETE FROM entities').run().changes; // entity_chunks cascades from entities
-      }
-    })();
-    return cleared;
+  resetEmbeddings(projectId: string, target: 'memory' | 'sessions' | 'code' | 'graph'): Promise<{ cleared: number }> {
+    return this.client.call('resetEmbeddings', { projectId, target });
   }
 
-  resetEmbeddings(projectId: string, target: 'memory' | 'sessions' | 'code' | 'graph'): { cleared: number } {
-    const db = getProjectDb(projectId);
-    const hasVecTable = checkVecTable(db);
-    const cleared = this.clearDataTransaction(db, hasVecTable, target);
-    this.sync.clearProject(projectId);
-    this.stats.invalidate(projectId);
-    const scope = this.sync.resolveScope(projectId, null);
-    // graph reset re-syncs memory so the graph gets rebuilt from existing chunks
-    const reembedTarget = target === 'code' ? 'code' : 'memory';
-    this.sync.scheduleReembed(scope, reembedTarget);
-    return { cleared };
+  deleteData(projectId: string, target: 'memory' | 'sessions' | 'code' | 'graph'): Promise<{ cleared: number }> {
+    return this.client.call('deleteData', { projectId, target });
   }
 
-  deleteData(projectId: string, target: 'memory' | 'sessions' | 'code' | 'graph'): { cleared: number } {
-    const db = getProjectDb(projectId);
-    const hasVecTable = checkVecTable(db);
-    const cleared = this.clearDataTransaction(db, hasVecTable, target);
-    this.sync.clearProject(projectId);
-    this.stats.invalidate(projectId);
-    return { cleared };
+  // Targeted rebuild: clears entities + edges only (preserves observations).
+  // The renderer's "Reindex Graph" button — distinct from deleteData('graph'),
+  // which is the destructive Reset operation.
+  reindexGraph(projectId: string): Promise<{ entityCount: number; edgeCount: number }> {
+    return this.client.call('reindexGraph', { projectId });
+  }
+
+  // Lifecycle hook for app quit — drains pending work and tears down the worker.
+  async shutdown(): Promise<void> {
+    await this.client.shutdown();
   }
 }
 

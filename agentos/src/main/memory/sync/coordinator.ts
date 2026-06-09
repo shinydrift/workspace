@@ -1,9 +1,12 @@
 import path from 'path';
 import fs from 'fs';
-import { getStore, settingsEvents } from '../../store/index';
-import { getAllProjects } from '../../threads/db';
-import { eventLogger } from '../../utils/eventLog';
-import { broadcastToWindows } from '../../sessions/broadcaster';
+import {
+  runtimeLogger as eventLogger,
+  runtimeSettings,
+  runtimeOnSettingsChange,
+  runtimeProjects,
+  runtimeBroadcast,
+} from '../runtime';
 import { getProjectDb } from '../projectDb';
 import { getProvider } from '../embedding/cache';
 import { pruneOrphanData } from '../orphanPruner';
@@ -59,10 +62,10 @@ export class MemorySyncCoordinator {
     if (this.homeDir) return;
     this.homeDir = homeDir;
     this.memoryDir = path.join(homeDir, '.agentos');
-    const initialSettings = getStore().get('settings');
+    const initialSettings = runtimeSettings();
     this.lastMemoryRootPath = initialSettings.memoryRootPath ?? null;
     this.lastExtraMemoryPaths = initialSettings.extraMemoryPaths ?? [];
-    settingsEvents.on('change', (updated) => this.onSettingsChange(updated));
+    runtimeOnSettingsChange((updated) => this.onSettingsChange(updated));
   }
 
   async warmup(): Promise<void> {
@@ -77,10 +80,10 @@ export class MemorySyncCoordinator {
       });
     });
 
-    const settings = getStore().get('settings');
+    const settings = runtimeSettings();
     const memoryRootPath = settings.memoryRootPath ?? path.join(homeDir, '.agentos', 'memory', 'projects');
     await Promise.all(
-      getAllProjects().map(async ({ id: projectId }) => {
+      runtimeProjects().map(async ({ id: projectId }) => {
         await fs.promises.mkdir(path.join(memoryRootPath, projectId), { recursive: true });
         const scope = resolveSyncScope(projectId, null, homeDir);
         this.scheduleMemorySync(scope);
@@ -117,7 +120,7 @@ export class MemorySyncCoordinator {
   }
 
   async search(scope: SyncScope, params: CoordinatorSearchParams): Promise<MemorySearchHit[]> {
-    const settings = getStore().get('settings');
+    const settings = runtimeSettings();
     const provider = await getProvider(settings);
     const dirty = !this.syncedProjects.has(scope.projectId) || this.dirtyProjects.has(scope.projectId);
 
@@ -145,7 +148,7 @@ export class MemorySyncCoordinator {
   }
 
   async searchCode(scope: SyncScope, params: CodeSearchParams): Promise<CodeSearchHit[]> {
-    const settings = getStore().get('settings');
+    const settings = runtimeSettings();
     const provider = await getProvider(settings);
     const dirty = !this.syncedProjects.has(scope.projectId) || this.dirtyProjects.has(scope.projectId);
 
@@ -160,7 +163,7 @@ export class MemorySyncCoordinator {
   }
 
   private broadcastIndexStatus(event: MemoryIndexStatusEvent): void {
-    broadcastToWindows(IPC_EVENTS.MEMORY_INDEX_STATUS, event);
+    runtimeBroadcast(IPC_EVENTS.MEMORY_INDEX_STATUS, event);
   }
 
   // Kick off a background re-embed for the given target without waiting for a search trigger.
@@ -178,7 +181,7 @@ export class MemorySyncCoordinator {
     const existing = this.memorySyncPromises.get(scope.projectId);
     if (existing) return existing;
     this.broadcastIndexStatus({ projectId: scope.projectId, phase: 'memory', state: 'started' });
-    const settings = getStore().get('settings');
+    const settings = runtimeSettings();
     const startGen = this.dirtyGen.get(scope.projectId) ?? 0;
     const p = getProvider(settings)
       .then((provider) => syncProject(scope, provider))
@@ -213,7 +216,7 @@ export class MemorySyncCoordinator {
       return Promise.resolve();
     }
     this.broadcastIndexStatus({ projectId: scope.projectId, phase: 'code', state: 'started' });
-    const settings = getStore().get('settings');
+    const settings = runtimeSettings();
     const p = getProvider(settings)
       .then((provider) => syncCodeFiles(scope, provider))
       .then(() => {
@@ -236,7 +239,7 @@ export class MemorySyncCoordinator {
     ]);
     this.memorySyncPromises.delete(scope.projectId);
     this.codeIndexingPromises.delete(scope.projectId);
-    const settings = getStore().get('settings');
+    const settings = runtimeSettings();
     const provider = await getProvider(settings);
     const db = getProjectDb(scope.projectId);
     db.exec('DELETE FROM files');
@@ -255,13 +258,13 @@ export class MemorySyncCoordinator {
   }
 
   async status(scope: SyncScope): Promise<MemoryIndexStatus> {
-    const settings = getStore().get('settings');
+    const settings = runtimeSettings();
     const provider = await getProvider(settings);
     return memoryStatus(scope, getProjectDb(scope.projectId), provider, this.homeDir!);
   }
 
   async doctor(scope: SyncScope): Promise<MemoryDoctorResult> {
-    const settings = getStore().get('settings');
+    const settings = runtimeSettings();
     let provider: EmbeddingProvider | null = null;
     let providerError: string | undefined;
     try {
@@ -273,7 +276,7 @@ export class MemorySyncCoordinator {
   }
 
   async healthCheck(scope: SyncScope): Promise<MemoryHealthReport> {
-    const settings = getStore().get('settings');
+    const settings = runtimeSettings();
     const provider = await getProvider(settings).catch((): null => null);
     return memoryHealthCheck(scope, getProjectDb(scope.projectId), provider);
   }
@@ -339,7 +342,7 @@ export class MemorySyncCoordinator {
   }
 
   private runMaintenance(): void {
-    const settings = getStore().get('settings');
+    const settings = runtimeSettings();
     for (const projectId of this.syncedProjects) {
       try {
         const scope = resolveSyncScope(projectId, null, this.homeDir!);

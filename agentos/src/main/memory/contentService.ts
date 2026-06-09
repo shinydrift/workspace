@@ -1,8 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { randomUUID } from 'crypto';
-import { getStore } from '../store/index';
-import { logNonFatal } from '../utils/errorReporting';
+import { runtimeSettings, runtimeLogger } from './runtime';
 import { getProjectDb } from './projectDb';
 import { ensureVecTable } from './vecSupport';
 import {
@@ -69,7 +68,7 @@ export class MemoryContentService {
     params: { threadId: string; summary: string; text: string; chunkId?: string }
   ): Promise<{ chunkId: string }> {
     const db = getProjectDb(scope.projectId);
-    const settings = getStore().get('settings');
+    const settings = runtimeSettings();
     // Provider resolves from the cache after warmup, so this is a near-instant await
     // in steady state. We need the real model name here so the chunk passes the
     // `c.model = ?` filter in search/engine.ts immediately, even before the
@@ -127,7 +126,7 @@ export class MemoryContentService {
         // Re-resolve the provider so a settings change between the sync insert
         // and this bg run doesn't leave the chunk embedded by the old provider
         // (and thus filtered out of search by the `c.model = ?` clause).
-        const liveSettings = getStore().get('settings');
+        const liveSettings = runtimeSettings();
         const liveProvider = await getProvider(liveSettings);
         if (!liveProvider) return;
         const liveHasVecTable = ensureVecTable(db, liveProvider.dims);
@@ -175,7 +174,9 @@ export class MemoryContentService {
       // chunk counts until the file is re-indexed on the next search.
       getProjectDb(scope.projectId).prepare('DELETE FROM files WHERE path = ?').run(relPath);
     } catch (err) {
-      logNonFatal('memory', 'invalidate-file-index', err);
+      runtimeLogger.error('memory', 'invalidate-file-index failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
     return { savedPath: fullPath, bytesWritten: Buffer.byteLength(nextContent, 'utf8') };
   }

@@ -196,6 +196,11 @@ const config: ForgeConfig = {
           target: 'main',
         },
         {
+          entry: 'src/main/memory/worker/indexer.ts',
+          config: 'vite.indexer.config.ts',
+          target: 'main',
+        },
+        {
           entry: 'src/preload/index.ts',
           config: 'vite.preload.config.ts',
           target: 'preload',

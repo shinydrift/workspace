@@ -1,13 +1,10 @@
 import fs from 'fs';
 import path from 'path';
-import { getAllProjects } from '../threads/db';
-import * as threadStore from '../threads/threadStore';
-import { getStore } from '../store/index';
-import { eventLogger } from '../utils/eventLog';
+import { runtimeProjects, runtimeAllThreads, runtimeSettings, runtimeLogger as eventLogger } from './runtime';
 
 export async function pruneOrphanData(homeDir: string, memoryDir: string): Promise<void> {
-  const knownProjectIds = new Set(getAllProjects().map((p) => p.id));
-  const knownThreadIds = new Set(threadStore.getAllThreads().map((t) => t.id));
+  const knownProjectIds = new Set(runtimeProjects().map((p) => p.id));
+  const knownThreadIds = new Set(runtimeAllThreads().map((t) => t.id));
   let pruned = 0;
 
   const tryUnlink = async (p: string) => {
@@ -30,7 +27,7 @@ export async function pruneOrphanData(homeDir: string, memoryDir: string): Promi
     /* dir may not exist yet */
   }
 
-  const logRetentionDays = getStore().get('settings').logRetentionDays ?? 30;
+  const logRetentionDays = runtimeSettings().logRetentionDays ?? 30;
   const logCutoffMs = Date.now() - logRetentionDays * 24 * 60 * 60 * 1000;
 
   const logsDir = path.join(memoryDir, 'logs');

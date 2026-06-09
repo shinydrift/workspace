@@ -165,9 +165,9 @@ function buildKanbanConfig(): Parameters<typeof kanbanEventRouter.init>[0] {
           content: `# ${task.title}\n\n${notes}`,
           mode: 'overwrite',
         })
-        .then((): void => {
+        .then(async (): Promise<void> => {
           try {
-            agentOSMemoryService.linkEntities({
+            await agentOSMemoryService.linkEntities({
               projectId,
               entities: [
                 {
@@ -426,9 +426,16 @@ export function bootServices(
   disposables.push(threadMcpServer);
   disposables.push(memoryMcpServer);
   // Drain background embed work before the app exits — otherwise enqueued
-  // chunks_vec writes from in-flight saveChunk calls never land.
+  // chunks_vec writes from in-flight saveChunk calls never land. Then shut
+  // down the memory utilityProcess so the WAL closes cleanly.
   disposables.push({
-    dispose: () => agentOSMemoryService.flushPending(),
+    dispose: async () => {
+      try {
+        await agentOSMemoryService.flushPending();
+      } finally {
+        await agentOSMemoryService.shutdown();
+      }
+    },
   });
   disposables.push(recordingsMcpServer);
   disposables.push(councilMcpServer);

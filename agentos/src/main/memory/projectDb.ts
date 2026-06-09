@@ -1,6 +1,6 @@
 import path from 'path';
 import fs from 'fs';
-import { eventLogger } from '../utils/eventLog';
+import { runtimeLogger as eventLogger } from './runtime';
 // eslint-disable-next-line import/no-named-as-default
 import type Database from 'better-sqlite3';
 import { openDb } from '../db/openDb';

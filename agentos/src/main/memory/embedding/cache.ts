@@ -1,7 +1,7 @@
 // eslint-disable-next-line import/no-named-as-default
 import type Database from 'better-sqlite3';
 import { createEmbeddingProvider, type EmbeddingProvider } from './provider';
-import { eventLogger } from '../../utils/eventLog';
+import { runtimeLogger as eventLogger } from '../runtime';
 
 const EMBEDDING_BATCH_SIZE = 16;
 const EMBEDDING_CACHE_MAX_ENTRIES = 10_000;
