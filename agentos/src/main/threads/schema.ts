@@ -111,7 +111,6 @@ export const slackThreadBindings = sqliteTable(
     threadTs: text('thread_ts').notNull(),
     createdAt: integer('created_at').notNull(),
     lastInboundTs: text('last_inbound_ts'),
-    workspacePath: text('workspace_path'),
   },
   (table) => [index('idx_stb_channel').on(table.channelId), index('idx_stb_thread_id').on(table.threadId)]
 );

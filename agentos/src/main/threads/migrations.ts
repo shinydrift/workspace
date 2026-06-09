@@ -380,6 +380,31 @@ CREATE INDEX idx_threads_parent      ON threads(parent_thread_id);
     name: '0005_rename_personality_refresh_to_system',
     sql: `ALTER TABLE automation_jobs RENAME COLUMN personality_refresh TO is_system;`,
   },
+  {
+    name: '0006_drop_slack_binding_workspace_path',
+    // workspace_path overlapped with threads.working_directory and went stale when worktrees
+    // diverged. The MCP upload_file resolver now reads thread.workingDirectory directly, and
+    // slackRoutingService seeds new threads from the channel mapping — so the column has no
+    // remaining reader. Rebuild the table to drop it (SQLite < 3.35 has no DROP COLUMN).
+    sql: `
+CREATE TABLE slack_thread_bindings_new (
+  key             TEXT PRIMARY KEY,
+  thread_id       TEXT REFERENCES threads(id) ON DELETE SET NULL,
+  channel_id      TEXT NOT NULL,
+  thread_ts       TEXT NOT NULL,
+  created_at      INTEGER NOT NULL,
+  last_inbound_ts TEXT
+);
+INSERT INTO slack_thread_bindings_new
+  (key, thread_id, channel_id, thread_ts, created_at, last_inbound_ts)
+  SELECT key, thread_id, channel_id, thread_ts, created_at, last_inbound_ts
+  FROM slack_thread_bindings;
+DROP TABLE slack_thread_bindings;
+ALTER TABLE slack_thread_bindings_new RENAME TO slack_thread_bindings;
+CREATE INDEX idx_stb_channel   ON slack_thread_bindings(channel_id);
+CREATE INDEX idx_stb_thread_id ON slack_thread_bindings(thread_id);
+`,
+  },
 ];
 
 // Derived from THREADS_MIGRATIONS so the seeding branch never goes stale.

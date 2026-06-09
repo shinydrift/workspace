@@ -113,7 +113,7 @@ export async function createMainThread(projectId: string, task: KanbanTask): Pro
     if (slackCtx) {
       if (!task.slackThreadTs) kanbanDb.updateTaskSlack(projectId, task.id, slackCtx.channelId, slackCtx.threadTs);
       threadManager.setSlackContext(threadId, slackCtx);
-      slackBridge.bindThreadToSlackThread(threadId, slackCtx.channelId, slackCtx.threadTs, workingDirectory);
+      slackBridge.bindThreadToSlackThread(threadId, slackCtx.channelId, slackCtx.threadTs);
     }
 
     threadManager.setThreadAutopilot(threadId, true);

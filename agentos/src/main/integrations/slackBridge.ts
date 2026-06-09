@@ -14,6 +14,7 @@ import { SlackFileService } from './slackFileService';
 import { SlackCatchupService, type SlackInboundEvent } from './slackCatchupService';
 import { SlackRoutingService } from './slackRoutingService';
 import { SlackThreadResolver } from './slackThreadResolver';
+import { resolveSlackUploadWorkspace } from './slackUploadWorkspace';
 import { getProject, getSlackBinding } from '../threads/db';
 import { getThread } from '../threads/threadStore';
 
@@ -124,14 +125,7 @@ class SlackBridge extends BaseBridge<SlackBridgeDeps> {
       slackMcpServer.init(this.webClient, (channelId, threadTs) => {
         if (threadTs === undefined) return null;
         const binding = getSlackBinding(`${channelId}:${threadTs}`);
-        if (!binding) return null;
-        if (binding.workspacePath) return binding.workspacePath;
-        // Legacy binding rows can have a null workspace_path. Fall back to the thread's
-        // workingDirectory so old conversations don't fail upload_file with "No workspace bound".
-        if (binding.threadId) {
-          return getThread(binding.threadId)?.workingDirectory ?? null;
-        }
-        return null;
+        return resolveSlackUploadWorkspace(binding, (threadId) => getThread(threadId)?.workingDirectory ?? null);
       });
       slackMcpServer.start();
       this.startedBotToken = botToken;
@@ -339,8 +333,8 @@ class SlackBridge extends BaseBridge<SlackBridgeDeps> {
    * user's own Slack-initiated thread). Reconcile is unaffected: the dead main
    * thread's binding is reclaimable because that thread is no longer running.
    */
-  bindThreadToSlackThread(threadId: string, channelId: string, threadTs: string, workspacePath: string): void {
-    const binding = this.workspaceManager.resolveOrCreateBinding(channelId, threadTs, workspacePath);
+  bindThreadToSlackThread(threadId: string, channelId: string, threadTs: string): void {
+    const binding = this.workspaceManager.resolveOrCreateBinding(channelId, threadTs);
     if (binding.threadId && binding.threadId !== threadId && getThread(binding.threadId)?.status === 'running') {
       return;
     }

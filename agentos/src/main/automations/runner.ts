@@ -65,8 +65,7 @@ async function postAutomationStartMessage(job: AutomationJob): Promise<{ channel
 async function setupNotificationContext(
   threadId: string,
   job: AutomationJob,
-  slackStart: { channelId: string; threadTs: string } | null,
-  workspacePath: string
+  slackStart: { channelId: string; threadTs: string } | null
 ): Promise<void> {
   const notification = job.notification;
   if (!notification) return;
@@ -74,7 +73,7 @@ async function setupNotificationContext(
   if (notification.channel === 'slack') {
     if (slackStart) {
       threadManager.setSlackContext(threadId, slackStart);
-      slackBridge.bindThreadToSlackThread(threadId, slackStart.channelId, slackStart.threadTs, workspacePath);
+      slackBridge.bindThreadToSlackThread(threadId, slackStart.channelId, slackStart.threadTs);
       eventLogger.info('automation', 'Slack context set for automation thread', {
         automationId: job.id,
         threadId,
@@ -144,7 +143,7 @@ export async function executeRun(
   const thread = threadManager.getThread(threadId);
   if (!thread) throw new Error(`Thread ${threadId} not found after creation`);
 
-  await setupNotificationContext(threadId, job, slackStart, projectPath);
+  await setupNotificationContext(threadId, job, slackStart);
 
   if (thread.status !== 'running') {
     await threadManager.startThread(threadId);

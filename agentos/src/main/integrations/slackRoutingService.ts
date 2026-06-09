@@ -94,11 +94,7 @@ export class SlackRoutingService {
       return;
     }
 
-    const binding = this.args.workspaceManager.resolveOrCreateBinding(
-      params.channelId,
-      params.rootThreadTs,
-      params.defaultWorkingDirectory
-    );
+    const binding = this.args.workspaceManager.resolveOrCreateBinding(params.channelId, params.rootThreadTs);
     // Mark as processed BEFORE awaiting executeTask so a catchup sweep that fires
     // during a long-running turn doesn't re-enqueue the same message. Without this,
     // slow providers (claude-interactive's first turn can take 60-90s) racked up
@@ -143,8 +139,7 @@ export class SlackRoutingService {
   ): Promise<string> {
     const deps = this.args.getDeps();
     if (!deps || !params.defaultWorkingDirectory) throw new Error('Slack bridge dependencies unavailable.');
-    const workspacePath = binding.workspacePath ?? params.defaultWorkingDirectory;
-    if (!workspacePath) throw new Error('Slack workspace path unavailable.');
+    const workspacePath = params.defaultWorkingDirectory;
 
     let threadId = binding.threadId;
     let threadWorkingDirectory: string;

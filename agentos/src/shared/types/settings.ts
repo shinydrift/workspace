@@ -243,5 +243,4 @@ export interface SlackThreadBinding {
   threadTs: string;
   createdAt: number;
   lastInboundTs?: string; // kept for backwards compat with existing stored data
-  workspacePath?: string;
 }

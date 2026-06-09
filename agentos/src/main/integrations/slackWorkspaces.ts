@@ -19,7 +19,6 @@ export type SlackBinding = {
   channelId: string;
   threadTs: string;
   threadId?: string;
-  workspacePath?: string;
   createdAt: number;
   lastInboundTs?: string; // kept for backwards compat with existing stored data
 };
@@ -31,7 +30,7 @@ export class SlackWorkspaceManager {
     this.webClient = client;
   }
 
-  resolveOrCreateBinding(channelId: string, threadTs: string, defaultWorkingDirectory: string): SlackBinding {
+  resolveOrCreateBinding(channelId: string, threadTs: string): SlackBinding {
     const key = `${channelId}:${threadTs}`;
     const existing = getSlackBinding(key);
     if (existing) return existing;
@@ -41,7 +40,6 @@ export class SlackWorkspaceManager {
       channelId,
       threadTs,
       createdAt: Date.now(),
-      workspacePath: defaultWorkingDirectory,
     };
     saveSlackBinding(binding);
     return binding;

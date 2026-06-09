@@ -114,8 +114,7 @@ CREATE TABLE slack_thread_bindings (
   channel_id      TEXT NOT NULL,
   thread_ts       TEXT NOT NULL,
   created_at      INTEGER NOT NULL,
-  last_inbound_ts TEXT,
-  workspace_path  TEXT
+  last_inbound_ts TEXT
 );
 CREATE INDEX idx_stb_channel   ON slack_thread_bindings(channel_id);
 CREATE INDEX idx_stb_thread_id ON slack_thread_bindings(thread_id);

@@ -254,7 +254,6 @@ function rowToBinding(row: BindingRow): SlackThreadBinding {
     threadTs: row.threadTs,
     createdAt: row.createdAt,
     lastInboundTs: row.lastInboundTs ?? undefined,
-    workspacePath: row.workspacePath ?? undefined,
   };
 }
 
@@ -266,7 +265,6 @@ function bindingToRow(binding: SlackThreadBinding): typeof slackThreadBindings.$
     threadTs: binding.threadTs,
     createdAt: binding.createdAt,
     lastInboundTs: binding.lastInboundTs ?? null,
-    workspacePath: binding.workspacePath ?? null,
   };
 }
 
