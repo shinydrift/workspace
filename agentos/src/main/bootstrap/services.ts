@@ -425,6 +425,11 @@ export function bootServices(
   if (FEATURES.KANBAN) disposables.push(kanbanMcpServer);
   disposables.push(threadMcpServer);
   disposables.push(memoryMcpServer);
+  // Drain background embed work before the app exits — otherwise enqueued
+  // chunks_vec writes from in-flight saveChunk calls never land.
+  disposables.push({
+    dispose: () => agentOSMemoryService.flushPending(),
+  });
   disposables.push(recordingsMcpServer);
   disposables.push(councilMcpServer);
   disposables.push(autopilotMcpServer);

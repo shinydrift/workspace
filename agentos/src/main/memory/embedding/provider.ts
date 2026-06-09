@@ -173,50 +173,63 @@ function createMistralProvider(apiKey: string): EmbeddingProvider {
 // ─── Local provider (node-llama-cpp) ─────────────────────────────────────────
 
 let localProvider: EmbeddingProvider | null | undefined; // undefined = not initialized
+// In-flight load promise so concurrent first-callers share one loadModel call
+// instead of each spinning up their own (model load is 5-30s and the resolveModelFile
+// call may download a multi-hundred-MB GGUF).
+let localProviderLoading: Promise<EmbeddingProvider | null> | null = null;
 
 async function createLocalProvider(modelPath?: string | null): Promise<EmbeddingProvider | null> {
   if (localProvider !== undefined) return localProvider;
-  try {
-    // Lazy import — node-llama-cpp is a heavy native module
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const llamaCpp = (await import('node-llama-cpp')) as any;
-    const llama = await llamaCpp.getLlama({ logLevel: 'error' });
-    const hfPath =
-      modelPath?.trim() || 'hf:ggml-org/embeddinggemma-300m-qat-q8_0-GGUF/embeddinggemma-300m-qat-Q8_0.gguf';
-    // resolveModelFile handles hf: URLs (downloads if needed) and returns an absolute path.
-    // loadModel only accepts absolute paths, not hf: URLs.
-    const resolvedModelPath: string = await llamaCpp.resolveModelFile(hfPath);
-    const model = await llama.loadModel({ modelPath: resolvedModelPath });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const ctx: any = await model.createEmbeddingContext();
-    const dims = (typeof ctx.embeddingDimensions === 'number' ? ctx.embeddingDimensions : null) ?? 768;
+  if (localProviderLoading) return localProviderLoading;
+  localProviderLoading = (async () => {
+    try {
+      // Lazy import — node-llama-cpp is a heavy native module
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const llamaCpp = (await import('node-llama-cpp')) as any;
+      const llama = await llamaCpp.getLlama({ logLevel: 'error' });
+      const hfPath =
+        modelPath?.trim() || 'hf:ggml-org/embeddinggemma-300m-qat-q8_0-GGUF/embeddinggemma-300m-qat-Q8_0.gguf';
+      // resolveModelFile handles hf: URLs (downloads if needed) and returns an absolute path.
+      // loadModel only accepts absolute paths, not hf: URLs.
+      const resolvedModelPath: string = await llamaCpp.resolveModelFile(hfPath);
+      const model = await llama.loadModel({ modelPath: resolvedModelPath });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const ctx: any = await model.createEmbeddingContext();
+      const dims = (typeof ctx.embeddingDimensions === 'number' ? ctx.embeddingDimensions : null) ?? 768;
 
-    localProvider = {
-      id: 'local',
-      model: resolvedModelPath,
-      dims,
-      providerKey: providerKey({ id: 'local', modelPath: resolvedModelPath }),
-      async embedQuery(text) {
-        return (await this.embedBatch([text]))[0] ?? [];
-      },
-      async embedBatch(texts) {
-        const results: number[][] = [];
-        for (const text of texts) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const raw: any = await ctx.getEmbeddingFor(text);
-          const vec: number[] = Array.from(raw.vector as ArrayLike<number>);
-          // Normalize to unit vector
-          const norm = Math.sqrt(vec.reduce((s: number, v: number) => s + v * v, 0)) || 1;
-          results.push(vec.map((v: number) => v / norm));
-        }
-        return results;
-      },
-    };
-    return localProvider;
-  } catch {
-    localProvider = null;
-    return null;
-  }
+      localProvider = {
+        id: 'local',
+        model: resolvedModelPath,
+        dims,
+        providerKey: providerKey({ id: 'local', modelPath: resolvedModelPath }),
+        async embedQuery(text) {
+          return (await this.embedBatch([text]))[0] ?? [];
+        },
+        async embedBatch(texts) {
+          // Serial loop: node-llama-cpp's embedding context is a single resource
+          // and parallel submission via Promise.all has not been verified safe
+          // (would need a benchmark + memory check). Each await still yields the
+          // event loop between texts, which is the important property here.
+          const results: number[][] = [];
+          for (const text of texts) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const raw: any = await ctx.getEmbeddingFor(text);
+            const vec: number[] = Array.from(raw.vector as ArrayLike<number>);
+            const norm = Math.sqrt(vec.reduce((s: number, v: number) => s + v * v, 0)) || 1;
+            results.push(vec.map((v: number) => v / norm));
+          }
+          return results;
+        },
+      };
+      return localProvider;
+    } catch {
+      localProvider = null;
+      return null;
+    } finally {
+      localProviderLoading = null;
+    }
+  })();
+  return localProviderLoading;
 }
 
 // ─── Fallback cascade ────────────────────────────────────────────────────────

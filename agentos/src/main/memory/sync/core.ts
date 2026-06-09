@@ -107,7 +107,10 @@ async function flushChunks(
       ? db.prepare('INSERT OR REPLACE INTO chunks_vec (id, embedding) VALUES (?, vec_f32(?))')
       : null;
 
-  const FLUSH_BATCH_SIZE = 50;
+  // Smaller batches → smaller per-batch sync transactions → shorter event-loop
+  // stalls between yields. better-sqlite3 transactions cannot themselves yield,
+  // so this is the only lever for reducing main-thread blocking inside flushChunks.
+  const FLUSH_BATCH_SIZE = 20;
   for (let i = 0; i < chunks.length; i += FLUSH_BATCH_SIZE) {
     const batch = chunks.slice(i, i + FLUSH_BATCH_SIZE);
     db.transaction(() => {

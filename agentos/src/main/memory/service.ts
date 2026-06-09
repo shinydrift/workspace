@@ -104,6 +104,10 @@ export class AgentOSMemoryService {
     return this.sync.reindex(this.sync.resolveScope(projectId, threadId));
   }
 
+  async flushPending(projectId?: string): Promise<void> {
+    return this.sync.flushPending(projectId);
+  }
+
   graphAll(projectId: string | null | undefined, threadId: string | null | undefined, topK = 2000): GraphQueryResult {
     return this.graph.graphAll(this.sync.resolveScope(projectId, threadId), topK);
   }

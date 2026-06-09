@@ -2,6 +2,11 @@
 import type Database from 'better-sqlite3';
 
 const vecLoadCache = new WeakMap<Database.Database, boolean>();
+// Skip the meta SELECT + CREATE VIRTUAL TABLE IF NOT EXISTS round-trip on every
+// ensureVecTable call. Once we've ensured a (db, dims) pair, the table exists
+// and the dims are recorded — subsequent calls with the same dims are no-ops.
+const ensureVecCache = new WeakMap<Database.Database, number>();
+const ensureObsVecCache = new WeakMap<Database.Database, number>();
 
 function tryLoadSqliteVec(db: Database.Database): boolean {
   if (vecLoadCache.has(db)) return vecLoadCache.get(db)!;
@@ -33,6 +38,7 @@ export function checkObsVecTable(db: Database.Database): boolean {
 }
 
 export function ensureObsVecTable(db: Database.Database, dims: number): boolean {
+  if (ensureObsVecCache.get(db) === dims) return true;
   if (!tryLoadSqliteVec(db)) return false;
   const storedDims = (
     db.prepare('SELECT value FROM meta WHERE key = ?').get('obs_vec_dims') as { value: string } | undefined
@@ -45,10 +51,12 @@ export function ensureObsVecTable(db: Database.Database, dims: number): boolean 
   if (!storedDims) {
     db.prepare('INSERT OR REPLACE INTO meta VALUES (?, ?)').run('obs_vec_dims', String(dims));
   }
+  ensureObsVecCache.set(db, dims);
   return true;
 }
 
 export function ensureVecTable(db: Database.Database, dims: number): boolean {
+  if (ensureVecCache.get(db) === dims) return true;
   if (!tryLoadSqliteVec(db)) return false;
   const storedDims = (
     db.prepare('SELECT value FROM meta WHERE key = ?').get('vec_dims') as { value: string } | undefined
@@ -61,5 +69,6 @@ export function ensureVecTable(db: Database.Database, dims: number): boolean {
   if (!storedDims) {
     db.prepare('INSERT OR REPLACE INTO meta VALUES (?, ?)').run('vec_dims', String(dims));
   }
+  ensureVecCache.set(db, dims);
   return true;
 }

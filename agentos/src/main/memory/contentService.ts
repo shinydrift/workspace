@@ -11,8 +11,10 @@ import {
   updateChunk as dbUpdateChunk,
   pinChunk as dbPinChunk,
   listChunks as dbListChunks,
+  writeChunkEmbedding,
 } from './chunkDb';
 import { getProvider, embedChunks } from './embedding/cache';
+import { enqueueEmbed } from './sync/embedQueue';
 import { createSnippet } from './utils';
 import { hashText } from './sync/core';
 import { MEMORY_SECTION_MAX_CHARS } from './chunking';
@@ -68,22 +70,29 @@ export class MemoryContentService {
   ): Promise<{ chunkId: string }> {
     const db = getProjectDb(scope.projectId);
     const settings = getStore().get('settings');
+    // Provider resolves from the cache after warmup, so this is a near-instant await
+    // in steady state. We need the real model name here so the chunk passes the
+    // `c.model = ?` filter in search/engine.ts immediately, even before the
+    // background embed lands.
     const provider = await getProvider(settings);
     const hasVecTable = provider ? ensureVecTable(db, provider.dims) : false;
+    const modelName = provider?.model ?? '__none__';
     const chunkId = params.chunkId ?? `session:${params.threadId}:${Date.now()}:${randomUUID().slice(0, 8)}`;
     const isUpsert = !!params.chunkId;
     const sessionPath = `sessions/${params.threadId}.jsonl`;
     const embedText = `${params.summary}\n\n${params.text}`;
     const hash = hashText(embedText);
-    const modelName = provider?.model ?? '__none__';
-
-    const embedMap = provider
-      ? await embedChunks(db, provider, [{ id: chunkId, text: embedText, hash }])
-      : new Map<string, number[]>();
-
-    const embedding = embedMap.get(hash) ?? [];
     const now = Date.now();
 
+    // Insert chunk + FTS rows synchronously so the chunk_id is findable via text
+    // search immediately. Embedding + chunks_vec write run in the background queue
+    // below, which lets the caller return without waiting on the HTTP/local-llama
+    // embedding call (the dominant cost in saveChunk).
+    //
+    // The cost of this design is two transactions per saveChunk instead of one
+    // (the original code bundled everything atomically). The extra COMMIT is
+    // worth it: it removes the embedding round-trip from the caller's latency
+    // and lets the chunk become FTS-searchable before the embedding lands.
     db.transaction(() => {
       if (isUpsert) {
         db.prepare('DELETE FROM chunks_fts WHERE id = ?').run(chunkId);
@@ -92,7 +101,7 @@ export class MemoryContentService {
       db.prepare(
         `INSERT ${isUpsert ? 'OR REPLACE ' : ''}INTO chunks
          (id, path, source, start_line, end_line, hash, model, text, summary, embedding, updated_at, project_ids)
-         VALUES (?, ?, 'sessions', ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         VALUES (?, ?, 'sessions', ?, ?, ?, ?, ?, ?, '[]', ?, ?)`
       ).run(
         chunkId,
         sessionPath,
@@ -102,7 +111,6 @@ export class MemoryContentService {
         modelName,
         params.text,
         params.summary,
-        JSON.stringify(embedding),
         now,
         JSON.stringify([scope.projectId])
       );
@@ -110,15 +118,32 @@ export class MemoryContentService {
         `INSERT INTO chunks_fts (id, path, source, model, start_line, end_line, text)
          VALUES (?, ?, 'sessions', ?, ?, ?, ?)`
       ).run(chunkId, sessionPath, modelName, 0, 0, params.text);
-      if (hasVecTable && embedding.length > 0) {
-        db.prepare('INSERT INTO chunks_vec (id, embedding) VALUES (?, vec_f32(?))').run(
-          chunkId,
-          Buffer.from(new Float32Array(embedding).buffer)
-        );
-      }
     })();
     this.stats.invalidate(scope.projectId);
     markMerkleRootDirty(db, scope.projectId);
+
+    if (provider) {
+      void enqueueEmbed(scope.projectId, async () => {
+        // Re-resolve the provider so a settings change between the sync insert
+        // and this bg run doesn't leave the chunk embedded by the old provider
+        // (and thus filtered out of search by the `c.model = ?` clause).
+        const liveSettings = getStore().get('settings');
+        const liveProvider = await getProvider(liveSettings);
+        if (!liveProvider) return;
+        const liveHasVecTable = ensureVecTable(db, liveProvider.dims);
+        const embedMap = await embedChunks(db, liveProvider, [{ id: chunkId, text: embedText, hash }]);
+        const embedding = embedMap.get(hash) ?? [];
+        if (embedding.length === 0) return;
+        // writeChunkEmbedding gates the chunks_vec insert on the UPDATE actually
+        // matching a row — protects against the race where deleteChunk fired
+        // between the sync insert and this bg call (would otherwise orphan a
+        // chunks_vec row pointing at a missing chunks.id).
+        writeChunkEmbedding(db, chunkId, embedding, {
+          hasVecTable: liveHasVecTable,
+          model: liveProvider.model !== modelName ? liveProvider.model : undefined,
+        });
+      });
+    }
 
     return { chunkId };
   }

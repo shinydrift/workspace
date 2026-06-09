@@ -10,6 +10,7 @@ import { pruneOrphanData } from '../orphanPruner';
 import { syncProject, syncCodeFiles, type SyncScope } from './core';
 import { resolveSyncScope } from '../scopeResolver';
 import { MemoryWatcherRegistry } from './watcherRegistry';
+import { flushPendingEmbeds } from './embedQueue';
 import {
   searchMemory,
   searchCode as execCodeSearch,
@@ -85,17 +86,25 @@ export class MemorySyncCoordinator {
         this.scheduleMemorySync(scope);
       })
     );
-    const provider = await getProvider(settings);
-    this.lastProviderKey = provider?.providerKey ?? '';
-    if (provider) {
-      eventLogger.info('memory', 'Embedding provider ready', {
-        provider: provider.id,
-        model: provider.model,
-        dims: provider.dims,
+    // Resolve provider in the background — local-model setups can spend 5-30s in
+    // resolveModelFile + llama.loadModel; awaiting here would block every subsequent
+    // getProvider caller on cold start (search, save, status) until init completes.
+    void getProvider(settings)
+      .then((provider) => {
+        this.lastProviderKey = provider?.providerKey ?? '';
+        if (provider) {
+          eventLogger.info('memory', 'Embedding provider ready', {
+            provider: provider.id,
+            model: provider.model,
+            dims: provider.dims,
+          });
+        } else {
+          eventLogger.warn('memory', 'No embedding provider available; memory search will use FTS-only');
+        }
+      })
+      .catch((err: unknown) => {
+        eventLogger.warn('memory', 'Embedding provider init failed', { err });
       });
-    } else {
-      eventLogger.warn('memory', 'No embedding provider available; memory search will use FTS-only');
-    }
     if (!this.maintenanceInterval) {
       this.maintenanceInterval = setInterval(() => this.runMaintenance(), 3_600_000);
       this.maintenanceInterval.unref?.();
@@ -269,6 +278,12 @@ export class MemorySyncCoordinator {
     return memoryHealthCheck(scope, getProjectDb(scope.projectId), provider);
   }
 
+  // Wait for any background embed work for this project (or all projects) to drain.
+  // Used by tests and shutdown paths so deferred chunks_vec writes don't get stranded.
+  async flushPending(projectId?: string): Promise<void> {
+    await flushPendingEmbeds(projectId);
+  }
+
   clearProject(projectId: string): void {
     this.syncedProjects.delete(projectId);
     this.syncedCodeProjects.delete(projectId);
@@ -298,19 +313,24 @@ export class MemorySyncCoordinator {
       this.codeIndexingPromises.clear();
       clearAllProjectCfgCaches();
     }
-    // Detect embedding provider/model changes — mark all synced projects dirty to force re-embed
+    // Detect embedding provider/model changes — mark all synced projects dirty to force re-embed.
+    // lastProviderKey is now populated by warmup's background getProvider call; until that
+    // resolves it stays the constructor default ''. Treat the first transition from '' as
+    // initialization rather than a real change so a settings event during cold-start doesn't
+    // trigger a bogus re-embed against the empty baseline.
     getProvider(updated)
       .then((provider) => {
         const newKey = provider?.providerKey ?? '';
-        if (newKey !== this.lastProviderKey) {
-          this.lastProviderKey = newKey;
-          clearAllProjectCfgCaches();
-          for (const projectId of [...this.syncedProjects]) {
-            this.syncedProjects.delete(projectId);
-            this.syncedCodeProjects.delete(projectId);
-            this.dirtyProjects.add(projectId);
-            this.dirtyGen.set(projectId, (this.dirtyGen.get(projectId) ?? 0) + 1);
-          }
+        const isFirstInit = this.lastProviderKey === '';
+        if (newKey === this.lastProviderKey) return;
+        this.lastProviderKey = newKey;
+        if (isFirstInit) return;
+        clearAllProjectCfgCaches();
+        for (const projectId of [...this.syncedProjects]) {
+          this.syncedProjects.delete(projectId);
+          this.syncedCodeProjects.delete(projectId);
+          this.dirtyProjects.add(projectId);
+          this.dirtyGen.set(projectId, (this.dirtyGen.get(projectId) ?? 0) + 1);
         }
       })
       .catch(() => {
