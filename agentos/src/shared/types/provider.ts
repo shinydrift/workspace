@@ -45,6 +45,7 @@ export const DEFAULT_BACKEND: Record<Provider, ProviderBackend> = {
 // First entry is treated as the provider's default when no model is selected.
 export const PROVIDER_MODELS: Record<Provider, string[]> = {
   claude: [
+    'claude-fable-5',
     'claude-opus-4-8',
     'claude-opus-4-7',
     'claude-opus-4-7-1m',
@@ -52,6 +53,7 @@ export const PROVIDER_MODELS: Record<Provider, string[]> = {
     'claude-haiku-4-5-20251001',
   ],
   'claude-interactive': [
+    'claude-fable-5',
     'claude-opus-4-8',
     'claude-opus-4-7',
     'claude-opus-4-7-1m',
@@ -66,6 +68,7 @@ export const PROVIDER_MODELS: Record<Provider, string[]> = {
 
 // User-friendly display names sourced from each provider's official documentation.
 export const MODEL_LABEL: Record<string, string> = {
+  'claude-fable-5': 'Fable 5',
   'claude-opus-4-8': 'Opus 4.8',
   'claude-opus-4-7': 'Opus 4.7',
   'claude-opus-4-7-1m': 'Opus 4.7 1M',

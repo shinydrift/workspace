@@ -1,7 +1,7 @@
 // Bundled pricing table — USD per 1M tokens.
-// Prices are approximate list prices as of 2026-05. Update when Anthropic changes pricing.
+// Prices are approximate list prices as of 2026-06. Update when Anthropic changes pricing.
 // PRICING_LAST_UPDATED should be bumped whenever this table is revised.
-export const PRICING_LAST_UPDATED = '2026-05';
+export const PRICING_LAST_UPDATED = '2026-06';
 
 export type ModelPrice = {
   input: number;
@@ -16,9 +16,13 @@ export type ModelPrice = {
 export const TOKEN_PRICES_USD_PER_1M: Record<string, ModelPrice> = {
   // Explicit Opus 4.7/4.8 entries override the legacy 'claude-opus-4' prefix match below.
   // Without these, the fuzzy matcher would bill 4.7/4.8 at the legacy Opus 4 rate of $15/$75.
+  // Fable 5 ($10/$50) is placed AFTER the cheaper Opus entries so that the fuzzy
+  // matcher returns Opus pricing for short free-text prefixes like 'claude' or
+  // 'claude-' (Ollama/OpenRouter model strings) instead of the more expensive Fable 5.
   'claude-opus-4-8': { input: 5.0, output: 25.0, cacheRead: 0.5, cacheCreation: 6.25 },
   'claude-opus-4-7': { input: 5.0, output: 25.0, cacheRead: 0.5, cacheCreation: 6.25 },
   'claude-opus-4-7-1m': { input: 5.0, output: 25.0, cacheRead: 0.5, cacheCreation: 6.25 },
+  'claude-fable-5': { input: 10.0, output: 50.0, cacheRead: 1.0, cacheCreation: 12.5 },
   'claude-opus-4': { input: 15.0, output: 75.0, cacheRead: 1.5, cacheCreation: 18.75 },
   'claude-sonnet-4-6': { input: 3.0, output: 15.0, cacheRead: 0.3, cacheCreation: 3.75 },
   'claude-haiku-4-5': { input: 0.8, output: 4.0, cacheRead: 0.08, cacheCreation: 1.0 },
