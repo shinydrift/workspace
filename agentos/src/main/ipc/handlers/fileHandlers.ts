@@ -4,6 +4,7 @@ import fs from 'fs/promises';
 import { nanoid } from 'nanoid';
 import { z } from 'zod';
 import { IPC_CHANNELS } from '../../../shared/types';
+import { ensureSlackUploadsDir, SLACK_UPLOADS_RELATIVE } from '../../integrations/slackUploadWorkspace';
 import * as threadStore from '../../threads/threadStore';
 import {
   saveRecording,
@@ -67,15 +68,14 @@ export function registerFileHandlers(): void {
       const thread = threadStore.getThread(threadId);
       if (!thread) throw new Error(`Thread ${threadId} not found`);
 
-      const uploadsDir = path.join(thread.workingDirectory, '.agentos', 'uploads');
-      await fs.mkdir(uploadsDir, { recursive: true });
+      const uploadsDir = await ensureSlackUploadsDir(thread.workingDirectory);
 
       const safeName = safeFilename(fileName);
       const destPath = path.join(uploadsDir, safeName);
       assertContained(destPath, uploadsDir);
       await fs.writeFile(destPath, Buffer.from(data));
 
-      return { path: path.join('.agentos', 'uploads', safeName) };
+      return { path: path.join(SLACK_UPLOADS_RELATIVE, safeName) };
     })
   );
 

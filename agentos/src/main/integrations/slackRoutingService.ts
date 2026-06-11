@@ -8,6 +8,7 @@ import type { DedupCache } from './DedupCache';
 import type { SlackBinding, SlackWorkspaceManager } from './slackWorkspaces';
 import type { SlackCatchupService } from './slackCatchupService';
 import type { SlackFile, SlackFileService } from './slackFileService';
+import { ensureSlackUploadsDir, SLACK_UPLOADS_RELATIVE } from './slackUploadWorkspace';
 
 type SlackBridgeDeps = {
   createThread: (req: { name: string; workingDirectory: string }) => Promise<{ id: string; workingDirectory: string }>;
@@ -169,6 +170,18 @@ export class SlackRoutingService {
       threadWorkingDirectory = deps.getThreadWorkingDirectory(threadId) ?? workspacePath;
     }
 
+    // Guarantee `.agentos/uploads/` exists from thread creation so the upload_file MCP tool's
+    // hard path constraint can never trip an agent that's writing the file before the inbound
+    // downloader has run (or in threads that never receive inbound files at all).
+    try {
+      await ensureSlackUploadsDir(threadWorkingDirectory);
+    } catch (error) {
+      eventLogger.warn('slack', 'Failed to ensure Slack uploads directory', {
+        threadId,
+        error: getErrorMessage(error),
+      });
+    }
+
     const autopilotEnabled = Boolean(deps.setAutopilot) && Boolean(getStore().get('settings').autopilot?.enabled);
 
     let input = task;
@@ -200,12 +213,12 @@ export class SlackRoutingService {
       (f) =>
         f.mimetype?.startsWith('audio/') &&
         f.name &&
-        uploadedPaths.includes(path.join('.agentos', 'uploads', path.basename(f.name)))
+        uploadedPaths.includes(path.join(SLACK_UPLOADS_RELATIVE, path.basename(f.name)))
     );
     if (audioFiles.length > 0) {
       const transcripts: string[] = [];
       for (const af of audioFiles) {
-        const absPath = path.join(threadWorkingDirectory, '.agentos', 'uploads', path.basename(af.name!));
+        const absPath = path.join(threadWorkingDirectory, SLACK_UPLOADS_RELATIVE, path.basename(af.name!));
         try {
           const transcript = await audioService.transcribeFromFile(absPath);
           if (transcript) transcripts.push(transcript);

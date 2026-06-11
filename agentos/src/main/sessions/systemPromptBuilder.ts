@@ -164,7 +164,7 @@ export function buildHeadlessSystemPrompt(input: HeadlessPromptInput): HeadlessP
         `You have access to the 'agentos-slack' MCP server with three tools:\n` +
         `- post_update(channel_id, thread_ts, message): post a plan/todos at the start, progress updates during work, and your final result when done.\n` +
         `- ask_clarification(channel_id, thread_ts, questions): post questions to the Slack thread and wait for the user's reply.\n` +
-        `- upload_file(channel_id, thread_ts, file_path, filename?, initial_comment?): upload a file to the Slack thread. file_path must be absolute under /workspace; write outbound files to /workspace/.agentos/uploads/ (same folder inbound attachments land in).\n` +
+        `- upload_file(channel_id, thread_ts, file_path, filename?, initial_comment?): upload a file to the Slack thread. file_path MUST be an absolute path under /workspace/.agentos/uploads/ — write outbound files there (same folder inbound attachments land in). Paths outside that folder are rejected.\n` +
         `Always pass the value of SLACK_CHANNEL_ID as channel_id and SLACK_THREAD_TS as thread_ts.\n` +
         `\nWorkflow:\n` +
         `1. If the request is ambiguous or missing information needed to form a plan, call ask_clarification first and stop — the user will reply in Slack.\n` +

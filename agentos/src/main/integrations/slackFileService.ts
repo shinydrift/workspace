@@ -4,6 +4,7 @@ import { nativeImage } from 'electron';
 import type { WebClient } from '@slack/web-api';
 import { getErrorMessage } from '../../shared/utils/errorMessage';
 import { eventLogger } from '../utils/eventLog';
+import { ensureSlackUploadsDir, SLACK_UPLOADS_RELATIVE } from './slackUploadWorkspace';
 
 // Keep in sync with MAX_DIMENSION / MAX_BYTES in src/renderer/hooks/useAttachedFiles.ts
 const MAX_DIMENSION = 1568;
@@ -52,8 +53,7 @@ export class SlackFileService {
   ): Promise<{ paths: string[]; errors: string[] }> {
     if (!botToken || files.length === 0) return { paths: [], errors: [] };
 
-    const uploadsDir = path.join(workspacePath, '.agentos', 'uploads');
-    await fs.mkdir(uploadsDir, { recursive: true });
+    const uploadsDir = await ensureSlackUploadsDir(workspacePath);
 
     const results = await Promise.allSettled(
       files
@@ -82,7 +82,7 @@ export class SlackFileService {
             safeName = safeName.replace(/\.png$/i, '.jpg');
           }
           await fs.writeFile(path.join(uploadsDir, safeName), buffer);
-          return path.join('.agentos', 'uploads', safeName);
+          return path.join(SLACK_UPLOADS_RELATIVE, safeName);
         })
     );
 

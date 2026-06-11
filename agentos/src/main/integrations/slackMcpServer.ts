@@ -4,8 +4,8 @@ import { open } from 'fs/promises';
 import { basename } from 'path';
 import { z } from 'zod';
 import { clampSlackText, convertMarkdownToMrkdwn } from './slackFormatting';
+import { validateSlackUploadPath } from './slackUploadWorkspace';
 import { BaseMcpServer } from '../mcp/BaseMcpServer';
-import { translateContainerPath } from '../mcp/sandboxPath';
 
 /** Tools in this server that send messages externally. Import this in toolResolver to keep names in sync. */
 export const SLACK_EXTERNAL_TOOLS = ['post_update', 'ask_clarification', 'upload_file'] as const;
@@ -106,7 +106,9 @@ class SlackMcpServer extends BaseMcpServer {
           if (!hostWorkingDir) {
             throw new Error(`No workspace bound to channel ${channel_id} / thread ${thread_ts ?? '(none)'}`);
           }
-          const resolved = translateContainerPath(file_path, hostWorkingDir);
+          // Validates the sandbox prefix, ensures the host uploads dir exists, then realpath-
+          // checks containment so `..`/symlink escapes outside `.agentos/uploads/` are rejected.
+          const resolved = await validateSlackUploadPath(file_path, hostWorkingDir);
 
           // Open once, then stat + read against the same fd so a swap between checks can't bypass
           // the type guard or the size cap.
