@@ -50,6 +50,10 @@ export class ThreadInputService {
       timeoutMs: queueTimeoutMs,
       dropPolicy,
       execute: async (item) => {
+        // Wait for any in-flight teardown (stop + container cleanup) to finish before dispatching,
+        // so this turn doesn't start/exec against a container that's mid-removal.
+        const teardown = this.store.teardownInFlight.get(threadId);
+        if (teardown) await teardown;
         const elapsedInQueueMs = Date.now() - item.enqueuedAt;
         const remainingTimeoutMs =
           dropPolicy === 'timeout' ? Math.max(1_000, queueTimeoutMs - elapsedInQueueMs) : undefined;

@@ -18,6 +18,8 @@ export class ThreadRuntimeStore {
   readonly sessionStartedAts = new Map<string, number>();
   /** Per-thread personality overrides merged on top of project personality at boot. In-memory only. */
   readonly personalityOverrides = new Map<string, Partial<PersonalitySettings>>();
+  /** In-flight teardown (stop + container cleanup) per thread; awaited by input dispatch so a turn doesn't race a tear-down. */
+  readonly teardownInFlight = new Map<string, Promise<void>>();
 
   getInjectionStatus(threadId: string): ThreadInjectionStatus {
     return this.injectionStatuses.get(threadId) ?? { hasBoot: false, hasMemory: false, injected: false };
@@ -31,5 +33,6 @@ export class ThreadRuntimeStore {
     this.interruptedThreads.delete(threadId);
     this.sessionStartedAts.delete(threadId);
     this.personalityOverrides.delete(threadId);
+    this.teardownInFlight.delete(threadId);
   }
 }

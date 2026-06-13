@@ -11,6 +11,68 @@ function runGit(args: string[]): string {
   return execFileSync('git', args, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
 }
 
+function runDocker(args: string[]): string {
+  return execFileSync('docker', args, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 3000 }).trim();
+}
+
+/** Like runDocker but returns whatever reached stdout even on a non-zero exit, so a batched
+ * `docker inspect` that fails on one stale name still yields the rows for the live ones. */
+function runDockerAllowFail(args: string[]): string {
+  try {
+    return runDocker(args);
+  } catch (err) {
+    const out = (err as { stdout?: string | Buffer } | null)?.stdout;
+    return out ? out.toString().trim() : '';
+  }
+}
+
+/** Canonical absolute path (resolves symlinks/firmlinks) so a docker mount `.Source` and a stored
+ * worktree path compare equal regardless of representation (e.g. macOS /Users vs /System/Volumes/Data).
+ * Falls back to a plain resolve if the path no longer exists. */
+function canonicalPath(p: string): string {
+  try {
+    return fs.realpathSync.native(p);
+  } catch {
+    return path.resolve(p);
+  }
+}
+
+/**
+ * Canonical /workspace bind-mount source path -> container name, for every running
+ * `agentos-session-*` container. Lets worktree removal find and stop the container still bound
+ * to a worktree before deleting it, so a live container is never left on a removed /workspace.
+ * Best-effort: empty if docker is unavailable (then no container can be running anyway). Runs at
+ * most two docker calls (one `ps`, one batched `inspect`) to stay cheap on the main thread.
+ */
+function liveWorktreeContainers(): Map<string, string> {
+  const map = new Map<string, string>();
+  try {
+    const names = runDocker(['ps', '--filter', 'name=agentos-session-', '--format', '{{.Names}}'])
+      .split('\n')
+      .map((n) => n.trim())
+      .filter(Boolean);
+    if (names.length === 0) return map;
+    // Single batched inspect (not one call per container). Tab-separate name from the /workspace
+    // source so we can pair them back up; tolerate a name that died since `ps` via runDockerAllowFail.
+    const rows = runDockerAllowFail([
+      'inspect',
+      '--format',
+      `{{.Name}}\t{{range .Mounts}}{{if eq .Destination "/workspace"}}{{.Source}}{{end}}{{end}}`,
+      ...names,
+    ]).split('\n');
+    for (const row of rows) {
+      const tab = row.indexOf('\t');
+      if (tab === -1) continue;
+      const name = row.slice(0, tab).trim().replace(/^\//, '');
+      const src = row.slice(tab + 1).trim();
+      if (name && src) map.set(canonicalPath(src), name);
+    }
+  } catch {
+    /* docker unavailable — treat as no live containers */
+  }
+  return map;
+}
+
 async function runGitAsync(args: string[]): Promise<string> {
   const { stdout } = await execFileAsync('git', args, { encoding: 'utf8' });
   return stdout.trim();
@@ -175,6 +237,17 @@ export function pruneOrphanWorktrees(activeWorktreePaths: Set<string>, projectPa
 
 export function removeSessionWorktree(worktreePath: string): void {
   try {
+    // Stop+remove any running container still bind-mounting this worktree BEFORE deleting it.
+    // Removing the directory under a live container leaves its /workspace an empty mount; killing
+    // the container first means the thread's next turn restarts cleanly and recreates the worktree.
+    const containerName = liveWorktreeContainers().get(canonicalPath(worktreePath));
+    if (containerName) {
+      try {
+        runDocker(['rm', '-f', containerName]);
+      } catch {
+        /* best-effort: container may already be gone */
+      }
+    }
     const repoRoot = resolveMainRepoRoot(worktreePath);
     // Determine the branch name from git worktree list
     const listOutput = runGit(['-C', repoRoot, 'worktree', 'list', '--porcelain']);

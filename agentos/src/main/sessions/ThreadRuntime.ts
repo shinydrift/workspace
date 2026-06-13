@@ -157,6 +157,22 @@ export class ThreadRuntime {
   }
 
   async stopThread(threadId: string, opts?: { preserveQueue?: boolean }): Promise<void> {
+    const work = this.runStop(threadId, opts);
+    // Publish the in-flight teardown so input dispatch waits for stop + container cleanup to
+    // finish before (re)starting — a turn must not race into a container that's being torn down.
+    // Best-effort: the guard swallows teardown errors so a waiter never hangs, but it also means a
+    // *failed* teardown won't block the next start (callers still get `work` for real error handling).
+    const guard: Promise<void> = work.catch((): void => undefined);
+    this.store.teardownInFlight.set(threadId, guard);
+    void guard.then((): void => {
+      if (this.store.teardownInFlight.get(threadId) === guard) {
+        this.store.teardownInFlight.delete(threadId);
+      }
+    });
+    return work;
+  }
+
+  private async runStop(threadId: string, opts?: { preserveQueue?: boolean }): Promise<void> {
     this.output.flushAssistantMessage(threadId);
     await this.executor.shutdownThreadRuntime(threadId, opts);
     this.stateService.broadcastStopped(threadId);
@@ -226,12 +242,15 @@ export class ThreadRuntime {
         });
       }
 
-      // Auto-prune clean worktrees so they don't accumulate; recreated on next start
+      // Auto-prune clean worktrees so they don't accumulate; recreated on next start.
+      // Skip if the thread already has a new PTY — it restarted (a turn raced the teardown) and is
+      // using its worktree again, so pruning here would kill the fresh container and remove its mount.
       const settings = getStore().get('settings');
       const projectConfig = stored.projectPath ? loadProjectConfigSync(stored.projectPath) : null;
       const pruneOnStop = getEffectiveWorktreeSettings(settings, projectConfig).pruneOnStop;
       if (
         pruneOnStop &&
+        !this.store.ptys.has(threadId) &&
         stored.usingWorktree &&
         stored.workingDirectory &&
         isWorktreeClean(stored.workingDirectory) &&
