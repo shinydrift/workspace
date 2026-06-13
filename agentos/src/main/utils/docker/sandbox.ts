@@ -14,6 +14,12 @@ const execFileAsync = promisify(execFile);
 export interface DockerArgs {
   command: string;
   args: string[];
+  /**
+   * Set only for host execution (`runOnHost`). Env that Docker would otherwise bake into the
+   * container via `-e` flags; the caller overlays it onto the spawned process's env. Undefined
+   * for the Docker path, where env travels as `-e` flags inside `args`.
+   */
+  env?: Record<string, string>;
 }
 
 function validateBindMount(hostPath: string, containerPath: string): void {
@@ -123,11 +129,6 @@ export function buildDockerRunArgs(
   return { command: 'docker', args };
 }
 
-/** Returns `['-e', 'KEY=value']` when value is non-empty, otherwise `[]`. */
-function envArg(key: string, value: string | null | undefined): string[] {
-  return value ? ['-e', `${key}=${value}`] : [];
-}
-
 type McpOpts = {
   memoryMcpUrl?: string | null;
   threadMcpUrl?: string | null;
@@ -153,6 +154,41 @@ function enabledMcpServers(opts: McpOpts): McpServer[] {
   return candidates.flatMap(({ name, url }) => (url ? [{ name, url }] : []));
 }
 
+/** Builds an env map from optional [key, value] pairs (dropping nullish) plus extra env. */
+function execEnv(
+  entries: Array<[string, string | null | undefined]>,
+  extraEnv?: Record<string, string>
+): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const [key, value] of entries) {
+    if (value) env[key] = value;
+  }
+  if (extraEnv) Object.assign(env, extraEnv);
+  return env;
+}
+
+/**
+ * Wraps a resolved provider invocation (`binary` + `cliArgs` + `env`) as either a `docker exec`
+ * into the thread's container, or — when `runOnHost` — a direct host command. On host the env is
+ * returned for the caller to overlay on the process; under Docker it becomes `-e` flags.
+ */
+function wrapExec(
+  threadId: string,
+  binary: string,
+  cliArgs: string[],
+  env: Record<string, string>,
+  runOnHost: boolean
+): DockerArgs {
+  if (runOnHost) {
+    return { command: binary, args: cliArgs, env };
+  }
+  const envFlags = Object.entries(env).flatMap(([key, value]) => ['-e', `${key}=${value}`]);
+  return {
+    command: 'docker',
+    args: ['exec', '-it', ...envFlags, '--user', 'agent', `agentos-session-${threadId}`, binary, ...cliArgs],
+  };
+}
+
 export function buildDockerExecArgs(
   threadId: string,
   input: string,
@@ -175,9 +211,12 @@ export function buildDockerExecArgs(
     reasoning?: CodexReasoning;
     outputFormat?: 'text' | 'stream-json';
     extraEnv?: Record<string, string>;
+    /** Run the CLI directly on the host instead of `docker exec` into the container. */
+    runOnHost?: boolean;
   }
 ): DockerArgs {
   const skipPermissions = opts.skipPermissions ?? true;
+  const runOnHost = opts.runOnHost ?? false;
   const mcpServers = enabledMcpServers(opts);
 
   const modelArgs: string[] = !opts.model
@@ -202,74 +241,51 @@ export function buildDockerExecArgs(
     ];
     const subcommand = opts.codexSessionId ? ['exec', 'resume', opts.codexSessionId, prompt] : ['exec', prompt];
     const reasoningArgs: string[] = opts.reasoning ? ['--reasoning', opts.reasoning] : [];
-    return {
-      command: 'docker',
-      args: [
-        'exec',
-        '-it',
-        ...envArg(PROVIDER_CONFIGS.codex.apiKeyEnvVar, opts.apiKey),
-        ...envArg(AGENTOS_MCP_BEARER_TOKEN_ENV_VAR, opts.mcpBearerToken),
-        '--user',
-        'agent',
-        ...Object.entries(opts.extraEnv ?? {}).flatMap(([k, v]) => ['-e', `${k}=${v}`]),
-        `agentos-session-${threadId}`,
-        'codex',
-        ...subcommand,
-        ...commonFlags,
-        ...modelArgs,
-        ...reasoningArgs,
+    const env = execEnv(
+      [
+        [PROVIDER_CONFIGS.codex.apiKeyEnvVar, opts.apiKey],
+        [AGENTOS_MCP_BEARER_TOKEN_ENV_VAR, opts.mcpBearerToken],
       ],
-    };
+      opts.extraEnv
+    );
+    return wrapExec(threadId, 'codex', [...subcommand, ...commonFlags, ...modelArgs, ...reasoningArgs], env, runOnHost);
   }
 
   if (opts.provider === 'gemini') {
     const prompt = opts.systemPrompt ? `${opts.systemPrompt}\n\n${input}` : input;
-    return {
-      command: 'docker',
-      args: [
-        'exec',
-        '-it',
-        ...envArg(PROVIDER_CONFIGS.gemini.apiKeyEnvVar, opts.apiKey),
-        ...envArg(AGENTOS_MCP_BEARER_TOKEN_ENV_VAR, opts.mcpBearerToken),
-        '--user',
-        'agent',
-        ...Object.entries(opts.extraEnv ?? {}).flatMap(([k, v]) => ['-e', `${k}=${v}`]),
-        `agentos-session-${threadId}`,
-        'gemini',
-        '--prompt',
-        prompt,
-        '--output-format',
-        opts.outputFormat ?? 'stream-json',
-        '--yolo',
-        ...(opts.geminiSessionId ? ['--resume', opts.geminiSessionId] : []),
-        ...modelArgs,
-        ...mcpServers.flatMap(({ name }) => ['--allowed-mcp-server-names', name]),
+    const env = execEnv(
+      [
+        [PROVIDER_CONFIGS.gemini.apiKeyEnvVar, opts.apiKey],
+        [AGENTOS_MCP_BEARER_TOKEN_ENV_VAR, opts.mcpBearerToken],
       ],
-    };
+      opts.extraEnv
+    );
+    const cliArgs = [
+      '--prompt',
+      prompt,
+      '--output-format',
+      opts.outputFormat ?? 'stream-json',
+      '--yolo',
+      ...(opts.geminiSessionId ? ['--resume', opts.geminiSessionId] : []),
+      ...modelArgs,
+      ...mcpServers.flatMap(({ name }) => ['--allowed-mcp-server-names', name]),
+    ];
+    return wrapExec(threadId, 'gemini', cliArgs, env, runOnHost);
   }
 
   if (opts.provider === 'pi') {
     // Pi CLI has no MCP server flags yet — mcpBearerToken is injected for future use
     // but server URLs are not passed. See council/service.ts for the same caveat.
     const prompt = opts.systemPrompt ? `${opts.systemPrompt}\n\n${input}` : input;
-    return {
-      command: 'docker',
-      args: [
-        'exec',
-        '-it',
-        ...envArg(PROVIDER_CONFIGS.pi.apiKeyEnvVar, opts.apiKey),
-        ...envArg(AGENTOS_MCP_BEARER_TOKEN_ENV_VAR, opts.mcpBearerToken),
-        '--user',
-        'agent',
-        ...Object.entries(opts.extraEnv ?? {}).flatMap(([k, v]) => ['-e', `${k}=${v}`]),
-        `agentos-session-${threadId}`,
-        'pi',
-        '-p',
-        ...modelArgs,
-        ...(opts.piSessionId ? ['--session', opts.piSessionId] : []),
-        prompt,
+    const env = execEnv(
+      [
+        [PROVIDER_CONFIGS.pi.apiKeyEnvVar, opts.apiKey],
+        [AGENTOS_MCP_BEARER_TOKEN_ENV_VAR, opts.mcpBearerToken],
       ],
-    };
+      opts.extraEnv
+    );
+    const cliArgs = ['-p', ...modelArgs, ...(opts.piSessionId ? ['--session', opts.piSessionId] : []), prompt];
+    return wrapExec(threadId, 'pi', cliArgs, env, runOnHost);
   }
 
   // Claude (default)
@@ -278,16 +294,7 @@ export function buildDockerExecArgs(
   // suffix into the user message instead so the model still sees it.
   const effectiveInput =
     opts.claudeSessionId && opts.systemPromptSuffix ? `${opts.systemPromptSuffix}\n\n${input}` : input;
-  const args: string[] = [
-    'exec',
-    '-it',
-    ...envArg(PROVIDER_CONFIGS.claude.apiKeyEnvVar, opts.apiKey),
-    '--user',
-    'agent',
-    ...envArg(CLAUDE_CODE_OAUTH_TOKEN_ENV, opts.claudeOauthToken),
-    ...Object.entries(opts.extraEnv ?? {}).flatMap(([k, v]) => ['-e', `${k}=${v}`]),
-    `agentos-session-${threadId}`,
-    'claude',
+  const cliArgs: string[] = [
     '-p',
     effectiveInput,
     '--output-format',
@@ -299,11 +306,11 @@ export function buildDockerExecArgs(
   ];
 
   if (opts.claudeSessionId) {
-    args.push('--resume', opts.claudeSessionId);
+    cliArgs.push('--resume', opts.claudeSessionId);
   }
 
   if (opts.systemPrompt) {
-    args.push('--append-system-prompt', opts.systemPrompt);
+    cliArgs.push('--append-system-prompt', opts.systemPrompt);
   }
 
   if (mcpServers.length > 0) {
@@ -312,11 +319,11 @@ export function buildDockerExecArgs(
     for (const { name, url } of mcpServers) {
       mcpConfig[name] = { type: 'http', url, headers: authHeaders };
     }
-    args.push('--mcp-config', JSON.stringify({ mcpServers: mcpConfig }));
+    cliArgs.push('--mcp-config', JSON.stringify({ mcpServers: mcpConfig }));
   }
 
   if (opts.disallowedTools?.length) {
-    args.push('--disallowed-tools', opts.disallowedTools.join(','));
+    cliArgs.push('--disallowed-tools', opts.disallowedTools.join(','));
   }
 
   // Whitelist specific tools so they run without prompting under default permissions
@@ -326,10 +333,17 @@ export function buildDockerExecArgs(
   // (e.g. the planner enables only agentos-autopilot). Do not rely on allowedTools to restrict
   // codex/gemini — restrict their tool surface by limiting the MCP servers passed instead.
   if (opts.allowedTools?.length) {
-    args.push('--allowed-tools', opts.allowedTools.join(','));
+    cliArgs.push('--allowed-tools', opts.allowedTools.join(','));
   }
 
-  return { command: 'docker', args };
+  const env = execEnv(
+    [
+      [PROVIDER_CONFIGS.claude.apiKeyEnvVar, opts.apiKey],
+      [CLAUDE_CODE_OAUTH_TOKEN_ENV, opts.claudeOauthToken],
+    ],
+    opts.extraEnv
+  );
+  return wrapExec(threadId, 'claude', cliArgs, env, runOnHost);
 }
 
 export async function stopContainer(sessionId: string): Promise<void> {

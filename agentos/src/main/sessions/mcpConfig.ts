@@ -1,4 +1,5 @@
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import { parse as parseToml, stringify as stringifyToml } from 'smol-toml';
 import { eventLogger } from '../utils/eventLog';
@@ -11,9 +12,16 @@ type LaunchMode = {
   slackMcpUrl: string | null;
   kanbanMcpUrl: string | null;
   recordingsMcpUrl: string | null;
+  runOnHost?: boolean;
 };
 
-const AGENTOS_MANAGED_SERVERS = ['agentos-memory', 'agentos-thread', 'agentos-slack', 'agentos-kanban', 'agentos-recordings'];
+const AGENTOS_MANAGED_SERVERS = [
+  'agentos-memory',
+  'agentos-thread',
+  'agentos-slack',
+  'agentos-kanban',
+  'agentos-recordings',
+];
 
 // Gemini CLI: <sessionDataDir>/settings.json (bind-mounted as /home/agent/.gemini in container)
 function syncGeminiMcpConfig(servers: Record<string, string>, sessionDataDir: string): void {
@@ -95,7 +103,15 @@ export function rebuildManagedMcpConfig(
     if (launchMode.recordingsMcpUrl) servers['agentos-recordings'] = launchMode.recordingsMcpUrl;
 
     const sessionDataDir = path.join(sessionsDataDir, threadId);
-    if (thread.provider === 'gemini') syncGeminiMcpConfig(servers, sessionDataDir);
-    else if (thread.provider === 'codex') syncCodexMcpConfig(servers, sessionDataDir);
+    if (thread.provider === 'gemini') {
+      // Under Docker, sessionDataDir is bind-mounted to /home/agent/.gemini. On host there is no
+      // mount and the CLI reads the user's real ~/.gemini, so write the managed servers there
+      // (the sync is non-destructive — it only owns the agentos-* entries).
+      syncGeminiMcpConfig(servers, launchMode.runOnHost ? path.join(os.homedir(), '.gemini') : sessionDataDir);
+    } else if (thread.provider === 'codex' && !launchMode.runOnHost) {
+      // Codex receives MCP servers via inline `-c` flags at exec time (both Docker and host), so
+      // config.toml is only needed for the Docker bind mount. Skip on host to avoid mutating ~/.codex.
+      syncCodexMcpConfig(servers, sessionDataDir);
+    }
   }
 }

@@ -22,9 +22,27 @@ export function SandboxSettings() {
 
   return (
     <div className="space-y-5">
+      {/* Run on host (no sandbox) */}
+      <div className="space-y-2">
+        <ToggleRow
+          label="Run threads on host (no sandbox)"
+          description="Runs the provider CLI directly on this machine instead of in a Docker container. Requires the CLI on your PATH. A project's .agentos config can override this."
+          checked={sandbox.runOnHost}
+          onCheckedChange={sandbox.setRunOnHost}
+        />
+        {sandbox.runOnHost && (
+          <p className="text-xs rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-destructive">
+            ⚠ No isolation: agents run with full read/write access to your machine and
+            <code className="mx-1">--dangerously-skip-permissions</code>. Only enable for directories you fully trust.
+          </p>
+        )}
+      </div>
+
       <div>
         <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Sandbox Security</p>
-        <p className="text-xs text-muted-foreground mt-0.5">Applied to every container on next thread start.</p>
+        <p className="text-xs text-muted-foreground mt-0.5">
+          Applied to every container on next thread start. Ignored when running on host.
+        </p>
       </div>
 
       {/* Security toggles */}

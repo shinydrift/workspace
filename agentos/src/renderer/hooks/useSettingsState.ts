@@ -84,6 +84,7 @@ export function useSettingsState() {
         },
         sandbox: {
           security: sandbox.security,
+          runOnHost: sandbox.runOnHost,
           containerPrune: sandbox.containerPrune,
           worktreeSettings: sandbox.worktreeSettings,
         },
@@ -125,6 +126,7 @@ export function useSettingsState() {
       slack.requireMention,
       slack.defaultWorkingDirectory,
       sandbox.security,
+      sandbox.runOnHost,
       sandbox.containerPrune,
       sandbox.worktreeSettings,
       env.envSafelist,
@@ -157,6 +159,7 @@ export function useSettingsState() {
         tailscaleFunnel: keys.tailscaleFunnel,
         githubToken: keys.githubToken.trim() || null,
         devMode: appearance.devMode,
+        runOnHost: sandbox.runOnHost,
         sandbox: { ...DEFAULT_SANDBOX_SETTINGS, ...sandbox.security },
         queueSilenceFallbackMs: Number.isFinite(agents.queueSilenceFallbackMs)
           ? Math.max(200, Math.floor(agents.queueSilenceFallbackMs))

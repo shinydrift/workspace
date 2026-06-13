@@ -10,6 +10,7 @@ import { councilMcpServer } from '../integrations/councilMcpServer';
 import { getApiKey } from '../utils/providerConfig';
 import { readClaudeOauthToken } from './threadAuth';
 import { getMcpToken } from '../mcp/mcpAuth';
+import { mcpUrl } from '../mcp/mcpHost';
 import { eventLogger } from '../utils/eventLog';
 import { ThreadRuntimeStore } from './ThreadRuntimeStore';
 import { EmbeddedChildThreadRunner } from './EmbeddedChildThreadRunner';
@@ -89,7 +90,12 @@ export class CouncilChildThreadService {
       childThreadId: childId,
     });
     const composed = `${bootInstructions}\n\n${opts.prompt}`;
-    const councilMcpUrl = `http://host.docker.internal:${councilMcpServer.actualPort ?? 0}/mcp`;
+    // Council children exec into the parent's container (or run on its host); inherit that
+    // thread's execution mode and captured launch env.
+    const containerLaunch = this.store.launchModes.get(containerThreadId);
+    const runOnHost = containerLaunch?.runOnHost ?? false;
+    const hostEnv = containerLaunch?.hostEnv ?? {};
+    const councilMcpUrl = mcpUrl(councilMcpServer.actualPort ?? 0, runOnHost);
 
     if (opts.member.provider === 'claude-interactive') {
       return this.spawnInteractive({
@@ -104,6 +110,8 @@ export class CouncilChildThreadService {
         claudeOauthToken,
         apiKey,
         councilMcpUrl,
+        runOnHost,
+        hostEnv,
       });
     }
 
@@ -117,9 +125,11 @@ export class CouncilChildThreadService {
       claudeOauthToken,
       mcpBearerToken: getMcpToken(),
       councilMcpUrl,
+      runOnHost,
     });
 
-    const proc = new PtyProcess(execArgs.command, execArgs.args, parent.workingDirectory);
+    const procEnv = execArgs.env ? { ...hostEnv, ...execArgs.env } : undefined;
+    const proc = new PtyProcess(execArgs.command, execArgs.args, parent.workingDirectory, procEnv);
 
     let outcomeRecorded = false;
 
@@ -192,6 +202,8 @@ export class CouncilChildThreadService {
     claudeOauthToken: string | null;
     apiKey: string | null;
     councilMcpUrl: string;
+    runOnHost: boolean;
+    hostEnv: Record<string, string>;
   }): { childThreadId: string } {
     const sessionId = randomUUID();
     const childThreadWithSession = { ...opts.childThread, claudeSessionId: sessionId };
@@ -223,6 +235,8 @@ export class CouncilChildThreadService {
           model: opts.member.model || undefined,
           effort: opts.member.effort,
           skipPermissions: true,
+          runOnHost: opts.runOnHost,
+          launchEnv: opts.hostEnv,
           mcp: { councilMcpUrl: opts.councilMcpUrl },
         },
         () => {

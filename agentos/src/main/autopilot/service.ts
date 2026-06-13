@@ -4,6 +4,7 @@ import { resolveEffectiveEffort, resolveEffectiveModel, resolveEffectiveReasonin
 import { eventLogger } from '../utils/eventLog';
 import { getErrorMessage } from '../../shared/utils/errorMessage';
 import { getEffectiveAutopilotSettings } from '../../shared/effectiveProjectSettings';
+import { mcpUrl } from '../mcp/mcpHost';
 import { getStore } from '../store/index';
 import { loadProjectConfig } from '../config/projectConfig';
 import type { ProjectConfigLoadResult } from '../config/projectConfig';
@@ -25,6 +26,11 @@ export interface AutopilotAdapter {
     plannerModel?: string;
     projectConfigResult: ProjectConfigLoadResult | null; // #5: pre-loaded by AutopilotService
     settings: AppSettings; // #5: pre-loaded by AutopilotService
+    // Execution mode + captured launch env of the thread being planned for. Sourced from the
+    // thread's live launchMode (not current settings) so the planner can't diverge from the
+    // running thread if the runOnHost setting is toggled mid-session.
+    runOnHost: boolean;
+    hostEnv: Record<string, string>;
   }): Promise<AutopilotAction>;
 }
 
@@ -89,6 +95,8 @@ export class ProviderAutopilotAdapter implements AutopilotAdapter {
     plannerModel?: string;
     projectConfigResult: ProjectConfigLoadResult | null;
     settings: AppSettings;
+    runOnHost: boolean;
+    hostEnv: Record<string, string>;
   }): Promise<AutopilotAction> {
     const { projectConfigResult, settings } = params;
     const autopilotSettings = getEffectiveAutopilotSettings(settings, projectConfigResult?.config ?? null);
@@ -170,7 +178,13 @@ export class ProviderAutopilotAdapter implements AutopilotAdapter {
     // without a real port the planner could never reach the tool.
     const autopilotPort = autopilotMcpServer.actualPort;
     if (!autopilotPort) throw new Error('Autopilot MCP server is not listening; cannot run planner.');
-    const autopilotMcpUrl = `http://host.docker.internal:${autopilotPort}/mcp`;
+    // Source the execution mode + env from the thread's live launchMode (passed in), NOT current
+    // settings, so a mid-session runOnHost toggle can't make the planner target a container that
+    // doesn't exist (or vice versa). On host the planner inherits no container env, so replay the
+    // thread's captured launch env (API keys, backend routing, AGENTOS ids, MCP bearer).
+    const runOnHost = params.runOnHost;
+    const autopilotMcpUrl = mcpUrl(autopilotPort, runOnHost);
+
     const execArgs = buildDockerExecArgs(params.thread.id, prompt, {
       provider: this.id,
       systemPrompt,
@@ -187,9 +201,11 @@ export class ProviderAutopilotAdapter implements AutopilotAdapter {
       effort,
       reasoning,
       claudeOauthToken: this.id === 'claude' ? await readClaudeOauthToken() : null,
+      extraEnv: runOnHost ? params.hostEnv : undefined,
+      runOnHost,
     });
 
-    const proc = new PtyProcess(execArgs.command, execArgs.args, params.thread.workingDirectory);
+    const proc = new PtyProcess(execArgs.command, execArgs.args, params.thread.workingDirectory, execArgs.env);
     let raw = '';
     let rawTruncated = false;
 
@@ -284,6 +300,8 @@ export class AutopilotService {
     private readonly callbacks: {
       getThread: (threadId: string) => Omit<Thread, 'logBuffer'> | undefined;
       getMessages: (threadId: string) => Message[];
+      /** Live execution mode + captured launch env for the thread, or null if not running. */
+      getThreadLaunchInfo: (threadId: string) => { runOnHost: boolean; hostEnv: Record<string, string> } | null;
       hasPendingCouncilSubmission: (threadId: string) => boolean;
       hasActiveStageWorker: (threadId: string) => boolean;
       hasInFlightInteractiveTurn: (threadId: string) => boolean;
@@ -425,13 +443,18 @@ export class AutopilotService {
       // #6: capture fingerprint before adapter call to detect content mutations during planning
       const latestFingerprint = { id: latestMessage.id, content: latestMessage.content };
 
-      // #5: pass pre-loaded config + settings so adapter skips its own loadProjectConfig call
+      // #5: pass pre-loaded config + settings so adapter skips its own loadProjectConfig call.
+      // Execution mode/env come from the thread's live launchMode, not settings, so a toggle
+      // mid-session can't desync the planner from the running thread.
+      const launchInfo = this.callbacks.getThreadLaunchInfo(threadId);
       const action = await adapter.run({
         thread,
         messages,
         plannerModel: effectiveAutopilot.plannerModel,
         projectConfigResult,
         settings,
+        runOnHost: launchInfo?.runOnHost ?? false,
+        hostEnv: launchInfo?.hostEnv ?? {},
       });
 
       const currentThread = this.callbacks.getThread(threadId);

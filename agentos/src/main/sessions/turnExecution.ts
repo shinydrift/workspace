@@ -108,6 +108,10 @@ export type LaunchMode = {
   claudeStreamJson: boolean;
   fallbackTried: boolean;
   headless: boolean;
+  /** When true the thread runs on the host (no Docker container); teardown skips docker. */
+  runOnHost: boolean;
+  /** Launch-time env to replay onto each per-turn host process (empty under Docker). */
+  hostEnv: Record<string, string>;
   systemPrompt: string | null;
   memoryMcpUrl: string | null;
   threadMcpUrl: string | null;
@@ -303,9 +307,21 @@ export class TurnExecutor {
       return;
     }
 
-    await stopContainer(threadId).catch((err) => {
-      eventLogger.warn('session', 'failed to stop container', { error: String(err) });
-    });
+    if (this.store.launchModes.get(threadId)?.runOnHost) {
+      // Host threads have no container, so docker teardown is skipped. The keep-alive proc killed
+      // below is a separate process from any in-flight per-turn CLI (a distinct PtyProcess) —
+      // under Docker the container kill cascaded to it, but on host it must be reaped explicitly,
+      // or a long-running agent process with full host access is orphaned.
+      const activeTurn = this.store.activeTurnProcs.get(threadId);
+      if (activeTurn) {
+        activeTurn.proc.kill();
+        this.store.activeTurnProcs.delete(threadId);
+      }
+    } else {
+      await stopContainer(threadId).catch((err) => {
+        eventLogger.warn('session', 'failed to stop container', { error: String(err) });
+      });
+    }
     proc.kill();
     this.store.ptys.delete(threadId);
     this.store.launchModes.delete(threadId);

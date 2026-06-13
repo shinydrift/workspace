@@ -4,6 +4,8 @@ import type { PersonalitySettings, RecordingTemplate, SandboxSecuritySettings } 
 export type ProjectConfig = {
   version?: 1;
   provider?: Provider;
+  /** Run threads on the host with no sandbox. Overrides the app-level runOnHost setting. */
+  runOnHost?: boolean;
   sandbox?: Partial<SandboxSecuritySettings>;
   kanban?: {
     enabled?: boolean;

@@ -12,6 +12,10 @@
       "type": "string",
       "enum": ["claude", "codex", "gemini"]
     },
+    "runOnHost": {
+      "type": "boolean",
+      "description": "Run threads directly on the host with no sandbox isolation. Overrides the app-level setting for this project."
+    },
     "failover": {
       "type": "object",
       "additionalProperties": false,

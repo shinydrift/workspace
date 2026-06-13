@@ -26,6 +26,8 @@ import { DEFAULT_SANDBOX_SETTINGS } from '../../shared/types';
 export type ResolvedStartConfig = {
   projectConfigResult: ProjectConfigLookup & { path: string; warnings: string[] };
   effectiveSandbox: SandboxSecuritySettings;
+  /** When true, run the provider CLI directly on the host with no Docker sandbox. */
+  runOnHost: boolean;
   memoryEnabled: boolean;
   bootEnabled: boolean;
   personalityPrompt: string;
@@ -75,6 +77,8 @@ export async function resolveStartConfig(
       ]),
     ],
   };
+  // Project config overrides the app-level toggle; defaults to sandboxed (false).
+  const runOnHost = projectConfigResult.config?.runOnHost ?? settings.runOnHost ?? false;
   const memoryEnabled = projectConfigResult.config?.memory?.enabled ?? true;
   const bootEnabled = true;
 
@@ -199,6 +203,7 @@ export async function resolveStartConfig(
   return {
     projectConfigResult,
     effectiveSandbox,
+    runOnHost,
     memoryEnabled,
     bootEnabled,
     personalityPrompt,

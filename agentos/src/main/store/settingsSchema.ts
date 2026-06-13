@@ -59,6 +59,7 @@ export const AppSettingsPatchSchema = z
     tailscaleFunnel: z.boolean().optional(),
     webhookPort: z.number().int().min(1).max(65535).optional(),
     githubToken: z.string().nullable().optional(),
+    runOnHost: z.boolean().optional(),
     slack: z
       .object({
         enabled: z.boolean(),

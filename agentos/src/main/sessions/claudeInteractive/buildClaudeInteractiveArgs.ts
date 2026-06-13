@@ -21,6 +21,10 @@ export type ClaudeInteractiveArgsOpts = {
   disallowedTools?: string[];
   skipPermissions?: boolean;
   extraEnv?: Record<string, string>;
+  /** Run claude directly on the host instead of `docker exec` into the container. */
+  runOnHost?: boolean;
+  /** Launch-time env to apply to the host process (API keys, backend routing, ids). */
+  launchEnv?: Record<string, string>;
   mcp: {
     memoryMcpUrl?: string | null;
     threadMcpUrl?: string | null;
@@ -30,10 +34,6 @@ export type ClaudeInteractiveArgsOpts = {
     recordingsMcpUrl?: string | null;
   };
 };
-
-function envArg(key: string, value: string | null | undefined): string[] {
-  return value ? ['-e', `${key}=${value}`] : [];
-}
 
 function enabledMcp(mcp: ClaudeInteractiveArgsOpts['mcp']): Array<{ name: string; url: string }> {
   const candidates: Array<{ name: string; url: string | null | undefined }> = [
@@ -50,20 +50,12 @@ function enabledMcp(mcp: ClaudeInteractiveArgsOpts['mcp']): Array<{ name: string
 export function buildClaudeInteractiveArgs(opts: ClaudeInteractiveArgsOpts): {
   command: string;
   args: string[];
+  env?: Record<string, string>;
 } {
   const skipPermissions = opts.skipPermissions ?? true;
   const mcpServers = enabledMcp(opts.mcp);
 
-  const args: string[] = [
-    'exec',
-    '-it',
-    ...envArg(PROVIDER_CONFIGS.claude.apiKeyEnvVar, opts.apiKey),
-    '--user',
-    'agent',
-    ...envArg(CLAUDE_CODE_OAUTH_TOKEN_ENV, opts.claudeOauthToken),
-    ...Object.entries(opts.extraEnv ?? {}).flatMap(([k, v]) => ['-e', `${k}=${v}`]),
-    `agentos-session-${opts.threadId}`,
-    'claude',
+  const cliArgs: string[] = [
     ...(opts.isResume ? ['--resume', opts.sessionId] : ['--session-id', opts.sessionId]),
     ...(skipPermissions ? ['--dangerously-skip-permissions'] : []),
     ...(opts.model ? ['--model', opts.model] : []),
@@ -71,7 +63,7 @@ export function buildClaudeInteractiveArgs(opts: ClaudeInteractiveArgsOpts): {
   ];
 
   if (opts.systemPrompt) {
-    args.push('--append-system-prompt', opts.systemPrompt);
+    cliArgs.push('--append-system-prompt', opts.systemPrompt);
   }
 
   if (mcpServers.length > 0) {
@@ -80,12 +72,31 @@ export function buildClaudeInteractiveArgs(opts: ClaudeInteractiveArgsOpts): {
     for (const { name, url } of mcpServers) {
       mcpConfig[name] = { type: 'http', url, headers: authHeaders };
     }
-    args.push('--mcp-config', JSON.stringify({ mcpServers: mcpConfig }));
+    cliArgs.push('--mcp-config', JSON.stringify({ mcpServers: mcpConfig }));
   }
 
   if (opts.disallowedTools?.length) {
-    args.push('--disallowed-tools', opts.disallowedTools.join(','));
+    cliArgs.push('--disallowed-tools', opts.disallowedTools.join(','));
   }
 
-  return { command: 'docker', args };
+  // The per-exec env: api key (council members), oauth, and per-turn extras. Under Docker these
+  // become `-e` flags and must stay minimal — the container already holds launchEnv from `run`,
+  // so folding launchEnv in here would both duplicate it and expose its secrets (GH_TOKEN,
+  // TS_AUTHKEY, safelisted vars) in the `docker exec` argv. launchEnv is applied ONLY on host,
+  // where there is no container to have baked it in.
+  const execEnvMap: Record<string, string> = {
+    ...(opts.apiKey ? { [PROVIDER_CONFIGS.claude.apiKeyEnvVar]: opts.apiKey } : {}),
+    ...(opts.claudeOauthToken ? { [CLAUDE_CODE_OAUTH_TOKEN_ENV]: opts.claudeOauthToken } : {}),
+    ...(opts.extraEnv ?? {}),
+  };
+
+  if (opts.runOnHost) {
+    return { command: 'claude', args: cliArgs, env: { ...(opts.launchEnv ?? {}), ...execEnvMap } };
+  }
+
+  const envFlags = Object.entries(execEnvMap).flatMap(([k, v]) => ['-e', `${k}=${v}`]);
+  return {
+    command: 'docker',
+    args: ['exec', '-it', ...envFlags, '--user', 'agent', `agentos-session-${opts.threadId}`, 'claude', ...cliArgs],
+  };
 }

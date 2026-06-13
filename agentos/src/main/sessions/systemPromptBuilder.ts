@@ -1,7 +1,11 @@
+import { mcpUrl } from '../mcp/mcpHost';
+
 export type HeadlessPromptInput = {
   initialPayload: string | null;
   slackCtx: { channelId: string; threadTs: string | null } | null;
   useHeadless: boolean;
+  /** When true, MCP URLs target loopback (127.0.0.1) instead of the Docker host alias. */
+  runOnHost: boolean;
   projectId: string;
   threadId: string;
   slackMcpPort: number;
@@ -30,6 +34,7 @@ export function buildHeadlessSystemPrompt(input: HeadlessPromptInput): HeadlessP
     initialPayload,
     slackCtx,
     useHeadless,
+    runOnHost,
     projectId,
     threadId,
     slackMcpPort,
@@ -45,11 +50,11 @@ export function buildHeadlessSystemPrompt(input: HeadlessPromptInput): HeadlessP
   let effectiveSystemPrompt = initialPayload;
   let extraEnv: Record<string, string> | undefined;
 
-  const memoryMcpUrl = `http://host.docker.internal:${memoryMcpPort}/mcp`;
-  const threadMcpUrl = `http://host.docker.internal:${threadMcpPort}/mcp`;
-  const councilMcpUrl = `http://host.docker.internal:${councilMcpPort}/mcp`;
-  const kanbanMcpUrl = `http://host.docker.internal:${kanbanMcpPort}/mcp`;
-  const recordingsMcpUrl = `http://host.docker.internal:${recordingsMcpPort}/mcp`;
+  const memoryMcpUrl = mcpUrl(memoryMcpPort, runOnHost);
+  const threadMcpUrl = mcpUrl(threadMcpPort, runOnHost);
+  const councilMcpUrl = mcpUrl(councilMcpPort, runOnHost);
+  const kanbanMcpUrl = mcpUrl(kanbanMcpPort, runOnHost);
+  const recordingsMcpUrl = mcpUrl(recordingsMcpPort, runOnHost);
   extraEnv = { ...(extraEnv ?? {}), AGENTOS_PROJECT_ID: projectId, AGENTOS_THREAD_ID: threadId };
   const planModePrompt =
     `\n## Plan Before Coding\n` +
@@ -139,7 +144,7 @@ export function buildHeadlessSystemPrompt(input: HeadlessPromptInput): HeadlessP
 
   let slackMcpUrl: string | null = null;
   if (slackCtx && useHeadless) {
-    slackMcpUrl = `http://host.docker.internal:${slackMcpPort}/mcp`;
+    slackMcpUrl = mcpUrl(slackMcpPort, runOnHost);
     let slackPrompt: string;
     if (slackCtx.threadTs && agentRole === 'task-main') {
       // Kanban main thread: post autonomous progress updates as replies, no approval gate.

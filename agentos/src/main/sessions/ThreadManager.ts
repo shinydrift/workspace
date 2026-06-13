@@ -79,6 +79,10 @@ class ThreadManager implements Disposable {
     this.autopilot = new AutopilotService({
       getThread: (threadId) => threadStore.getThread(threadId) ?? undefined,
       getMessages: (threadId) => this.output.listMessages(threadId),
+      getThreadLaunchInfo: (threadId) => {
+        const lm = this.store.launchModes.get(threadId);
+        return lm ? { runOnHost: lm.runOnHost, hostEnv: lm.hostEnv } : null;
+      },
       hasPendingCouncilSubmission: (threadId) => councilService.hasPendingRunForThread(threadId),
       hasActiveStageWorker: (threadId) => {
         const thread = threadStore.getThread(threadId);

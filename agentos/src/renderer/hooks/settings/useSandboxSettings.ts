@@ -10,6 +10,7 @@ import { DEFAULT_CONTAINER_PRUNE_SETTINGS, DEFAULT_WORKTREE_SETTINGS } from '../
 
 export function useSandboxSettings(settings: AppSettings | null) {
   const [security, setSecurity] = useState<Partial<SandboxSecuritySettings>>({});
+  const [runOnHost, setRunOnHost] = useState(false);
   const [containerPrune, setContainerPrune] = useState<ContainerPruneSettings>(DEFAULT_CONTAINER_PRUNE_SETTINGS);
   const [worktreeSettings, setWorktreeSettings] = useState<WorktreeSettings>(DEFAULT_WORKTREE_SETTINGS);
   const [containers, setContainers] = useState<ContainerSummary[]>([]);
@@ -50,6 +51,7 @@ export function useSandboxSettings(settings: AppSettings | null) {
   useEffect(() => {
     if (!settings) return;
     setSecurity(settings.sandbox ?? {});
+    setRunOnHost(settings.runOnHost ?? false);
     setContainerPrune(settings.containerPrune ?? DEFAULT_CONTAINER_PRUNE_SETTINGS);
     setWorktreeSettings(settings.worktrees ?? DEFAULT_WORKTREE_SETTINGS);
   }, [settings]);
@@ -63,6 +65,8 @@ export function useSandboxSettings(settings: AppSettings | null) {
   return {
     security,
     setSecurity,
+    runOnHost,
+    setRunOnHost,
     containerPrune,
     setContainerPrune,
     worktreeSettings,

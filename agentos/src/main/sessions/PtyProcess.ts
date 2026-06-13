@@ -9,14 +9,16 @@ interface PtyProcessEvents {
 export class PtyProcess extends EventEmitter {
   private pty: pty.IPty;
 
-  constructor(command: string, args: string[], cwd: string) {
+  constructor(command: string, args: string[], cwd: string, env?: Record<string, string>) {
     super();
     this.pty = pty.spawn(command, args, {
       name: 'xterm-256color',
       cols: 220,
       rows: 50,
       cwd,
-      env: process.env as Record<string, string>,
+      // Docker bakes per-thread env into the container at `run` time; host execution has no
+      // such persistence, so callers overlay the captured launch env onto process.env here.
+      env: env ? { ...(process.env as Record<string, string>), ...env } : (process.env as Record<string, string>),
     });
 
     this.pty.onData((data) => this.emit('data', data));

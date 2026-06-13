@@ -162,6 +162,7 @@ export async function execHeadlessTurn(
     provider === 'codex'
       ? resolveEffectiveReasoning(projectConfigResult.config, settings, thread.reasoning)
       : undefined;
+  const runOnHost = launchMode?.runOnHost ?? false;
   const execArgs = buildDockerExecArgs(threadId, input, {
     provider: provider as Parameters<typeof buildDockerExecArgs>[2]['provider'],
     claudeSessionId,
@@ -182,11 +183,16 @@ export async function execHeadlessTurn(
     model,
     effort,
     reasoning,
+    runOnHost,
   });
+
+  // On host, exec processes don't inherit any container env — overlay the captured launch env
+  // (API keys, backend routing, AGENTOS_* ids) under the per-turn env from buildDockerExecArgs.
+  const turnEnv = execArgs.env ? { ...(launchMode?.hostEnv ?? {}), ...execArgs.env } : undefined;
 
   let turnProc: PtyProcess;
   try {
-    turnProc = new PtyProcess(execArgs.command, execArgs.args, thread.workingDirectory);
+    turnProc = new PtyProcess(execArgs.command, execArgs.args, thread.workingDirectory, turnEnv);
   } catch (error) {
     const message = getErrorMessage(error);
     eventLogger.error('thread', 'Failed to start headless turn process', {

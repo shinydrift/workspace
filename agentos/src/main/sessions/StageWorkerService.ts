@@ -70,6 +70,12 @@ export class StageWorkerService {
     const effectiveProvider = opts.provider ?? parent.provider;
     const effectiveModel = opts.model ?? parent.model;
 
+    // Stage workers exec into the parent's container (or run on its host); inherit that
+    // thread's execution mode and captured launch env.
+    const parentLaunch = this.store.launchModes.get(opts.parentThreadId);
+    const runOnHost = parentLaunch?.runOnHost ?? false;
+    const hostEnv = parentLaunch?.hostEnv ?? {};
+
     const childId = nanoid();
     const now = Date.now();
     const agentRole = `stage-${opts.stage}` as const;
@@ -116,6 +122,7 @@ export class StageWorkerService {
       initialPayload: buildStageBootInstructions({ childThreadId: childId, taskId: opts.taskId, stage: opts.stage }),
       slackCtx: null,
       useHeadless: true,
+      runOnHost,
       projectId: parent.projectId,
       threadId: childId,
       slackMcpPort: 0,
@@ -151,6 +158,8 @@ export class StageWorkerService {
         councilMcpUrl,
         kanbanMcpUrl,
         recordingsMcpUrl,
+        runOnHost,
+        hostEnv,
       });
     }
 
@@ -170,9 +179,11 @@ export class StageWorkerService {
       councilMcpUrl,
       kanbanMcpUrl,
       recordingsMcpUrl,
+      runOnHost,
     });
 
-    const proc = new PtyProcess(execArgs.command, execArgs.args, parent.workingDirectory);
+    const procEnv = execArgs.env ? { ...hostEnv, ...execArgs.env } : undefined;
+    const proc = new PtyProcess(execArgs.command, execArgs.args, parent.workingDirectory, procEnv);
 
     this.runner.setup({
       childThread,
@@ -230,6 +241,8 @@ export class StageWorkerService {
     councilMcpUrl: string | null;
     kanbanMcpUrl: string | null;
     recordingsMcpUrl: string | null;
+    runOnHost: boolean;
+    hostEnv: Record<string, string>;
   }): { childThreadId: string } {
     const childId = opts.childId;
     const projectId = opts.childThread.projectId;
@@ -276,6 +289,8 @@ export class StageWorkerService {
           systemPrompt: opts.systemPrompt,
           skipPermissions: true,
           extraEnv: opts.extraEnv,
+          runOnHost: opts.runOnHost,
+          launchEnv: opts.hostEnv,
           mcp: {
             memoryMcpUrl: opts.memoryMcpUrl,
             threadMcpUrl: opts.threadMcpUrl,

@@ -103,6 +103,8 @@ export async function execClaudeInteractiveTurn(
         systemPrompt: baseSystemPrompt,
         disallowedTools,
         skipPermissions: settings.skipPermissions ?? true,
+        runOnHost: launchMode?.runOnHost ?? false,
+        launchEnv: launchMode?.hostEnv ?? {},
         mcp: {
           memoryMcpUrl: launchMode?.memoryMcpUrl ?? null,
           threadMcpUrl: launchMode?.threadMcpUrl ?? null,

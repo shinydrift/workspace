@@ -90,13 +90,13 @@ export class ClaudeInteractiveSession {
     // and the first turn never reaches the model.
     seedClaudeHostConfigOnce(app.getPath('home'));
 
-    const { command, args } = buildClaudeInteractiveArgs({ ...this.args, isResume: this.hasSpawnedBefore });
+    const { command, args, env } = buildClaudeInteractiveArgs({ ...this.args, isResume: this.hasSpawnedBefore });
     eventLogger.info('claudeIO', 'interactive: spawning claude PTY', {
       threadId: this.threadId,
       sessionId: this.sessionId,
       resume: this.hasSpawnedBefore,
     });
-    const proc = new PtyProcess(command, args, this.workingDirectory);
+    const proc = new PtyProcess(command, args, this.workingDirectory, this.args.runOnHost ? env : undefined);
     proc.on('exit', (code) => {
       eventLogger.info('claudeIO', 'interactive: claude PTY exited', {
         threadId: this.threadId,

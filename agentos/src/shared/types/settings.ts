@@ -43,6 +43,13 @@ export interface AppSettings {
   voiceFlow?: VoiceFlowSettings;
   /** When true, all MCP server requests require a valid bearer token even from localhost. Default: false. */
   mcpRequireAuth?: boolean;
+  /**
+   * When true, threads run the provider CLI directly on the host machine with NO sandbox
+   * isolation, instead of inside a Docker container. The agent gets full read/write access
+   * to the host with `--dangerously-skip-permissions`. Requires the provider CLI on PATH.
+   * Project config may override this per-project. Default: false.
+   */
+  runOnHost?: boolean;
 }
 
 export interface VoiceFlowSettings {
