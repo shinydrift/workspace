@@ -12,6 +12,21 @@ import { seedClaudeHostConfigOnce } from './seedClaudeHostConfig';
 // is silently dropped.
 const BOOT_READY_TIMEOUT_MS = 3_000;
 
+// After writing the prompt, claude must actually start the turn (it writes its first
+// JSONL entry on accept). A freshly spawned TUI can swallow the trailing \r (Ink's paste
+// detector captures it as paste content) or still be wiring up MCP servers when we write,
+// so a single submit is unreliable. Re-send a bare \r on this interval until the input is
+// accepted, capped at SUBMIT_MAX_RETRIES so an empty box isn't spammed indefinitely.
+const SUBMIT_RETRY_INTERVAL_MS = 2_500;
+const SUBMIT_MAX_RETRIES = 8;
+
+// Hard ceiling on how long we wait for claude to *start* the turn. This is deliberately
+// distinct from the turn timeout (timeoutMs), which is unbounded for user turns and so can
+// never rescue a submit that never lands — claude would sit at its TUI with the prompt
+// unsubmitted and the input queue would wedge forever. If no JSONL entry appears within this
+// window the submit failed, so we abort the turn and let the queue drain.
+const SUBMIT_CONFIRM_TIMEOUT_MS = 60_000;
+
 // Note: idle teardown is delegated to ContainerManager.scheduleIdleStop from
 // execClaudeInteractiveTurn, matching the headless behavior. The container exit
 // propagates to our PTY which self-disposes via the 'exit' event handler.
@@ -163,36 +178,49 @@ export class ClaudeInteractiveSession {
     });
   }
 
-  // Ink's paste detector treats early-buffered PTY writes as a paste block,
-  // rendering them as "[Pasted text #N +X lines] paste again to expand" — the
-  // trailing \r in that burst is captured as paste content rather than a submit.
-  // Send a follow-up \r outside the original write burst when the marker appears,
-  // with an 8s fallback. The stray \r after a successful submit is benign.
-  private armPastePlaceholderSubmit(): () => void {
+  // Ink's paste detector treats the early write burst as a paste block, rendering it as
+  // "[Pasted text #N +X lines] paste again to expand" — the trailing \r in that burst is
+  // captured as paste content rather than a submit; a freshly booted TUI can also still be
+  // connecting MCP servers when we write. Either way the first submit may not land, so we
+  // re-send a bare \r — once off the paste marker and then on a fixed interval — until claude
+  // accepts the input. The caller disposes this as soon as the first JSONL entry proves the
+  // input was accepted, so a stray \r after a successful submit is at worst one no-op keystroke.
+  private armSubmissionRetry(): () => void {
     const proc = this.pty;
     if (!proc) return () => {};
 
     let done = false;
+    let attempts = 0;
     const dispose = (): void => {
       if (done) return;
       done = true;
-      clearTimeout(fallback);
+      clearInterval(interval);
       proc.off('data', onData);
     };
-    const submit = (reason: 'paste-marker' | 'fallback-timer'): void => {
+    const resubmit = (reason: 'paste-marker' | 'interval'): void => {
       if (done) return;
-      dispose();
+      attempts += 1;
       proc.write('\r');
-      eventLogger.info('claudeIO', 'interactive: sent follow-up \\r to submit paste', {
+      eventLogger.info('claudeIO', 'interactive: re-sent \\r to submit input', {
         threadId: this.threadId,
         reason,
+        attempts,
       });
+      // Stop nudging after the cap; the submission-confirmation deadline in runTurn is the
+      // backstop if the input still never landed.
+      if (attempts >= SUBMIT_MAX_RETRIES) dispose();
     };
     const pasteMarkerRe = /pasted\s+(text|content)|paste\s+again/i;
     const onData = (data: string): void => {
-      if (pasteMarkerRe.test(data)) submit('paste-marker');
+      if (pasteMarkerRe.test(data)) {
+        // Nudge once off the marker, then let the interval handle subsequent retries — the
+        // TUI re-renders the placeholder on every redraw, so reacting to each chunk would
+        // burn the whole retry budget in a single tick.
+        proc.off('data', onData);
+        resubmit('paste-marker');
+      }
     };
-    const fallback = setTimeout(() => submit('fallback-timer'), 8_000);
+    const interval = setInterval(() => resubmit('interval'), SUBMIT_RETRY_INTERVAL_MS);
     proc.on('data', onData);
     return dispose;
   }
@@ -233,15 +261,31 @@ export class ClaudeInteractiveSession {
       freshlySpawned,
     });
     proc.write(body + '\r');
-    const disposePasteWatcher = this.armPastePlaceholderSubmit();
+    const disposeSubmitRetry = this.armSubmissionRetry();
 
     let firstEntrySeen = false;
+
+    // Submission-confirmation deadline. timeoutMs (the turn timeout) is unbounded for user
+    // turns, so it can't catch a submit that never lands. If no JSONL entry appears within
+    // SUBMIT_CONFIRM_TIMEOUT_MS, cancel the watcher so the turn fails fast and the queue
+    // drains instead of wedging forever behind a prompt the TUI never submitted.
+    const submitDeadline = setTimeout(() => {
+      if (firstEntrySeen) return;
+      eventLogger.warn('claudeIO', 'interactive: input not accepted before deadline, aborting turn', {
+        threadId: this.threadId,
+        sessionId: this.sessionId,
+        timeoutMs: SUBMIT_CONFIRM_TIMEOUT_MS,
+      });
+      this.watcher.cancel();
+    }, SUBMIT_CONFIRM_TIMEOUT_MS);
+
     const wrappedOnEntry = (entry: JsonlEntry): void => {
       if (!firstEntrySeen) {
         firstEntrySeen = true;
-        // Any JSONL entry proves claude accepted the input; cancel the fallback \r
-        // so it doesn't fire mid-response.
-        disposePasteWatcher();
+        // Any JSONL entry proves claude accepted the input: stop nudging \r and cancel the
+        // submission deadline so a long-running turn isn't aborted mid-response.
+        disposeSubmitRetry();
+        clearTimeout(submitDeadline);
       }
       onEntry(entry);
     };
@@ -257,10 +301,19 @@ export class ClaudeInteractiveSession {
         },
         timeoutMs,
       });
+    } catch (err) {
+      if (!firstEntrySeen) {
+        throw new Error(
+          `claude interactive: prompt was not submitted within ${SUBMIT_CONFIRM_TIMEOUT_MS}ms ` +
+            `(thread ${this.threadId}, session ${this.sessionId}); the TUI never started the turn`
+        );
+      }
+      throw err;
     } finally {
       this.turnInFlight = false;
       this.lastTurnEndedAt = Date.now();
-      disposePasteWatcher();
+      clearTimeout(submitDeadline);
+      disposeSubmitRetry();
     }
   }
 
