@@ -75,7 +75,14 @@ class SlackMcpServer extends BaseMcpServer {
     server.tool(
       'ask_clarification',
       'Post clarifying questions to the originating Slack thread',
-      { ...slackTarget, questions: z.string().describe('Questions to post to Slack') },
+      {
+        ...slackTarget,
+        questions: z
+          .string()
+          .describe(
+            'Plain natural-language questions as Slack mrkdwn — NOT a JSON object or array. Use a numbered list when asking more than one question.'
+          ),
+      },
       ({ channel_id, thread_ts, questions }) => this.postToSlack(channel_id, thread_ts, questions, 'Questions posted.')
     );
 

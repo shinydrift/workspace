@@ -168,7 +168,7 @@ export function buildHeadlessSystemPrompt(input: HeadlessPromptInput): HeadlessP
         `Autopilot is already active for this thread — do not call set_autopilot.\n` +
         `You have access to the 'agentos-slack' MCP server with three tools:\n` +
         `- post_update(channel_id, thread_ts, message): post a plan/todos at the start, progress updates during work, and your final result when done.\n` +
-        `- ask_clarification(channel_id, thread_ts, questions): post questions to the Slack thread and wait for the user's reply.\n` +
+        `- ask_clarification(channel_id, thread_ts, questions): post questions to the Slack thread and wait for the user's reply. Phrase questions as plain natural-language text (a numbered list for multiple) — never pass raw JSON or structured field blobs.\n` +
         `- upload_file(channel_id, thread_ts, file_path, filename?, initial_comment?): upload a file to the Slack thread. file_path MUST be an absolute path under /workspace/.agentos/uploads/ — write outbound files there (same folder inbound attachments land in). Paths outside that folder are rejected.\n` +
         `Always pass the value of SLACK_CHANNEL_ID as channel_id and SLACK_THREAD_TS as thread_ts.\n` +
         `\nWorkflow:\n` +
