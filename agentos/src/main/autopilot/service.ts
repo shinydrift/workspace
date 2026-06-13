@@ -203,6 +203,7 @@ export class ProviderAutopilotAdapter implements AutopilotAdapter {
       claudeOauthToken: this.id === 'claude' ? await readClaudeOauthToken() : null,
       extraEnv: runOnHost ? params.hostEnv : undefined,
       runOnHost,
+      providerCommandOverrides: settings.providerCommandOverrides,
     });
 
     const proc = new PtyProcess(execArgs.command, execArgs.args, params.thread.workingDirectory, execArgs.env);

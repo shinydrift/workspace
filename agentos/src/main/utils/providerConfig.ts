@@ -64,6 +64,24 @@ export const PROVIDER_CONFIGS: Record<
   },
 };
 
+/**
+ * Resolves the CLI command + prefix args used to launch `provider`. When a non-blank override
+ * is configured (e.g. `"aifx agent claude"`), it is whitespace-split into the executable plus
+ * leading args (`{ command: 'aifx', prefixArgs: ['agent', 'claude'] }`). Otherwise falls back to
+ * the provider's default binary with no prefix args.
+ */
+export function resolveProviderCommand(
+  provider: Provider,
+  overrides?: Partial<Record<Provider, string>>
+): { command: string; prefixArgs: string[] } {
+  const tokens = overrides?.[provider]?.trim().split(/\s+/).filter(Boolean) ?? [];
+  if (tokens.length > 0) {
+    const [command, ...prefixArgs] = tokens;
+    return { command, prefixArgs };
+  }
+  return { command: PROVIDER_CONFIGS[provider].binaryName, prefixArgs: [] };
+}
+
 export function getOrderEntries(settings: AppSettings, projectConfig?: ProjectConfig | null): ProviderEntry[] {
   return getEffectiveProviderOrder(settings, projectConfig);
 }

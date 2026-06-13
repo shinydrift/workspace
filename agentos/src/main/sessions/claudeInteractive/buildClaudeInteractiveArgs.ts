@@ -1,5 +1,5 @@
-import type { ClaudeEffort } from '../../../shared/types';
-import { PROVIDER_CONFIGS } from '../../utils/providerConfig';
+import type { ClaudeEffort, Provider } from '../../../shared/types';
+import { PROVIDER_CONFIGS, resolveProviderCommand } from '../../utils/providerConfig';
 import { CLAUDE_CODE_OAUTH_TOKEN_ENV } from '../threadAuth';
 import { getMcpAuthHeaders } from '../../mcp/mcpAuth';
 
@@ -25,6 +25,8 @@ export type ClaudeInteractiveArgsOpts = {
   runOnHost?: boolean;
   /** Launch-time env to apply to the host process (API keys, backend routing, ids). */
   launchEnv?: Record<string, string>;
+  /** Per-provider CLI command overrides; interactive sessions use the `claude` override. */
+  providerCommandOverrides?: Partial<Record<Provider, string>>;
   mcp: {
     memoryMcpUrl?: string | null;
     threadMcpUrl?: string | null;
@@ -53,6 +55,7 @@ export function buildClaudeInteractiveArgs(opts: ClaudeInteractiveArgsOpts): {
   env?: Record<string, string>;
 } {
   const skipPermissions = opts.skipPermissions ?? true;
+  const { command, prefixArgs } = resolveProviderCommand('claude', opts.providerCommandOverrides);
   const mcpServers = enabledMcp(opts.mcp);
 
   const cliArgs: string[] = [
@@ -91,12 +94,22 @@ export function buildClaudeInteractiveArgs(opts: ClaudeInteractiveArgsOpts): {
   };
 
   if (opts.runOnHost) {
-    return { command: 'claude', args: cliArgs, env: { ...(opts.launchEnv ?? {}), ...execEnvMap } };
+    return { command, args: [...prefixArgs, ...cliArgs], env: { ...(opts.launchEnv ?? {}), ...execEnvMap } };
   }
 
   const envFlags = Object.entries(execEnvMap).flatMap(([k, v]) => ['-e', `${k}=${v}`]);
   return {
     command: 'docker',
-    args: ['exec', '-it', ...envFlags, '--user', 'agent', `agentos-session-${opts.threadId}`, 'claude', ...cliArgs],
+    args: [
+      'exec',
+      '-it',
+      ...envFlags,
+      '--user',
+      'agent',
+      `agentos-session-${opts.threadId}`,
+      command,
+      ...prefixArgs,
+      ...cliArgs,
+    ],
   };
 }

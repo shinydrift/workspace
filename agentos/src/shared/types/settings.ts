@@ -50,6 +50,14 @@ export interface AppSettings {
    * Project config may override this per-project. Default: false.
    */
   runOnHost?: boolean;
+  /**
+   * Per-provider override for the CLI command used to launch a provider. The value is
+   * whitespace-split into a command + prefix args, e.g. `"aifx agent claude"` launches
+   * `aifx agent claude …` instead of `claude …`. Applies everywhere a provider is spawned
+   * (host + container exec, council, autopilot, kanban). Unset providers fall back to their
+   * default binary. Under Docker the command must already exist inside the sandbox image.
+   */
+  providerCommandOverrides?: Partial<Record<Provider, string>>;
 }
 
 export interface VoiceFlowSettings {

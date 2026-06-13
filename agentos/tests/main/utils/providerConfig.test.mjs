@@ -308,3 +308,47 @@ test('buildBackendEnv codex+openrouter sets OPENAI vars', () => {
   assert.equal(env.OPENAI_BASE_URL, 'https://openrouter.ai/api/v1');
   assert.equal(env.OPENAI_API_KEY, 'sk-or-v1-x');
 });
+
+// ── resolveProviderCommand ──────────────────────────────────────────────────────
+
+function resolveProviderCommand(provider, overrides) {
+  const tokens = overrides?.[provider]?.trim().split(/\s+/).filter(Boolean) ?? [];
+  if (tokens.length > 0) {
+    const [command, ...prefixArgs] = tokens;
+    return { command, prefixArgs };
+  }
+  return { command: PROVIDER_CONFIGS[provider].binaryName, prefixArgs: [] };
+}
+
+test('resolveProviderCommand falls back to default binary when overrides absent', () => {
+  assert.deepEqual(resolveProviderCommand('claude', undefined), { command: 'claude', prefixArgs: [] });
+  assert.deepEqual(resolveProviderCommand('codex', {}), { command: 'codex', prefixArgs: [] });
+});
+
+test('resolveProviderCommand falls back to default binary when override is blank/whitespace', () => {
+  assert.deepEqual(resolveProviderCommand('claude', { claude: '' }), { command: 'claude', prefixArgs: [] });
+  assert.deepEqual(resolveProviderCommand('claude', { claude: '   ' }), { command: 'claude', prefixArgs: [] });
+});
+
+test('resolveProviderCommand single-token override yields command with no prefix args', () => {
+  assert.deepEqual(resolveProviderCommand('claude', { claude: 'aifx' }), { command: 'aifx', prefixArgs: [] });
+});
+
+test('resolveProviderCommand multi-token override splits into command + prefix args', () => {
+  assert.deepEqual(resolveProviderCommand('claude', { claude: 'aifx agent claude' }), {
+    command: 'aifx',
+    prefixArgs: ['agent', 'claude'],
+  });
+});
+
+test('resolveProviderCommand collapses extra/leading/trailing whitespace', () => {
+  assert.deepEqual(resolveProviderCommand('codex', { codex: '  aifx   agent  codex  ' }), {
+    command: 'aifx',
+    prefixArgs: ['agent', 'codex'],
+  });
+});
+
+test('resolveProviderCommand only applies the override for the matching provider', () => {
+  const overrides = { claude: 'aifx agent claude' };
+  assert.deepEqual(resolveProviderCommand('codex', overrides), { command: 'codex', prefixArgs: [] });
+});

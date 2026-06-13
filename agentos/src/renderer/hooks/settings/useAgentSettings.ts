@@ -1,8 +1,5 @@
 import type { AppSettings, Provider, ProviderEntry } from '../../../shared/types';
-import {
-  DEFAULT_PROVIDER_ORDER,
-  normalizeProviderOrder,
-} from '../../../shared/types';
+import { DEFAULT_PROVIDER_ORDER, normalizeProviderOrder } from '../../../shared/types';
 import { useSettingsField } from './useSettingsField';
 
 export function useAgentSettings(settings: AppSettings | null) {
@@ -51,6 +48,11 @@ export function useAgentSettings(settings: AppSettings | null) {
     (s) => s.autopilot?.plannerModel,
     undefined
   );
+  const [providerCommandOverrides, setProviderCommandOverrides] = useSettingsField<Partial<Record<Provider, string>>>(
+    settings,
+    (s) => s.providerCommandOverrides ?? {},
+    {}
+  );
 
   return {
     queueSilenceFallbackMs,
@@ -73,5 +75,7 @@ export function useAgentSettings(settings: AppSettings | null) {
     setAutopilotPlannerProvider,
     autopilotPlannerModel,
     setAutopilotPlannerModel,
+    providerCommandOverrides,
+    setProviderCommandOverrides,
   };
 }

@@ -18,7 +18,7 @@ import { ThreadOutputManager } from './threadOutput';
 import { broadcastThreadCreated, broadcastStatus } from './broadcaster';
 import { ClaudeInteractiveSession } from './claudeInteractive/ClaudeInteractiveSession';
 import type { JsonlEntry } from './claudeInteractive/ClaudeJsonlWatcher';
-import type { Thread, ThreadStatus } from '../../shared/types';
+import type { Provider, Thread, ThreadStatus } from '../../shared/types';
 import type { CouncilMember, CouncilOutcomeRecord } from '../../shared/types/council';
 
 const COUNCIL_CHILD_TIMEOUT_MS = 10 * 60 * 1000;
@@ -112,6 +112,7 @@ export class CouncilChildThreadService {
         councilMcpUrl,
         runOnHost,
         hostEnv,
+        providerCommandOverrides: settings.providerCommandOverrides,
       });
     }
 
@@ -126,6 +127,7 @@ export class CouncilChildThreadService {
       mcpBearerToken: getMcpToken(),
       councilMcpUrl,
       runOnHost,
+      providerCommandOverrides: settings.providerCommandOverrides,
     });
 
     const procEnv = execArgs.env ? { ...hostEnv, ...execArgs.env } : undefined;
@@ -204,6 +206,7 @@ export class CouncilChildThreadService {
     councilMcpUrl: string;
     runOnHost: boolean;
     hostEnv: Record<string, string>;
+    providerCommandOverrides?: Partial<Record<Provider, string>>;
   }): { childThreadId: string } {
     const sessionId = randomUUID();
     const childThreadWithSession = { ...opts.childThread, claudeSessionId: sessionId };
@@ -237,6 +240,7 @@ export class CouncilChildThreadService {
           skipPermissions: true,
           runOnHost: opts.runOnHost,
           launchEnv: opts.hostEnv,
+          providerCommandOverrides: opts.providerCommandOverrides,
           mcp: { councilMcpUrl: opts.councilMcpUrl },
         },
         () => {

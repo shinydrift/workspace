@@ -160,6 +160,7 @@ export class StageWorkerService {
         recordingsMcpUrl,
         runOnHost,
         hostEnv,
+        providerCommandOverrides: settings.providerCommandOverrides,
       });
     }
 
@@ -180,6 +181,7 @@ export class StageWorkerService {
       kanbanMcpUrl,
       recordingsMcpUrl,
       runOnHost,
+      providerCommandOverrides: settings.providerCommandOverrides,
     });
 
     const procEnv = execArgs.env ? { ...hostEnv, ...execArgs.env } : undefined;
@@ -243,6 +245,7 @@ export class StageWorkerService {
     recordingsMcpUrl: string | null;
     runOnHost: boolean;
     hostEnv: Record<string, string>;
+    providerCommandOverrides?: Partial<Record<Provider, string>>;
   }): { childThreadId: string } {
     const childId = opts.childId;
     const projectId = opts.childThread.projectId;
@@ -291,6 +294,7 @@ export class StageWorkerService {
           extraEnv: opts.extraEnv,
           runOnHost: opts.runOnHost,
           launchEnv: opts.hostEnv,
+          providerCommandOverrides: opts.providerCommandOverrides,
           mcp: {
             memoryMcpUrl: opts.memoryMcpUrl,
             threadMcpUrl: opts.threadMcpUrl,

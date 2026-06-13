@@ -60,6 +60,9 @@ export const AppSettingsPatchSchema = z
     webhookPort: z.number().int().min(1).max(65535).optional(),
     githubToken: z.string().nullable().optional(),
     runOnHost: z.boolean().optional(),
+    providerCommandOverrides: z
+      .partialRecord(z.enum(['claude', 'claude-interactive', 'codex', 'gemini', 'pi']), z.string())
+      .optional(),
     slack: z
       .object({
         enabled: z.boolean(),

@@ -260,6 +260,7 @@ export async function prepareThreadStartup(
       ...startConfig.backendEnv,
     },
     seccompProfilePath,
+    providerCommandOverrides: settings.providerCommandOverrides,
   });
 
   if (runOnHost) {

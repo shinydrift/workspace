@@ -4,7 +4,7 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import type { ClaudeEffort, CodexReasoning, Provider, SandboxSecuritySettings } from '../../../shared/types';
 import { DEFAULT_SANDBOX_SETTINGS } from '../../../shared/types';
-import { PROVIDER_CONFIGS } from '../providerConfig';
+import { PROVIDER_CONFIGS, resolveProviderCommand } from '../providerConfig';
 import { CLAUDE_CODE_OAUTH_TOKEN_ENV } from '../../sessions/threadAuth';
 import { eventLogger } from '../eventLog';
 import { AGENTOS_MCP_BEARER_TOKEN_ENV_VAR, getMcpAuthHeaders } from '../../mcp/mcpAuth';
@@ -51,6 +51,7 @@ export function buildDockerRunArgs(
     sessionDataDir?: string;
     extraEnv?: Record<string, string>;
     seccompProfilePath?: string;
+    providerCommandOverrides?: Partial<Record<Provider, string>>;
   } = {}
 ): DockerArgs {
   validateBindMount(workingDir, '/workspace');
@@ -123,7 +124,8 @@ export function buildDockerRunArgs(
   if (opts.headless) {
     args.push(imageName, 'sleep', 'infinity');
   } else {
-    args.push(imageName, cfg.binaryName, ...providerArgs);
+    const { command, prefixArgs } = resolveProviderCommand(provider, opts.providerCommandOverrides);
+    args.push(imageName, command, ...prefixArgs, ...providerArgs);
   }
 
   return { command: 'docker', args };
@@ -174,18 +176,29 @@ function execEnv(
  */
 function wrapExec(
   threadId: string,
-  binary: string,
+  command: string,
+  prefixArgs: string[],
   cliArgs: string[],
   env: Record<string, string>,
   runOnHost: boolean
 ): DockerArgs {
   if (runOnHost) {
-    return { command: binary, args: cliArgs, env };
+    return { command, args: [...prefixArgs, ...cliArgs], env };
   }
   const envFlags = Object.entries(env).flatMap(([key, value]) => ['-e', `${key}=${value}`]);
   return {
     command: 'docker',
-    args: ['exec', '-it', ...envFlags, '--user', 'agent', `agentos-session-${threadId}`, binary, ...cliArgs],
+    args: [
+      'exec',
+      '-it',
+      ...envFlags,
+      '--user',
+      'agent',
+      `agentos-session-${threadId}`,
+      command,
+      ...prefixArgs,
+      ...cliArgs,
+    ],
   };
 }
 
@@ -213,10 +226,13 @@ export function buildDockerExecArgs(
     extraEnv?: Record<string, string>;
     /** Run the CLI directly on the host instead of `docker exec` into the container. */
     runOnHost?: boolean;
+    /** Per-provider CLI command overrides (e.g. `claude` → `aifx agent claude`). */
+    providerCommandOverrides?: Partial<Record<Provider, string>>;
   }
 ): DockerArgs {
   const skipPermissions = opts.skipPermissions ?? true;
   const runOnHost = opts.runOnHost ?? false;
+  const { command, prefixArgs } = resolveProviderCommand(opts.provider, opts.providerCommandOverrides);
   const mcpServers = enabledMcpServers(opts);
 
   const modelArgs: string[] = !opts.model
@@ -248,7 +264,14 @@ export function buildDockerExecArgs(
       ],
       opts.extraEnv
     );
-    return wrapExec(threadId, 'codex', [...subcommand, ...commonFlags, ...modelArgs, ...reasoningArgs], env, runOnHost);
+    return wrapExec(
+      threadId,
+      command,
+      prefixArgs,
+      [...subcommand, ...commonFlags, ...modelArgs, ...reasoningArgs],
+      env,
+      runOnHost
+    );
   }
 
   if (opts.provider === 'gemini') {
@@ -270,7 +293,7 @@ export function buildDockerExecArgs(
       ...modelArgs,
       ...mcpServers.flatMap(({ name }) => ['--allowed-mcp-server-names', name]),
     ];
-    return wrapExec(threadId, 'gemini', cliArgs, env, runOnHost);
+    return wrapExec(threadId, command, prefixArgs, cliArgs, env, runOnHost);
   }
 
   if (opts.provider === 'pi') {
@@ -285,7 +308,7 @@ export function buildDockerExecArgs(
       opts.extraEnv
     );
     const cliArgs = ['-p', ...modelArgs, ...(opts.piSessionId ? ['--session', opts.piSessionId] : []), prompt];
-    return wrapExec(threadId, 'pi', cliArgs, env, runOnHost);
+    return wrapExec(threadId, command, prefixArgs, cliArgs, env, runOnHost);
   }
 
   // Claude (default)
@@ -343,7 +366,7 @@ export function buildDockerExecArgs(
     ],
     opts.extraEnv
   );
-  return wrapExec(threadId, 'claude', cliArgs, env, runOnHost);
+  return wrapExec(threadId, command, prefixArgs, cliArgs, env, runOnHost);
 }
 
 export async function stopContainer(sessionId: string): Promise<void> {

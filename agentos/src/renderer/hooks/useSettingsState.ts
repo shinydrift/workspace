@@ -72,6 +72,7 @@ export function useSettingsState() {
           autopilotPlannerProvider: agents.autopilotPlannerProvider,
           autopilotPlannerModel: agents.autopilotPlannerModel,
           ttsEnabled: agents.ttsEnabled,
+          providerCommandOverrides: agents.providerCommandOverrides,
         },
         slack: {
           enabled: slack.enabled,
@@ -118,6 +119,7 @@ export function useSettingsState() {
       agents.autopilotPlannerProvider,
       agents.autopilotPlannerModel,
       agents.ttsEnabled,
+      agents.providerCommandOverrides,
       slack.enabled,
       slack.botToken,
       slack.appToken,
@@ -203,6 +205,12 @@ export function useSettingsState() {
             : 0,
         },
         voice: { ttsEnabled: agents.ttsEnabled },
+        providerCommandOverrides: (() => {
+          const entries = Object.entries(agents.providerCommandOverrides)
+            .map(([provider, cmd]) => [provider, cmd.trim()] as const)
+            .filter(([, cmd]) => Boolean(cmd));
+          return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+        })(),
         envSafelist: env.envSafelist.length > 0 ? env.envSafelist : undefined,
         envVars: Object.keys(env.envVars).length > 0 ? env.envVars : undefined,
         worktrees: sandbox.worktreeSettings,

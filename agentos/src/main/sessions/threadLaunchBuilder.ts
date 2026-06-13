@@ -68,6 +68,7 @@ export async function buildThreadLaunchArgs(params: {
   envSafelist?: string[];
   envVars?: Record<string, string>;
   seccompProfilePath?: string;
+  providerCommandOverrides?: Partial<Record<Provider, string>>;
 }): Promise<ThreadLaunchArgs> {
   const {
     threadId,
@@ -196,6 +197,7 @@ export async function buildThreadLaunchArgs(params: {
       sessionDataDir,
       seccompProfilePath,
       extraEnv: containerEnv,
+      providerCommandOverrides: params.providerCommandOverrides,
     }
   );
 
