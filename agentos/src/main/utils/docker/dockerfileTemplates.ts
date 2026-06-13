@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import type { Provider, SavedProject } from '../../../shared/types';
 import { eventLogger } from '../eventLog';
@@ -13,6 +14,30 @@ export function sanitizeDockerNameSegment(id: string): string {
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-+|-+$/g, '') || 'project'
   );
+}
+
+/**
+ * Seeds the base sandbox build context into ~/.agentos/ from the bundled templates,
+ * then returns the path to the home-dir Dockerfile. The build context is the
+ * Dockerfile's directory, and Dockerfile.sandbox `COPY`s entrypoint.sh, so both files
+ * are seeded together to keep ~/.agentos a self-contained, user-editable context.
+ * Never overwrites an existing copy, so user edits persist across app updates.
+ */
+export function ensureGlobalDockerfile(bundledDockerfilePath: string): string {
+  const agentosDir = path.join(os.homedir(), '.agentos');
+  const bundledDir = path.dirname(bundledDockerfilePath);
+
+  for (const name of ['Dockerfile.sandbox', 'entrypoint.sh']) {
+    const target = path.join(agentosDir, name);
+    if (!fs.existsSync(target)) {
+      const source = path.join(bundledDir, name);
+      fs.mkdirSync(agentosDir, { recursive: true });
+      fs.copyFileSync(source, target);
+      eventLogger.info('docker', `Seeded ~/.agentos/${name} from bundled template`, { source, target });
+    }
+  }
+
+  return path.join(agentosDir, 'Dockerfile.sandbox');
 }
 
 export function computeProjectDockerfileHash(

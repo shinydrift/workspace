@@ -9,6 +9,7 @@ import {
   computeContainerConfigHash,
   handleExistingContainerForStart,
 } from '../utils/docker';
+import { ensureGlobalDockerfile } from '../utils/docker/dockerfileTemplates';
 import { resolveStartConfig } from './threadStartConfig';
 import type { ResolvedStartConfig } from './threadStartConfig';
 import { seedCodexAuthFromHost, seedGeminiAuthFromHost, refreshCodexAuthIfNeeded } from './threadAuth';
@@ -93,9 +94,10 @@ export async function prepareThreadStartup(
       eventLogger.info('docker', 'Docker started successfully', { threadId });
     }
 
-    const globalDockerfilePath = app.isPackaged
+    const bundledDockerfilePath = app.isPackaged
       ? path.join(process.resourcesPath, 'Dockerfile.sandbox')
       : path.join(app.getAppPath(), 'resources', 'Dockerfile.sandbox');
+    const globalDockerfilePath = ensureGlobalDockerfile(bundledDockerfilePath);
 
     const project = stored.projectId ? getProject(stored.projectId) : null;
 
