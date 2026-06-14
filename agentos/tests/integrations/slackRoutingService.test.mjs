@@ -118,6 +118,34 @@ test('processInboundMessage: production source builds dedup key as channelId:mes
   assert.match(src, /`\$\{params\.channelId\}:\$\{message\.ts\}`/);
 });
 
+// ── Council reaction branch (source anchor) ──────────────────────────────────
+
+test('executeTask: production source picks council emoji when a council run is pending', () => {
+  const dir = path.dirname(fileURLToPath(import.meta.url));
+  const src = fs.readFileSync(
+    path.resolve(dir, '../../src/main/integrations/slackRoutingService.ts'),
+    'utf8'
+  );
+  // Council-dispatching turns must show a distinct emoji instead of the autopilot robot,
+  // and the chosen emoji must be threaded into onAutopilotPending so it can be removed on resolution.
+  assert.match(src, /hasPendingCouncilRun\(threadId\)\s*\?\s*'classical_building'\s*:\s*'robot_face'/);
+  assert.match(src, /onAutopilotPending\(threadId,\s*\{[^}]*emoji[^}]*\}\)/);
+});
+
+// ── Inlined emoji selection logic ─────────────────────────────────────────────
+
+function selectAutopilotEmoji(hasPendingCouncilRun) {
+  return hasPendingCouncilRun ? 'classical_building' : 'robot_face';
+}
+
+test('selectAutopilotEmoji: council run pending → classical_building', () => {
+  assert.equal(selectAutopilotEmoji(true), 'classical_building');
+});
+
+test('selectAutopilotEmoji: no council run → robot_face', () => {
+  assert.equal(selectAutopilotEmoji(false), 'robot_face');
+});
+
 // ── Missing workingDirectory guard ───────────────────────────────────────────
 
 async function processWithMissingWorkdir(postMessage) {

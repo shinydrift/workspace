@@ -17,6 +17,7 @@ import { SlackThreadResolver } from './slackThreadResolver';
 import { resolveSlackUploadWorkspace } from './slackUploadWorkspace';
 import { getProject, getSlackBinding } from '../threads/db';
 import { getThread } from '../threads/threadStore';
+import { councilService } from '../council/service';
 
 /** Sanitizes user-provided strings for safe inclusion in Slack mrkdwn. */
 function escapeMrkdwn(text: string): string {
@@ -80,7 +81,7 @@ class SlackBridge extends BaseBridge<SlackBridgeDeps> {
     async (event) => this.dispatchInboundSlackEvent(event)
   );
   /** Tracks Slack messages until autopilot reaches a terminal state and Slack can post ✅ or ❌. */
-  private pendingAutopilotChecks = new Map<string, Array<{ channelId: string; messageTs: string }>>();
+  private pendingAutopilotChecks = new Map<string, Array<{ channelId: string; messageTs: string; emoji: string }>>();
   /** Deduplicates concurrent createThread calls for the same Slack thread binding. */
   private pendingThreadCreations = new Map<string, Promise<{ id: string; workingDirectory: string }>>();
   private routingService = new SlackRoutingService({
@@ -94,6 +95,7 @@ class SlackBridge extends BaseBridge<SlackBridgeDeps> {
     postMessage: async (channelId, text, threadTs) => this.postMessage(channelId, text, threadTs),
     addReaction: async (channelId, messageTs, emoji) => this.addReaction(channelId, messageTs, emoji),
     removeReaction: async (channelId, messageTs, emoji) => this.removeReaction(channelId, messageTs, emoji),
+    hasPendingCouncilRun: (threadId) => councilService.hasPendingRunForThread(threadId),
     onAutopilotPending: (threadId, check) => {
       const existing = this.pendingAutopilotChecks.get(threadId) ?? [];
       existing.push(check);
@@ -206,7 +208,7 @@ class SlackBridge extends BaseBridge<SlackBridgeDeps> {
         this.pendingAutopilotChecks.delete(payload.threadId);
         const doneEmoji = isError ? 'x' : 'white_check_mark';
         for (const check of pendingChecks) {
-          void this.removeReaction(check.channelId, check.messageTs, 'robot_face');
+          void this.removeReaction(check.channelId, check.messageTs, check.emoji);
           void this.addReaction(check.channelId, check.messageTs, doneEmoji);
         }
       }

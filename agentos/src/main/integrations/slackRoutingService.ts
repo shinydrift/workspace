@@ -36,7 +36,8 @@ export class SlackRoutingService {
       postMessage: (channelId: string, text: string, threadTs: string) => Promise<void>;
       addReaction: (channelId: string, messageTs: string, emoji: string) => Promise<void>;
       removeReaction: (channelId: string, messageTs: string, emoji: string) => Promise<void>;
-      onAutopilotPending: (threadId: string, check: { channelId: string; messageTs: string }) => void;
+      hasPendingCouncilRun: (threadId: string) => boolean;
+      onAutopilotPending: (threadId: string, check: { channelId: string; messageTs: string; emoji: string }) => void;
     }
   ) {}
 
@@ -251,8 +252,13 @@ export class SlackRoutingService {
       await deps.sendInput(threadId, `${input}\n`, 'user', { systemPromptSuffix: slackContextNote });
       void this.args.removeReaction(params.channelId, messageTs, 'eyes');
       if (autopilotEnabled) {
-        void this.args.addReaction(params.channelId, messageTs, 'robot_face');
-        this.args.onAutopilotPending(threadId, { channelId: params.channelId, messageTs });
+        // A turn that dispatched a council stops while members run; the autopilot
+        // lifecycle (incl. the synthesis turn) still drives resolution to ✅/❌.
+        // Show a distinct council emoji instead of the autopilot robot so council
+        // runs are visually separate from normal autopilot work.
+        const emoji = this.args.hasPendingCouncilRun(threadId) ? 'classical_building' : 'robot_face';
+        void this.args.addReaction(params.channelId, messageTs, emoji);
+        this.args.onAutopilotPending(threadId, { channelId: params.channelId, messageTs, emoji });
       } else {
         void this.args.addReaction(params.channelId, messageTs, 'white_check_mark');
       }
