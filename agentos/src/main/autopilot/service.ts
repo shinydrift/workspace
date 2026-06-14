@@ -12,9 +12,10 @@ import { randomUUID } from 'node:crypto';
 import { PtyProcess } from '../sessions/PtyProcess';
 import { getMcpToken } from '../mcp/mcpAuth';
 import { autopilotMcpServer } from '../integrations/autopilotMcpServer';
+import { ClaudeInteractiveSession } from '../sessions/claudeInteractive/ClaudeInteractiveSession';
 import { autopilotSubmissionRegistry, type AutopilotAction } from './autopilotSubmission';
 import type { QueueSource } from '../sessions/ThreadInputQueue';
-import type { AppSettings, Message, Thread, AutopilotThreadState, Provider } from '../../shared/types';
+import type { AppSettings, ClaudeEffort, Message, Thread, AutopilotThreadState, Provider } from '../../shared/types';
 
 const AUTOPILOT_SUBMIT_TOOL = 'mcp__agentos-autopilot__submit_autopilot_decision';
 
@@ -85,6 +86,10 @@ function buildTranscript(messages: Message[]): string {
 const MAX_RAW_CHARS = 256 * 1024; // #2: cap PTY output to prevent memory exhaustion
 const MAX_TRANSCRIPT_CHARS = 32_000; // N6: cap transcript bytes to prevent oversized planner prompts
 const PLANNER_TIMEOUT_MS = 30_000; // #3: reduced from 90s
+// Interactive planner spins up a fresh PTY (TUI boot + MCP wiring + submit retries), so its
+// cold-start budget is far larger than the headless one-shot. Bounds the turn after submission;
+// ClaudeInteractiveSession applies its own submit-confirmation deadline on top.
+const INTERACTIVE_PLANNER_TIMEOUT_MS = 120_000;
 
 export class ProviderAutopilotAdapter implements AutopilotAdapter {
   constructor(public readonly id: Provider) {}
@@ -166,10 +171,10 @@ export class ProviderAutopilotAdapter implements AutopilotAdapter {
     // Don't inherit thread's effort/reasoning when planner uses a different provider.
     const threadEffort = this.id === params.thread.provider ? params.thread.effort : undefined;
     const threadReasoning = this.id === params.thread.provider ? params.thread.reasoning : undefined;
-    const effort =
-      this.id === 'claude'
-        ? resolveEffectiveEffort(projectConfigResult?.config ?? null, settings, threadEffort)
-        : undefined;
+    const isClaudeFamily = this.id === 'claude' || this.id === 'claude-interactive';
+    const effort = isClaudeFamily
+      ? resolveEffectiveEffort(projectConfigResult?.config ?? null, settings, threadEffort)
+      : undefined;
     const reasoning =
       this.id === 'codex'
         ? resolveEffectiveReasoning(projectConfigResult?.config ?? null, settings, threadReasoning)
@@ -184,6 +189,26 @@ export class ProviderAutopilotAdapter implements AutopilotAdapter {
     // thread's captured launch env (API keys, backend routing, AGENTOS ids, MCP bearer).
     const runOnHost = params.runOnHost;
     const autopilotMcpUrl = mcpUrl(autopilotPort, runOnHost);
+    const claudeOauthToken = isClaudeFamily ? await readClaudeOauthToken() : null;
+
+    // claude-interactive runs the planner through a dedicated, ephemeral PTY session (separate
+    // from the thread's own interactive session) rather than a one-shot headless `claude -p`.
+    if (this.id === 'claude-interactive') {
+      return this.runInteractivePlanner({
+        threadId: params.thread.id,
+        workingDirectory: params.thread.workingDirectory,
+        submissionToken,
+        systemPrompt,
+        prompt,
+        model,
+        effort,
+        claudeOauthToken,
+        autopilotMcpUrl,
+        runOnHost,
+        hostEnv: params.hostEnv,
+        settings,
+      });
+    }
 
     const execArgs = buildDockerExecArgs(params.thread.id, prompt, {
       provider: this.id,
@@ -200,7 +225,7 @@ export class ProviderAutopilotAdapter implements AutopilotAdapter {
       model,
       effort,
       reasoning,
-      claudeOauthToken: this.id === 'claude' ? await readClaudeOauthToken() : null,
+      claudeOauthToken,
       extraEnv: runOnHost ? params.hostEnv : undefined,
       runOnHost,
       providerCommandOverrides: settings.providerCommandOverrides,
@@ -291,6 +316,77 @@ export class ProviderAutopilotAdapter implements AutopilotAdapter {
       autopilotSubmissionRegistry.close(params.thread.id);
     }
   }
+
+  // Runs the planner as a separate, ephemeral claude-interactive PTY session. The session id is
+  // freshly generated and never persisted to the thread or registered in claudeInteractiveSessions,
+  // so the planner's PTY is fully isolated from the thread's own interactive session and its turn
+  // never lands in the thread transcript. The decision is read out of band via the autopilot MCP
+  // submission (same as the headless path), not from JSONL output.
+  private async runInteractivePlanner(p: {
+    threadId: string;
+    workingDirectory: string;
+    submissionToken: string;
+    systemPrompt: string;
+    prompt: string;
+    model: string | undefined;
+    effort: ClaudeEffort | undefined;
+    claudeOauthToken: string | null;
+    autopilotMcpUrl: string;
+    runOnHost: boolean;
+    hostEnv: Record<string, string>;
+    settings: AppSettings;
+  }): Promise<AutopilotAction> {
+    const plannerSessionId = randomUUID();
+    const session = new ClaudeInteractiveSession(
+      p.threadId,
+      plannerSessionId,
+      p.workingDirectory,
+      {
+        threadId: p.threadId,
+        sessionId: plannerSessionId,
+        isResume: false,
+        claudeOauthToken: p.claudeOauthToken,
+        apiKey: null,
+        mcpBearerToken: null, // MCP auth rides on getMcpAuthHeaders() in --mcp-config, not this field
+        model: p.model,
+        effort: p.effort,
+        systemPrompt: p.systemPrompt,
+        // Least-privilege: the planner may only call the autopilot submit tool, mirroring the
+        // headless allow-list. skipPermissions stays false so claude enforces it.
+        allowedTools: ['mcp__agentos-autopilot', AUTOPILOT_SUBMIT_TOOL],
+        skipPermissions: false,
+        runOnHost: p.runOnHost,
+        launchEnv: p.runOnHost ? p.hostEnv : {},
+        providerCommandOverrides: p.settings.providerCommandOverrides,
+        // Only the autopilot server — the planner has no reason to reach memory/thread/etc.
+        mcp: { autopilotMcpUrl: p.autopilotMcpUrl },
+      },
+      () => {}
+    );
+
+    eventLogger.info('autopilot', 'Planner LLM call started (claude interactive)', { threadId: p.threadId });
+    autopilotSubmissionRegistry.open(p.threadId, p.submissionToken);
+    try {
+      // Drop JSONL entries — the planner's output is consumed via the MCP submission, and this
+      // turn must not be mirrored into the thread's transcript.
+      await session.runTurn(p.prompt, INTERACTIVE_PLANNER_TIMEOUT_MS, () => {});
+      const submitted = autopilotSubmissionRegistry.peek(p.threadId);
+      if (submitted) return submitted;
+      return { action: 'stop', reason: 'Planner exited without submitting a decision.' };
+    } catch (err) {
+      // The planner may have submitted before the turn errored/timed out — honor that decision.
+      const submitted = autopilotSubmissionRegistry.peek(p.threadId);
+      if (submitted) return submitted;
+      eventLogger.error('autopilot', 'Interactive planner failed', {
+        threadId: p.threadId,
+        error: getErrorMessage(err),
+      });
+      throw err;
+    } finally {
+      session.dispose();
+      autopilotSubmissionRegistry.close(p.threadId);
+    }
+  }
 }
 
 export class AutopilotService {
@@ -320,6 +416,7 @@ export class AutopilotService {
     },
     adapters: Map<Provider, AutopilotAdapter> = new Map([
       ['claude', new ProviderAutopilotAdapter('claude')],
+      ['claude-interactive', new ProviderAutopilotAdapter('claude-interactive')],
       ['codex', new ProviderAutopilotAdapter('codex')],
       ['gemini', new ProviderAutopilotAdapter('gemini')],
     ])

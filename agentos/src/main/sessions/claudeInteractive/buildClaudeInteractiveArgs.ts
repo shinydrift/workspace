@@ -19,6 +19,9 @@ export type ClaudeInteractiveArgsOpts = {
   effort?: ClaudeEffort;
   systemPrompt?: string | null;
   disallowedTools?: string[];
+  /** Restrict the session to exactly these tools (claude `--allowed-tools`). Used by the
+   * autopilot planner to enforce least-privilege — it may only call the autopilot submit tool. */
+  allowedTools?: string[];
   skipPermissions?: boolean;
   extraEnv?: Record<string, string>;
   /** Run claude directly on the host instead of `docker exec` into the container. */
@@ -34,6 +37,9 @@ export type ClaudeInteractiveArgsOpts = {
     slackMcpUrl?: string | null;
     kanbanMcpUrl?: string | null;
     recordingsMcpUrl?: string | null;
+    /** Autopilot planner only: exposes the submit_autopilot_decision tool. Not wired for
+     * normal thread turns. */
+    autopilotMcpUrl?: string | null;
   };
 };
 
@@ -45,6 +51,7 @@ function enabledMcp(mcp: ClaudeInteractiveArgsOpts['mcp']): Array<{ name: string
     { name: 'agentos-slack', url: mcp.slackMcpUrl },
     { name: 'agentos-kanban', url: mcp.kanbanMcpUrl },
     { name: 'agentos-recordings', url: mcp.recordingsMcpUrl },
+    { name: 'agentos-autopilot', url: mcp.autopilotMcpUrl },
   ];
   return candidates.flatMap(({ name, url }) => (url ? [{ name, url }] : []));
 }
@@ -76,6 +83,10 @@ export function buildClaudeInteractiveArgs(opts: ClaudeInteractiveArgsOpts): {
       mcpConfig[name] = { type: 'http', url, headers: authHeaders };
     }
     cliArgs.push('--mcp-config', JSON.stringify({ mcpServers: mcpConfig }));
+  }
+
+  if (opts.allowedTools?.length) {
+    cliArgs.push('--allowed-tools', opts.allowedTools.join(','));
   }
 
   if (opts.disallowedTools?.length) {
