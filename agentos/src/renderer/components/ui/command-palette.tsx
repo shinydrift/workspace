@@ -39,8 +39,8 @@ export function CommandPalette<T>({
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/60 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
-        <DialogPrimitive.Content className="fixed left-1/2 top-[30%] z-50 w-full max-w-xl -translate-x-1/2 -translate-y-1/2 rounded-xl border border-border/60 bg-popover/90 backdrop-blur-md shadow-xl overflow-hidden duration-150 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95">
+        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/10 supports-[backdrop-filter]:backdrop-blur-xs data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
+        <DialogPrimitive.Content className="fixed left-1/2 top-[30%] z-50 w-full max-w-xl -translate-x-1/2 -translate-y-1/2 rounded-xl border border-border/60 bg-background shadow-xl overflow-hidden duration-150 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95">
           <DialogPrimitive.Title className="sr-only">Command palette</DialogPrimitive.Title>
 
           <Command shouldFilter={false} className="rounded-none bg-transparent">

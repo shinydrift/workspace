@@ -48,7 +48,7 @@ export function TrayPopover() {
   const isActive = threads.some((t) => t.status === 'running' || t.status === 'building');
 
   return (
-    <div className="flex h-screen flex-col text-sm select-none rounded-xl overflow-hidden backdrop-blur-xl shadow-2xl bg-white/90 text-zinc-900 ring-1 ring-black/10 dark:bg-zinc-900/90 dark:text-zinc-100 dark:ring-white/10">
+    <div className="flex h-screen flex-col text-sm select-none rounded-xl overflow-hidden backdrop-blur-xs shadow-2xl bg-white/90 text-zinc-900 ring-1 ring-black/10 dark:bg-zinc-900/90 dark:text-zinc-100 dark:ring-white/10">
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-zinc-200 dark:border-zinc-700">
         {isActive ? <LogoTextAnimation className="h-4 w-auto" /> : <AgentOSLogo className="h-4 w-auto" />}

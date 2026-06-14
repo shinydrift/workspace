@@ -27,7 +27,10 @@ export function QuickAddModal({
   onClose,
 }: Props) {
   return (
-    <div className="fixed inset-0 z-40 bg-black/40 flex items-center justify-center" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-40 bg-black/10 supports-[backdrop-filter]:backdrop-blur-xs flex items-center justify-center"
+      onClick={onClose}
+    >
       <div
         className="bg-background border border-border rounded-xl shadow-2xl p-5 w-[360px]"
         onClick={(e) => e.stopPropagation()}
