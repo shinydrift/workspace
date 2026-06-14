@@ -1,55 +1,36 @@
 import type { Provider, ProviderEntry } from './provider';
 
-export interface AppSettings {
-  claudeStreamJson: boolean;
-  skipPermissions: boolean;
+export type EmbeddingProvider = 'auto' | 'openai' | 'google' | 'voyage' | 'mistral' | 'local';
+
+export interface ApiKeys {
+  anthropic?: string;
+  openai?: string;
+  google?: string;
+  openrouter?: string;
+  voyage?: string;
+  mistral?: string;
+  github?: string;
+}
+
+export interface TailscaleSettings {
+  authKey?: string | null;
+  funnel?: boolean;
+}
+
+export interface ContainersConfig {
+  pruneIdleHours?: number;
+  pruneMaxAgeDays?: number;
+}
+
+export interface EnvConfig {
+  safelist?: string[];
+  vars?: Record<string, string>;
+}
+
+export interface AgentsConfig {
   providerOrder: ProviderEntry[];
   lastProvider?: Provider;
-  maxLogBufferSize: number;
-  logRetentionDays?: number;
   queueSilenceFallbackMs?: number;
-  persistDebugLogs: boolean;
-  devMode: boolean;
-  memoryRootPath: string | null;
-  theme: 'dark' | 'light' | 'system';
-  fontSize: number;
-  apiKeys?: {
-    anthropic?: string;
-    openai?: string;
-    google?: string;
-    openrouter?: string;
-    voyage?: string;
-    mistral?: string;
-  };
-  embeddingProvider?: 'auto' | 'openai' | 'google' | 'voyage' | 'mistral' | 'local';
-  embeddingModel?: string;
-  localModelPath?: string | null;
-  memorySearch?: MemorySearchSettings;
-  extraMemoryPaths?: string[];
-  tailscaleAuthKey?: string | null;
-  tailscaleFunnel?: boolean;
-  webhookPort?: number;
-  githubToken?: string | null;
-  slack?: SlackSettings;
-  sandbox?: SandboxSecuritySettings;
-  containerPrune?: ContainerPruneSettings;
-  worktrees?: WorktreeSettings;
-  voice?: VoiceSettings;
-  envSafelist?: string[];
-  envVars?: Record<string, string>;
-  autopilot?: AutopilotSettings;
-  meetingProjectPath?: string;
-  recording?: RecordingSettings;
-  voiceFlow?: VoiceFlowSettings;
-  /** When true, all MCP server requests require a valid bearer token even from localhost. Default: false. */
-  mcpRequireAuth?: boolean;
-  /**
-   * When true, threads run the provider CLI directly on the host machine with NO sandbox
-   * isolation, instead of inside a Docker container. The agent gets full read/write access
-   * to the host with `--dangerously-skip-permissions`. Requires the provider CLI on PATH.
-   * Project config may override this per-project. Default: false.
-   */
-  runOnHost?: boolean;
   /**
    * Per-provider override for the CLI command used to launch a provider. The value is
    * whitespace-split into a command + prefix args, e.g. `"aifx agent claude"` launches
@@ -57,7 +38,75 @@ export interface AppSettings {
    * (host + container exec, council, autopilot, kanban). Unset providers fall back to their
    * default binary. Under Docker the command must already exist inside the sandbox image.
    */
-  providerCommandOverrides?: Partial<Record<Provider, string>>;
+  commandOverrides?: Partial<Record<Provider, string>>;
+  autopilot?: AutopilotSettings;
+}
+
+export interface MemoryConfig {
+  enabled?: boolean;
+  rootPath?: string | null;
+  extraPaths?: string[];
+  embeddingProvider?: EmbeddingProvider;
+  embeddingModel?: string;
+  localModelPath?: string | null;
+  // Search tuning
+  maxResults?: number; // default 8
+  minScore?: number; // default 0.5
+  vectorWeight?: number; // default 0.7
+  textWeight?: number; // default 0.3
+  codeVectorWeight?: number; // default 0.55; overrides vectorWeight for code search only
+  codeTextWeight?: number; // default 0.45; overrides textWeight for code search only
+  decayHalfLifeDays?: number; // default 45
+  codeDecayHalfLifeDays?: number; // default 180; set 0 to disable code decay
+  mmrLambda?: number; // default 0.7
+  sessionRetentionDays?: number; // default undefined (no pruning)
+  // Decay / graph controls (project-level memory features)
+  decayEnabled?: boolean;
+  decayMinScore?: number;
+  graphEnabled?: boolean;
+  graphBoost?: number;
+}
+
+/**
+ * The app-owned configuration surface that a project may selectively override.
+ * `AppSettings` is the concrete base; `ProjectConfig` is a deep-partial of this
+ * (plus project-only fields). Both sides share these names and structures.
+ */
+export interface BaseConfig {
+  /**
+   * When true, threads run the provider CLI directly on the host machine with NO sandbox
+   * isolation, instead of inside a Docker container. The agent gets full read/write access
+   * to the host with `--dangerously-skip-permissions`. Requires the provider CLI on PATH.
+   * Project config may override this per-project. Default: false.
+   */
+  runOnHost?: boolean;
+  sandbox?: SandboxSecuritySettings;
+  agents: AgentsConfig;
+  apiKeys?: ApiKeys;
+  tailscale?: TailscaleSettings;
+  worktree?: WorktreeSettings;
+  containers?: ContainersConfig;
+  env?: EnvConfig;
+  memory?: MemoryConfig;
+  recording?: RecordingSettings;
+}
+
+export interface AppSettings extends BaseConfig {
+  claudeStreamJson: boolean;
+  skipPermissions: boolean;
+  maxLogBufferSize: number;
+  logRetentionDays?: number;
+  persistDebugLogs: boolean;
+  devMode: boolean;
+  theme: 'dark' | 'light' | 'system';
+  fontSize: number;
+  webhookPort?: number;
+  slack?: SlackSettings;
+  voice?: VoiceSettings;
+  voiceFlow?: VoiceFlowSettings;
+  meetingProjectPath?: string;
+  /** When true, all MCP server requests require a valid bearer token even from localhost. Default: false. */
+  mcpRequireAuth?: boolean;
 }
 
 export interface VoiceFlowSettings {
@@ -236,20 +285,10 @@ export const DEFAULT_SANDBOX_SETTINGS: SandboxSecuritySettings = {
   tmpfs: ['/tmp', '/var/tmp'],
 };
 
-export interface MemorySearchSettings {
-  maxResults?: number; // default 8
-  minScore?: number; // default 0.5
-  vectorWeight?: number; // default 0.7
-  textWeight?: number; // default 0.3
-  codeVectorWeight?: number; // default 0.55; overrides vectorWeight for code search only
-  codeTextWeight?: number; // default 0.45; overrides textWeight for code search only
-  halfLifeDays?: number; // default 45
-  codeDecayHalfLifeDays?: number; // default 180; set 0 to disable code decay
-  mmrLambda?: number; // default 0.7
-  sessionRetentionDays?: number; // default undefined (no pruning)
-}
-
-export type PublicSettings = Omit<AppSettings, 'apiKeys' | 'slack' | 'githubToken' | 'tailscaleAuthKey' | 'envVars'>;
+/** Settings broadcast to renderer windows: credential fields are stripped, env keeps only its safelist. */
+export type PublicSettings = Omit<AppSettings, 'apiKeys' | 'slack' | 'tailscale' | 'env'> & {
+  env?: { safelist?: string[] };
+};
 
 export interface SlackThreadBinding {
   key: string;

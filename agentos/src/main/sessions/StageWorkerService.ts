@@ -160,7 +160,7 @@ export class StageWorkerService {
         recordingsMcpUrl,
         runOnHost,
         hostEnv,
-        providerCommandOverrides: settings.providerCommandOverrides,
+        providerCommandOverrides: settings.agents.commandOverrides,
       });
     }
 
@@ -181,7 +181,7 @@ export class StageWorkerService {
       kanbanMcpUrl,
       recordingsMcpUrl,
       runOnHost,
-      providerCommandOverrides: settings.providerCommandOverrides,
+      providerCommandOverrides: settings.agents.commandOverrides,
     });
 
     const procEnv = execArgs.env ? { ...hostEnv, ...execArgs.env } : undefined;

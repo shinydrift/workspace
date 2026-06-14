@@ -10,9 +10,7 @@ const sourcePath = path.resolve(__dirname, '../../src/shared/effectiveProjectSet
 test('effective project settings merge app defaults before project overrides', () => {
   const source = fs.readFileSync(sourcePath, 'utf8');
 
-  assert.match(source, /const app = \{ \.\.\.DEFAULT_WORKTREE_SETTINGS, \.\.\.\(settings\.worktrees \?\? \{\}\) \};/);
-  assert.match(
-    source,
-    /const app = \{ \.\.\.DEFAULT_CONTAINER_PRUNE_SETTINGS, \.\.\.\(settings\.containerPrune \?\? \{\}\) \};/
-  );
+  assert.match(source, /const app = \{ \.\.\.DEFAULT_WORKTREE_SETTINGS, \.\.\.\(settings\.worktree \?\? \{\}\) \};/);
+  assert.match(source, /settings\.containers\?\.pruneIdleHours \?\? DEFAULT_CONTAINER_PRUNE_SETTINGS\.idleHours/);
+  assert.match(source, /settings\.containers\?\.pruneMaxAgeDays \?\? DEFAULT_CONTAINER_PRUNE_SETTINGS\.maxAgeDays/);
 });

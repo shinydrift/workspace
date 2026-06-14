@@ -63,8 +63,8 @@ export class MemorySyncCoordinator {
     this.homeDir = homeDir;
     this.memoryDir = path.join(homeDir, '.agentos');
     const initialSettings = runtimeSettings();
-    this.lastMemoryRootPath = initialSettings.memoryRootPath ?? null;
-    this.lastExtraMemoryPaths = initialSettings.extraMemoryPaths ?? [];
+    this.lastMemoryRootPath = initialSettings.memory?.rootPath ?? null;
+    this.lastExtraMemoryPaths = initialSettings.memory?.extraPaths ?? [];
     runtimeOnSettingsChange((updated) => this.onSettingsChange(updated));
   }
 
@@ -81,7 +81,7 @@ export class MemorySyncCoordinator {
     });
 
     const settings = runtimeSettings();
-    const memoryRootPath = settings.memoryRootPath ?? path.join(homeDir, '.agentos', 'memory', 'projects');
+    const memoryRootPath = settings.memory?.rootPath ?? path.join(homeDir, '.agentos', 'memory', 'projects');
     await Promise.all(
       runtimeProjects().map(async ({ id: projectId }) => {
         await fs.promises.mkdir(path.join(memoryRootPath, projectId), { recursive: true });
@@ -302,8 +302,8 @@ export class MemorySyncCoordinator {
   }
 
   private onSettingsChange(updated: AppSettings): void {
-    const newRoot = updated.memoryRootPath ?? null;
-    const newExtra = updated.extraMemoryPaths ?? [];
+    const newRoot = updated.memory?.rootPath ?? null;
+    const newExtra = updated.memory?.extraPaths ?? [];
     const pathsChanged =
       newRoot !== this.lastMemoryRootPath || JSON.stringify(newExtra) !== JSON.stringify(this.lastExtraMemoryPaths);
     this.lastMemoryRootPath = newRoot;

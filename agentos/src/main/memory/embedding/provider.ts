@@ -237,7 +237,7 @@ async function createLocalProvider(modelPath?: string | null): Promise<Embedding
 // Create the best available embedding provider given the current settings.
 // Returns null when no provider is configured (FTS-only mode).
 export async function createEmbeddingProvider(settings: AppSettings): Promise<EmbeddingProvider | null> {
-  const requested = settings.embeddingProvider ?? 'local';
+  const requested = settings.memory?.embeddingProvider ?? 'local';
   const keys = settings.apiKeys ?? {};
 
   // Helper: try a single factory, return null on auth failure, rethrow on other errors
@@ -266,7 +266,7 @@ export async function createEmbeddingProvider(settings: AppSettings): Promise<Em
       case 'mistral':
         return tryProvider(() => (keys.mistral ? createMistralProvider(keys.mistral) : null));
       case 'local':
-        return tryProvider(() => createLocalProvider(settings.localModelPath));
+        return tryProvider(() => createLocalProvider(settings.memory?.localModelPath));
       default:
         return null;
     }
@@ -278,7 +278,7 @@ export async function createEmbeddingProvider(settings: AppSettings): Promise<Em
   if (keys.google?.trim()) candidates.push(() => tryProvider(() => createGoogleProvider(keys.google!)));
   if (keys.voyage?.trim()) candidates.push(() => tryProvider(() => createVoyageProvider(keys.voyage!)));
   if (keys.mistral?.trim()) candidates.push(() => tryProvider(() => createMistralProvider(keys.mistral!)));
-  candidates.push(() => createLocalProvider(settings.localModelPath));
+  candidates.push(() => createLocalProvider(settings.memory?.localModelPath));
 
   for (const candidate of candidates) {
     const provider = await candidate();

@@ -1,71 +1,31 @@
-import type { Provider, ProviderEntry } from './provider';
-import type { PersonalitySettings, RecordingTemplate, SandboxSecuritySettings } from './settings';
+import type { BaseConfig, MemoryConfig, PersonalitySettings } from './settings';
 
-export type ProjectConfig = {
+/** Deep-partial that leaves arrays (e.g. providerOrder) intact rather than partialising their elements. */
+export type DeepPartial<T> = T extends (infer _U)[] ? T : T extends object ? { [K in keyof T]?: DeepPartial<T[K]> } : T;
+
+/**
+ * Memory fields a project may override. Excludes app-only settings (the memory root
+ * path and embedding provider/model) — those are global and not honoured per-project,
+ * so the type does not advertise them as overridable.
+ */
+export type ProjectMemoryConfig = Omit<
+  MemoryConfig,
+  'rootPath' | 'embeddingProvider' | 'embeddingModel' | 'localModelPath'
+>;
+
+/**
+ * Per-project overrides. Inherits the app's `BaseConfig` surface as a deep-partial
+ * (every overridable key optional, same names/structure as `AppSettings`) and adds
+ * project-only fields. `memory` is narrowed to the project-overridable subset.
+ */
+export type ProjectConfig = DeepPartial<Omit<BaseConfig, 'memory'>> & {
+  memory?: DeepPartial<ProjectMemoryConfig>;
   version?: 1;
-  provider?: Provider;
-  /** Run threads on the host with no sandbox. Overrides the app-level runOnHost setting. */
-  runOnHost?: boolean;
-  sandbox?: Partial<SandboxSecuritySettings>;
   kanban?: {
     enabled?: boolean;
     stages?: Record<string, { prompt?: string }>;
   };
-  memory?: {
-    enabled?: boolean;
-    decayEnabled?: boolean;
-    decayHalfLifeDays?: number;
-    decayMinScore?: number;
-    graphEnabled?: boolean;
-    graphBoost?: number;
-    extraPaths?: string[];
-    // Search tuning overrides (inherit from app settings when absent)
-    maxResults?: number;
-    minScore?: number;
-    vectorWeight?: number;
-    textWeight?: number;
-    mmrLambda?: number;
-    sessionRetentionDays?: number;
-    codeVectorWeight?: number;
-    codeTextWeight?: number;
-    codeDecayHalfLifeDays?: number;
-  };
-  worktree?: {
-    autoCreate?: boolean;
-    pruneOnStop?: boolean;
-  };
-  env?: {
-    safelist?: string[];
-    vars?: Record<string, string>;
-  };
-  apiKeys?: {
-    anthropic?: string;
-    openai?: string;
-    google?: string;
-    openrouter?: string;
-    voyage?: string;
-    mistral?: string;
-    github?: string;
-    tailscaleAuthKey?: string;
-    tailscaleFunnel?: boolean;
-  };
-  agents?: {
-    providerOrder?: ProviderEntry[];
-    queueSilenceFallbackMs?: number;
-    autopilotMaxConsecutiveTurns?: number;
-    autopilotTranscriptMessages?: number;
-    autopilotPlannerProvider?: Provider;
-    autopilotPlannerModel?: string;
-  };
-  containers?: {
-    pruneIdleHours?: number;
-    pruneMaxAgeDays?: number;
-  };
   personality?: PersonalitySettings;
-  recording?: {
-    templates?: RecordingTemplate[];
-    activeTemplateId?: string;
-  };
 };
 
 export interface SavedProject {

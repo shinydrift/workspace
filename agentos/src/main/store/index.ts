@@ -16,7 +16,7 @@ interface StoreSchema {
     sandboxImageHash?: string;
     sandboxImageBuiltAt?: number;
     apiKeysEncrypted?: boolean; // legacy flag — superseded by secretsEncryptedV2
-    secretsEncryptedV2?: boolean; // covers apiKeys + tailscaleAuthKey + githubToken + slack tokens
+    secretsEncryptedV2?: boolean; // covers apiKeys (incl. github) + tailscale.authKey + slack tokens
   };
 }
 
@@ -25,20 +25,24 @@ const defaults: StoreSchema = {
   settings: {
     claudeStreamJson: true,
     skipPermissions: true,
-    providerOrder: [...DEFAULT_PROVIDER_ORDER],
+    agents: {
+      providerOrder: [...DEFAULT_PROVIDER_ORDER],
+      queueSilenceFallbackMs: 1_500,
+      autopilot: { ...DEFAULT_AUTOPILOT_SETTINGS },
+    },
     maxLogBufferSize: 2000,
     logRetentionDays: 30,
-    queueSilenceFallbackMs: 1_500,
     persistDebugLogs: false,
     devMode: false,
-    memoryRootPath: null,
     theme: 'dark',
     fontSize: 14,
     apiKeys: {},
-    embeddingProvider: 'local',
+    memory: { rootPath: null, embeddingProvider: 'local' },
     slack: { ...DEFAULT_SLACK_SETTINGS },
-    containerPrune: { ...DEFAULT_CONTAINER_PRUNE_SETTINGS },
-    autopilot: { ...DEFAULT_AUTOPILOT_SETTINGS },
+    containers: {
+      pruneIdleHours: DEFAULT_CONTAINER_PRUNE_SETTINGS.idleHours,
+      pruneMaxAgeDays: DEFAULT_CONTAINER_PRUNE_SETTINGS.maxAgeDays,
+    },
   },
 };
 
@@ -84,13 +88,14 @@ function transformApiKeys(keys: AppSettings['apiKeys'], fn: (v: string) => strin
   return result;
 }
 
-// Applies fn to all secret string fields: apiKeys.*, tailscaleAuthKey, githubToken,
+// Applies fn to all secret string fields: apiKeys.* (incl. github), tailscale.authKey,
 // slack.botToken, slack.appToken.
 function transformSecrets(settings: AppSettings, fn: (v: string) => string): AppSettings {
   const result = { ...settings };
   if (result.apiKeys) result.apiKeys = transformApiKeys(result.apiKeys, fn);
-  if (typeof result.tailscaleAuthKey === 'string') result.tailscaleAuthKey = fn(result.tailscaleAuthKey);
-  if (typeof result.githubToken === 'string') result.githubToken = fn(result.githubToken);
+  if (result.tailscale && typeof result.tailscale.authKey === 'string') {
+    result.tailscale = { ...result.tailscale, authKey: fn(result.tailscale.authKey) };
+  }
   if (result.slack) {
     const slack = { ...result.slack };
     if (typeof slack.botToken === 'string') slack.botToken = fn(slack.botToken);
@@ -129,18 +134,34 @@ export function getStore(): Store<StoreSchema> {
     const meta = store.get('meta');
     let settingsChanged = false;
 
+    // Defensive: a store written before the BaseConfig refactor has no `agents`
+    // group (electron-store does not deep-merge nested defaults), which would
+    // crash the providerOrder migration and every downstream `settings.agents`
+    // read. Seed it from defaults so all reads are safe.
+    if (!settings.agents) {
+      settings = {
+        ...settings,
+        agents: {
+          providerOrder: [...DEFAULT_PROVIDER_ORDER],
+          queueSilenceFallbackMs: 1_500,
+          autopilot: { ...DEFAULT_AUTOPILOT_SETTINGS },
+        },
+      };
+      settingsChanged = true;
+    }
+
     // Migration: normalize legacy providerOrder (Provider[] → ProviderEntry[])
-    const raw = settings.providerOrder;
+    const raw = settings.agents.providerOrder;
     const normalized = normalizeProviderOrder(raw);
     const needsRewrite =
       !Array.isArray(raw) ||
       raw.length !== normalized.length ||
       raw.some((item) => typeof item !== 'object' || item === null);
     if (normalized.length === 0) {
-      settings = { ...settings, providerOrder: [...DEFAULT_PROVIDER_ORDER] };
+      settings = { ...settings, agents: { ...settings.agents, providerOrder: [...DEFAULT_PROVIDER_ORDER] } };
       settingsChanged = true;
     } else if (needsRewrite) {
-      settings = { ...settings, providerOrder: normalized };
+      settings = { ...settings, agents: { ...settings.agents, providerOrder: normalized } };
       settingsChanged = true;
     }
 

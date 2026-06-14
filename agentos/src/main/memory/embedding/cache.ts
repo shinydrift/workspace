@@ -2,6 +2,7 @@
 import type Database from 'better-sqlite3';
 import { createEmbeddingProvider, type EmbeddingProvider } from './provider';
 import { runtimeLogger as eventLogger } from '../runtime';
+import type { ApiKeys, MemoryConfig } from '../../../shared/types';
 
 const EMBEDDING_BATCH_SIZE = 16;
 const EMBEDDING_CACHE_MAX_ENTRIES = 10_000;
@@ -12,17 +13,15 @@ let cachedProvider: EmbeddingProvider | null | undefined;
 let providerCacheKey = '';
 
 export type AppSettingsSubset = {
-  embeddingProvider?: string;
-  embeddingModel?: string;
-  localModelPath?: string | null;
-  apiKeys?: Record<string, string | undefined>;
+  memory?: Pick<MemoryConfig, 'embeddingProvider' | 'embeddingModel' | 'localModelPath'>;
+  apiKeys?: ApiKeys;
 };
 
 export async function getProvider(settings: AppSettingsSubset): Promise<EmbeddingProvider | null> {
   const currentKey = JSON.stringify({
-    p: settings.embeddingProvider,
-    m: settings.embeddingModel,
-    l: settings.localModelPath,
+    p: settings.memory?.embeddingProvider,
+    m: settings.memory?.embeddingModel,
+    l: settings.memory?.localModelPath,
     k: settings.apiKeys,
   });
   if (cachedProvider !== undefined && currentKey === providerCacheKey) return cachedProvider;

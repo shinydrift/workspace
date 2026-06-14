@@ -114,8 +114,8 @@ export function clearAllProjectCfgCaches(): void {
 }
 
 export function pruneOldSessions(db: Database, scope: SyncScope, settings: AppSettings): void {
-  const ms = settings.memorySearch ?? {};
-  const projCfg = scope.projectPath ? loadProjectMemCfg(scope.projectPath, ms.halfLifeDays ?? 45) : null;
+  const ms = settings.memory ?? {};
+  const projCfg = scope.projectPath ? loadProjectMemCfg(scope.projectPath, ms.decayHalfLifeDays ?? 45) : null;
   const retentionDays = projCfg?.sessionRetentionDays ?? ms.sessionRetentionDays ?? 90;
   if (!retentionDays || retentionDays <= 0) return;
   const now = Date.now();
@@ -294,9 +294,9 @@ export async function searchMemory(
   const query = params.query.trim();
   if (!query) return [];
 
-  const ms = settings.memorySearch ?? {};
+  const ms = settings.memory ?? {};
   // Per-project config (falls back to app-level settings, cached 30 s)
-  const defaultHalfLife = ms.halfLifeDays ?? 45;
+  const defaultHalfLife = ms.decayHalfLifeDays ?? 45;
   const projCfg = scope.projectPath
     ? loadProjectMemCfg(scope.projectPath, defaultHalfLife)
     : { ...CFG_DEFAULTS, halfLifeDays: defaultHalfLife };
@@ -440,10 +440,10 @@ export async function searchCode(
   const query = params.query.trim();
   if (!query) return [];
 
-  const ms = settings.memorySearch ?? {};
+  const ms = settings.memory ?? {};
   const projCfg = scope.projectPath
-    ? loadProjectMemCfg(scope.projectPath, ms.halfLifeDays ?? 45)
-    : { ...CFG_DEFAULTS, halfLifeDays: ms.halfLifeDays ?? 45 };
+    ? loadProjectMemCfg(scope.projectPath, ms.decayHalfLifeDays ?? 45)
+    : { ...CFG_DEFAULTS, halfLifeDays: ms.decayHalfLifeDays ?? 45 };
 
   const maxResults = params.maxResults ?? projCfg.maxResults ?? ms.maxResults ?? DEFAULT_MAX_RESULTS;
   const minScore = params.minScore ?? projCfg.minScore ?? ms.minScore ?? 0.5;

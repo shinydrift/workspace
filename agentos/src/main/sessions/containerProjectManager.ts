@@ -125,7 +125,7 @@ export async function listContainerSummaries(): Promise<ContainerSummary[]> {
         ...(projectConfigResult?.config?.sandbox ?? {}),
       };
       const effectiveMemoryRootPath =
-        settings.memoryRootPath ?? path.join(app.getPath('home'), '.agentos', 'memory', 'projects');
+        settings.memory?.rootPath ?? path.join(app.getPath('home'), '.agentos', 'memory', 'projects');
       const injection = thread?.projectId
         ? await resolveInjectionPayload(effectiveMemoryRootPath, thread.projectId, { bootEnabled })
         : null;

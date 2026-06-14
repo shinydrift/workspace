@@ -64,7 +64,9 @@ export function broadcastThreadDeleted(threadId: string): void {
 export function broadcastSettingsChanged(settings: AppSettings, exclude?: WebContents): void {
   // Strip credential fields — renderer doesn't need them and sending secrets
   // to all windows increases blast radius unnecessarily.
-  const { apiKeys: _a, slack: _s, githubToken: _g, tailscaleAuthKey: _t, envVars: _e, ...safe }: AppSettings = settings;
+  const { apiKeys: _a, slack: _s, tailscale: _t, env, ...rest }: AppSettings = settings;
+  // Keep env.safelist (non-secret, used to show inherited app safelist) but drop env.vars.
+  const safe: PublicSettings = { ...rest, ...(env ? { env: { safelist: env.safelist } } : {}) };
   // Broadcast fires before the IPC response serialises back to the initiating
   // renderer, so pass exclude=sender to avoid a redundant self-update.
   broadcastToWindows<PublicSettings>(IPC_EVENTS.SETTINGS_CHANGED, safe, exclude);

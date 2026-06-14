@@ -8,9 +8,9 @@ export function useKeysSettings(settings: AppSettings | null) {
   const [openrouter, setOpenrouter] = useSettingsField(settings, (s) => s.apiKeys?.openrouter ?? '', '');
   const [voyage, setVoyage] = useSettingsField(settings, (s) => s.apiKeys?.voyage ?? '', '');
   const [mistral, setMistral] = useSettingsField(settings, (s) => s.apiKeys?.mistral ?? '', '');
-  const [tailscaleAuthKey, setTailscaleAuthKey] = useSettingsField(settings, (s) => s.tailscaleAuthKey ?? '', '');
-  const [tailscaleFunnel, setTailscaleFunnel] = useSettingsField(settings, (s) => Boolean(s.tailscaleFunnel), false);
-  const [githubToken, setGithubToken] = useSettingsField(settings, (s) => s.githubToken ?? '', '');
+  const [tailscaleAuthKey, setTailscaleAuthKey] = useSettingsField(settings, (s) => s.tailscale?.authKey ?? '', '');
+  const [tailscaleFunnel, setTailscaleFunnel] = useSettingsField(settings, (s) => Boolean(s.tailscale?.funnel), false);
+  const [githubToken, setGithubToken] = useSettingsField(settings, (s) => s.apiKeys?.github ?? '', '');
 
   return {
     anthropic,

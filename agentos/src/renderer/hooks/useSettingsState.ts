@@ -58,7 +58,7 @@ export function useSettingsState() {
           embeddingProvider: memory.embeddingProvider,
           embeddingModel: memory.embeddingModel,
           localModelPath: memory.localModelPath,
-          memorySearch: memory.memorySearch,
+          memoryConfig: memory.memoryConfig,
           extraMemoryPaths: memory.extraMemoryPaths,
         },
         agents: {
@@ -106,7 +106,7 @@ export function useSettingsState() {
       memory.embeddingProvider,
       memory.embeddingModel,
       memory.localModelPath,
-      memory.memorySearch,
+      memory.memoryConfig,
       memory.extraMemoryPaths,
       appearance.devMode,
       agents.queueSilenceFallbackMs,
@@ -151,38 +151,50 @@ export function useSettingsState() {
           openrouter: keys.openrouter.trim() || undefined,
           voyage: keys.voyage.trim() || undefined,
           mistral: keys.mistral.trim() || undefined,
+          github: keys.githubToken.trim() || undefined,
         },
-        embeddingProvider: memory.embeddingProvider,
-        embeddingModel: memory.embeddingModel.trim() || undefined,
-        localModelPath: memory.localModelPath.trim() || null,
-        memorySearch: Object.keys(memory.memorySearch).length > 0 ? memory.memorySearch : undefined,
-        extraMemoryPaths: memory.extraMemoryPaths.length > 0 ? memory.extraMemoryPaths : undefined,
-        tailscaleAuthKey: keys.tailscaleAuthKey.trim() || null,
-        tailscaleFunnel: keys.tailscaleFunnel,
-        githubToken: keys.githubToken.trim() || null,
+        tailscale: {
+          authKey: keys.tailscaleAuthKey.trim() || null,
+          funnel: keys.tailscaleFunnel,
+        },
+        memory: {
+          ...memory.memoryConfig,
+          embeddingProvider: memory.embeddingProvider,
+          embeddingModel: memory.embeddingModel.trim() || undefined,
+          localModelPath: memory.localModelPath.trim() || null,
+          extraPaths: memory.extraMemoryPaths.length > 0 ? memory.extraMemoryPaths : undefined,
+        },
         devMode: appearance.devMode,
         runOnHost: sandbox.runOnHost,
         sandbox: { ...DEFAULT_SANDBOX_SETTINGS, ...sandbox.security },
-        queueSilenceFallbackMs: Number.isFinite(agents.queueSilenceFallbackMs)
-          ? Math.max(200, Math.floor(agents.queueSilenceFallbackMs))
-          : 1_500,
-        providerOrder: agents.providerOrder,
+        agents: {
+          providerOrder: agents.providerOrder,
+          queueSilenceFallbackMs: Number.isFinite(agents.queueSilenceFallbackMs)
+            ? Math.max(200, Math.floor(agents.queueSilenceFallbackMs))
+            : 1_500,
+          commandOverrides: (() => {
+            const entries = Object.entries(agents.providerCommandOverrides)
+              .map(([provider, cmd]) => [provider, cmd.trim()] as const)
+              .filter(([, cmd]) => Boolean(cmd));
+            return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+          })(),
+          autopilot: {
+            ...(loadedSettings?.agents?.autopilot ?? {}),
+            enabled: agents.autopilotEnabled,
+            maxConsecutiveTurns: Number.isFinite(agents.autopilotMaxConsecutiveTurns)
+              ? Math.max(1, Math.floor(agents.autopilotMaxConsecutiveTurns))
+              : 3,
+            transcriptMessages: Number.isFinite(agents.autopilotTranscriptMessages)
+              ? Math.max(1, Math.floor(agents.autopilotTranscriptMessages))
+              : 12,
+            plannerProvider: agents.autopilotPlannerProvider,
+            plannerModel: agents.autopilotPlannerModel,
+          },
+        },
         persistDebugLogs: agents.persistDebugLogs,
         logRetentionDays: Number.isFinite(agents.logRetentionDays)
           ? Math.min(365, Math.max(1, Math.floor(agents.logRetentionDays)))
           : 30,
-        autopilot: {
-          ...(loadedSettings?.autopilot ?? {}),
-          enabled: agents.autopilotEnabled,
-          maxConsecutiveTurns: Number.isFinite(agents.autopilotMaxConsecutiveTurns)
-            ? Math.max(1, Math.floor(agents.autopilotMaxConsecutiveTurns))
-            : 3,
-          transcriptMessages: Number.isFinite(agents.autopilotTranscriptMessages)
-            ? Math.max(1, Math.floor(agents.autopilotTranscriptMessages))
-            : 12,
-          plannerProvider: agents.autopilotPlannerProvider,
-          plannerModel: agents.autopilotPlannerModel,
-        },
         slack: {
           enabled: slack.enabled,
           botToken: slack.botToken.trim() || null,
@@ -196,24 +208,20 @@ export function useSettingsState() {
           requireMention: slack.requireMention,
           defaultWorkingDirectory: slack.defaultWorkingDirectory.trim() || null,
         },
-        containerPrune: {
-          idleHours: Number.isFinite(sandbox.containerPrune.idleHours)
+        containers: {
+          pruneIdleHours: Number.isFinite(sandbox.containerPrune.idleHours)
             ? Math.max(0, sandbox.containerPrune.idleHours)
             : 0,
-          maxAgeDays: Number.isFinite(sandbox.containerPrune.maxAgeDays)
+          pruneMaxAgeDays: Number.isFinite(sandbox.containerPrune.maxAgeDays)
             ? Math.max(0, sandbox.containerPrune.maxAgeDays)
             : 0,
         },
         voice: { ttsEnabled: agents.ttsEnabled },
-        providerCommandOverrides: (() => {
-          const entries = Object.entries(agents.providerCommandOverrides)
-            .map(([provider, cmd]) => [provider, cmd.trim()] as const)
-            .filter(([, cmd]) => Boolean(cmd));
-          return entries.length > 0 ? Object.fromEntries(entries) : undefined;
-        })(),
-        envSafelist: env.envSafelist.length > 0 ? env.envSafelist : undefined,
-        envVars: Object.keys(env.envVars).length > 0 ? env.envVars : undefined,
-        worktrees: sandbox.worktreeSettings,
+        env: {
+          safelist: env.envSafelist.length > 0 ? env.envSafelist : undefined,
+          vars: Object.keys(env.envVars).length > 0 ? env.envVars : undefined,
+        },
+        worktree: sandbox.worktreeSettings,
         recording:
           (rec.recording.templates?.length ?? 0) > 0 || rec.recording.activeTemplateId !== undefined
             ? rec.recording

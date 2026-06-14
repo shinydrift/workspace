@@ -6,10 +6,7 @@ import { Separator } from '@/components/ui/separator';
 import { SectionHeader } from './SectionHeader';
 import { InheritHint } from './InheritHint';
 import { ProviderPriorityList } from '../../settings/ProviderPriorityList';
-import {
-  DEFAULT_PROVIDER_ORDER,
-  normalizeProviderOrder,
-} from '../../../../shared/types';
+import { DEFAULT_PROVIDER_ORDER, normalizeProviderOrder } from '../../../../shared/types';
 import type { AppSettings, ProviderEntry } from '../../../../shared/types';
 
 interface AgentsConfig {
@@ -25,9 +22,9 @@ interface Props {
 }
 
 export function AgentsSection({ agents, appSettings, savingKey, onAgentsPatch }: Props) {
-  const normalizedAppOrder = normalizeProviderOrder(appSettings?.providerOrder);
+  const normalizedAppOrder = normalizeProviderOrder(appSettings?.agents?.providerOrder);
   const appProviderOrder: ProviderEntry[] = normalizedAppOrder.length > 0 ? normalizedAppOrder : DEFAULT_PROVIDER_ORDER;
-  const appSilence = appSettings?.queueSilenceFallbackMs ?? 1500;
+  const appSilence = appSettings?.agents?.queueSilenceFallbackMs ?? 1500;
   const effectiveOrder = agents.providerOrder ?? appProviderOrder;
   const orderOverridden = agents.providerOrder !== undefined;
   const silenceOverridden = agents.queueSilenceFallbackMs !== undefined;

@@ -1,9 +1,5 @@
 import React from 'react';
-import type {
-  AppSettings,
-  ProjectConfigLookup,
-  SandboxSecuritySettings,
-} from '../../../shared/types';
+import type { AppSettings, ProjectConfigLookup, SandboxSecuritySettings } from '../../../shared/types';
 import {
   DEFAULT_CONTAINER_PRUNE_SETTINGS,
   DEFAULT_SANDBOX_SETTINGS,
@@ -68,10 +64,10 @@ export function ProjectSettingsPanel({
   const sb = { ...DEFAULT_SANDBOX_SETTINGS, ...(appSettings?.sandbox ?? {}), ...sandbox };
   const memory = config.memory ?? {};
   const kanban = config.kanban ?? {};
-  const appWorktreeAutoCreate = appSettings?.worktrees?.autoCreate ?? DEFAULT_WORKTREE_SETTINGS.autoCreate;
-  const appPruneOnStop = appSettings?.worktrees?.pruneOnStop ?? DEFAULT_WORKTREE_SETTINGS.pruneOnStop;
-  const appPruneIdleHours = appSettings?.containerPrune?.idleHours ?? DEFAULT_CONTAINER_PRUNE_SETTINGS.idleHours;
-  const appPruneMaxAgeDays = appSettings?.containerPrune?.maxAgeDays ?? DEFAULT_CONTAINER_PRUNE_SETTINGS.maxAgeDays;
+  const appWorktreeAutoCreate = appSettings?.worktree?.autoCreate ?? DEFAULT_WORKTREE_SETTINGS.autoCreate;
+  const appPruneOnStop = appSettings?.worktree?.pruneOnStop ?? DEFAULT_WORKTREE_SETTINGS.pruneOnStop;
+  const appPruneIdleHours = appSettings?.containers?.pruneIdleHours ?? DEFAULT_CONTAINER_PRUNE_SETTINGS.idleHours;
+  const appPruneMaxAgeDays = appSettings?.containers?.pruneMaxAgeDays ?? DEFAULT_CONTAINER_PRUNE_SETTINGS.maxAgeDays;
 
   return (
     <div className="flex flex-row flex-1 overflow-hidden text-sm">
@@ -91,7 +87,20 @@ export function ProjectSettingsPanel({
           {section === 'keys' && (
             <KeysSection
               apiKeys={config.apiKeys ?? {}}
-              appKeys={appSettings ?? undefined}
+              appKeys={
+                appSettings
+                  ? {
+                      anthropic: appSettings.apiKeys?.anthropic,
+                      openai: appSettings.apiKeys?.openai,
+                      google: appSettings.apiKeys?.google,
+                      voyage: appSettings.apiKeys?.voyage,
+                      mistral: appSettings.apiKeys?.mistral,
+                      githubToken: appSettings.apiKeys?.github,
+                      tailscaleAuthKey: appSettings.tailscale?.authKey,
+                      tailscaleFunnel: appSettings.tailscale?.funnel,
+                    }
+                  : undefined
+              }
               savingKey={savingKey}
               onPatch={(patch) => void updateConfig('apiKeys', patch as Record<string, unknown>)}
             />
@@ -114,9 +123,9 @@ export function ProjectSettingsPanel({
           {section === 'env' && (
             <EnvSection
               safelist={config.env?.safelist ?? []}
-              appSafelist={appSettings?.envSafelist ?? []}
+              appSafelist={appSettings?.env?.safelist ?? []}
               vars={config.env?.vars ?? {}}
-              appVars={appSettings?.envVars ?? {}}
+              appVars={appSettings?.env?.vars ?? {}}
               savingKey={savingKey}
               onChange={(safelist) => void updateConfig('env', { safelist })}
               onVarsChange={(vars) => void updateConfig('env', { vars })}

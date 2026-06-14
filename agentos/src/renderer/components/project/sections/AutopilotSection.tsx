@@ -27,16 +27,16 @@ interface Props {
 
 export function AutopilotSection({ agents, appSettings, savingKey, onAgentsPatch }: Props) {
   const appAutopilotTurns =
-    appSettings?.autopilot?.maxConsecutiveTurns ?? DEFAULT_AUTOPILOT_SETTINGS.maxConsecutiveTurns;
+    appSettings?.agents?.autopilot?.maxConsecutiveTurns ?? DEFAULT_AUTOPILOT_SETTINGS.maxConsecutiveTurns;
   const appAutopilotTranscript =
-    appSettings?.autopilot?.transcriptMessages ?? DEFAULT_AUTOPILOT_SETTINGS.transcriptMessages;
+    appSettings?.agents?.autopilot?.transcriptMessages ?? DEFAULT_AUTOPILOT_SETTINGS.transcriptMessages;
 
   const turnsOverridden = agents.autopilotMaxConsecutiveTurns !== undefined;
   const transcriptOverridden = agents.autopilotTranscriptMessages !== undefined;
   const plannerProviderOverridden = agents.autopilotPlannerProvider !== undefined;
   const plannerModelOverridden = agents.autopilotPlannerModel !== undefined;
 
-  const effectivePlannerProvider = agents.autopilotPlannerProvider ?? appSettings?.autopilot?.plannerProvider;
+  const effectivePlannerProvider = agents.autopilotPlannerProvider ?? appSettings?.agents?.autopilot?.plannerProvider;
 
   return (
     <>

@@ -229,7 +229,7 @@ class ThreadMcpServer extends BaseMcpServer {
       "Update a top-level key in the current thread's project .agentos/config.json. " +
         'The updates object is shallow-merged into the existing value for that key. Call get_project_config first if unsure of current values. ' +
         'Key shapes — ' +
-        'apiKeys: {anthropic?,openai?,google?,voyage?,mistral?,github?,tailscaleAuthKey?,tailscaleFunnel?}; ' +
+        'apiKeys: {anthropic?,openai?,google?,voyage?,mistral?,github?}; tailscale: {authKey?,funnel?}; ' +
         'sandbox: {network?,readOnlyRoot?,dropAllCapabilities?,noNewPrivileges?,memory?,cpus?,tmpfs?}; ' +
         'memory: {enabled?,decayEnabled?,decayHalfLifeDays?,decayMinScore?,graphEnabled?,graphBoost?}; ' +
         'worktree: {autoCreate?,pruneOnStop?}; ' +

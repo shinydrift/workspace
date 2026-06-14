@@ -52,8 +52,11 @@ export function useSandboxSettings(settings: AppSettings | null) {
     if (!settings) return;
     setSecurity(settings.sandbox ?? {});
     setRunOnHost(settings.runOnHost ?? false);
-    setContainerPrune(settings.containerPrune ?? DEFAULT_CONTAINER_PRUNE_SETTINGS);
-    setWorktreeSettings(settings.worktrees ?? DEFAULT_WORKTREE_SETTINGS);
+    setContainerPrune({
+      idleHours: settings.containers?.pruneIdleHours ?? DEFAULT_CONTAINER_PRUNE_SETTINGS.idleHours,
+      maxAgeDays: settings.containers?.pruneMaxAgeDays ?? DEFAULT_CONTAINER_PRUNE_SETTINGS.maxAgeDays,
+    });
+    setWorktreeSettings(settings.worktree ?? DEFAULT_WORKTREE_SETTINGS);
   }, [settings]);
 
   useEffect(() => {

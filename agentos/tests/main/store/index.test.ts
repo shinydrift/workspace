@@ -53,8 +53,8 @@ test('settings defaults are present', () => {
   assert.strictEqual(settings.fontSize, 14);
   assert.strictEqual(settings.skipPermissions, true);
   assert.strictEqual(settings.claudeStreamJson, true);
-  assert.ok(Array.isArray(settings.providerOrder));
-  assert.ok(settings.providerOrder.length > 0);
+  assert.ok(Array.isArray(settings.agents.providerOrder));
+  assert.ok(settings.agents.providerOrder.length > 0);
 });
 
 test('settings defaults include empty collections', () => {
@@ -79,7 +79,9 @@ test('setSettings merges patch and persists', () => {
 
 test('setSettings emits change event with updated settings', () => {
   let emitted: unknown = null;
-  settingsEvents.once('change', (s) => { emitted = s; });
+  settingsEvents.once('change', (s) => {
+    emitted = s;
+  });
 
   setSettings({ devMode: true });
 
@@ -104,12 +106,13 @@ test('providerOrder migration: legacy string array resets to default', () => {
     // First init with valid state, then corrupt providerOrder via raw set
     const store = getStore();
     // Force an empty providerOrder to trigger the reset-to-defaults branch
-    store.set('settings', { ...store.get('settings'), providerOrder: [] });
+    const current = store.get('settings');
+    store.set('settings', { ...current, agents: { ...current.agents, providerOrder: [] } });
     resetStoreForTests();
     process.env.AGENTOS_STORE_DIR = tmpDir2;
     const store2 = getStore();
     const settings = store2.get('settings');
-    assert.ok(settings.providerOrder.length > 0, 'should reset empty providerOrder to defaults');
+    assert.ok(settings.agents.providerOrder.length > 0, 'should reset empty providerOrder to defaults');
   } finally {
     resetStoreForTests();
     delete process.env.AGENTOS_STORE_DIR;

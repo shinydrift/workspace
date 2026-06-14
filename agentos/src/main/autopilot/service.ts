@@ -228,7 +228,7 @@ export class ProviderAutopilotAdapter implements AutopilotAdapter {
       claudeOauthToken,
       extraEnv: runOnHost ? params.hostEnv : undefined,
       runOnHost,
-      providerCommandOverrides: settings.providerCommandOverrides,
+      providerCommandOverrides: settings.agents.commandOverrides,
     });
 
     const proc = new PtyProcess(execArgs.command, execArgs.args, params.thread.workingDirectory, execArgs.env);
@@ -357,7 +357,7 @@ export class ProviderAutopilotAdapter implements AutopilotAdapter {
         skipPermissions: false,
         runOnHost: p.runOnHost,
         launchEnv: p.runOnHost ? p.hostEnv : {},
-        providerCommandOverrides: p.settings.providerCommandOverrides,
+        providerCommandOverrides: p.settings.agents.commandOverrides,
         // Only the autopilot server — the planner has no reason to reach memory/thread/etc.
         mcp: { autopilotMcpUrl: p.autopilotMcpUrl },
       },

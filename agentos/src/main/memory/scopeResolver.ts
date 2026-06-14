@@ -21,10 +21,10 @@ export function resolveSyncScope(
   return {
     projectId: resolvedProjectId,
     projectPath,
-    memoryRootPath: settings.memoryRootPath ?? path.join(homeDir, '.agentos', 'memory', 'projects'),
+    memoryRootPath: settings.memory?.rootPath ?? path.join(homeDir, '.agentos', 'memory', 'projects'),
     threads: runtimeThreadsByProject(resolvedProjectId),
     extraMemoryPaths: [
-      ...(settings.extraMemoryPaths ?? []),
+      ...(settings.memory?.extraPaths ?? []),
       ...(projectPath ? (runtimeProjectConfigSync(projectPath)?.memory?.extraPaths ?? []) : []),
     ],
   };

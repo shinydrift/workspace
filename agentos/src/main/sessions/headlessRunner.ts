@@ -184,7 +184,7 @@ export async function execHeadlessTurn(
     effort,
     reasoning,
     runOnHost,
-    providerCommandOverrides: settings.providerCommandOverrides,
+    providerCommandOverrides: settings.agents.commandOverrides,
   });
 
   // On host, exec processes don't inherit any container env — overlay the captured launch env

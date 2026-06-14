@@ -183,7 +183,8 @@ export class SlackRoutingService {
       });
     }
 
-    const autopilotEnabled = Boolean(deps.setAutopilot) && Boolean(getStore().get('settings').autopilot?.enabled);
+    const autopilotEnabled =
+      Boolean(deps.setAutopilot) && Boolean(getStore().get('settings').agents.autopilot?.enabled);
 
     let input = task;
     let uploadedPaths: string[] = [];

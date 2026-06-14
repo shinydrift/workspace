@@ -2,29 +2,44 @@ import { z } from 'zod';
 import type { AppSettings } from '../../shared/types';
 
 /** Full validated schema for AppSettings patches. Rejects unknown keys. */
+const providerEnum = z.enum(['claude', 'claude-interactive', 'codex', 'gemini', 'pi']);
+
 export const AppSettingsPatchSchema = z
   .object({
     claudeStreamJson: z.boolean().optional(),
     skipPermissions: z.boolean().optional(),
-    providerOrder: z
-      .array(
-        z.object({
-          provider: z.enum(['claude', 'claude-interactive', 'codex', 'gemini', 'pi']),
-          backend: z.enum(['anthropic', 'openai', 'google', 'ollama', 'openrouter']).optional(),
-          model: z.string().optional(),
-          baseUrl: z.string().optional(),
-          effort: z.enum(['low', 'medium', 'high', 'extra-high', 'max']).optional(),
-          reasoning: z.enum(['low', 'medium', 'high', 'extra-high']).optional(),
-        })
-      )
+    agents: z
+      .object({
+        providerOrder: z
+          .array(
+            z.object({
+              provider: providerEnum,
+              backend: z.enum(['anthropic', 'openai', 'google', 'ollama', 'openrouter']).optional(),
+              model: z.string().optional(),
+              baseUrl: z.string().optional(),
+              effort: z.enum(['low', 'medium', 'high', 'extra-high', 'max']).optional(),
+              reasoning: z.enum(['low', 'medium', 'high', 'extra-high']).optional(),
+            })
+          )
+          .optional(),
+        lastProvider: providerEnum.optional(),
+        queueSilenceFallbackMs: z.number().int().min(0).optional(),
+        commandOverrides: z.partialRecord(providerEnum, z.string()).optional(),
+        autopilot: z
+          .object({
+            enabled: z.boolean().optional(),
+            maxConsecutiveTurns: z.number().int().min(1).max(100).optional(),
+            transcriptMessages: z.number().int().min(1).max(200).optional(),
+            plannerProvider: providerEnum.optional(),
+            plannerModel: z.string().optional(),
+          })
+          .optional(),
+      })
       .optional(),
-    lastProvider: z.enum(['claude', 'claude-interactive', 'codex', 'gemini', 'pi']).optional(),
     maxLogBufferSize: z.number().int().min(0).optional(),
     logRetentionDays: z.number().int().min(1).optional(),
-    queueSilenceFallbackMs: z.number().int().min(0).optional(),
     persistDebugLogs: z.boolean().optional(),
     devMode: z.boolean().optional(),
-    memoryRootPath: z.string().nullable().optional(),
     theme: z.enum(['dark', 'light', 'system']).optional(),
     fontSize: z.number().min(8).max(72).optional(),
     apiKeys: z
@@ -35,34 +50,41 @@ export const AppSettingsPatchSchema = z
         openrouter: z.string().optional(),
         voyage: z.string().optional(),
         mistral: z.string().optional(),
+        github: z.string().optional(),
       })
       .optional(),
-    embeddingProvider: z.enum(['auto', 'openai', 'google', 'voyage', 'mistral', 'local']).optional(),
-    embeddingModel: z.string().optional(),
-    localModelPath: z.string().nullable().optional(),
-    memorySearch: z
+    tailscale: z
       .object({
+        authKey: z.string().nullable().optional(),
+        funnel: z.boolean().optional(),
+      })
+      .optional(),
+    memory: z
+      .object({
+        enabled: z.boolean().optional(),
+        rootPath: z.string().nullable().optional(),
+        extraPaths: z.array(z.string()).optional(),
+        embeddingProvider: z.enum(['auto', 'openai', 'google', 'voyage', 'mistral', 'local']).optional(),
+        embeddingModel: z.string().optional(),
+        localModelPath: z.string().nullable().optional(),
         maxResults: z.number().int().min(1).optional(),
         minScore: z.number().min(0).max(1).optional(),
         vectorWeight: z.number().min(0).max(1).optional(),
         textWeight: z.number().min(0).max(1).optional(),
         codeVectorWeight: z.number().min(0).max(1).optional(),
         codeTextWeight: z.number().min(0).max(1).optional(),
-        halfLifeDays: z.number().min(0).optional(),
+        decayHalfLifeDays: z.number().min(0).optional(),
         codeDecayHalfLifeDays: z.number().min(0).optional(),
         mmrLambda: z.number().min(0).max(1).optional(),
         sessionRetentionDays: z.number().min(0).optional(),
+        decayEnabled: z.boolean().optional(),
+        decayMinScore: z.number().min(0).max(1).optional(),
+        graphEnabled: z.boolean().optional(),
+        graphBoost: z.number().min(0).optional(),
       })
       .optional(),
-    extraMemoryPaths: z.array(z.string()).optional(),
-    tailscaleAuthKey: z.string().nullable().optional(),
-    tailscaleFunnel: z.boolean().optional(),
     webhookPort: z.number().int().min(1).max(65535).optional(),
-    githubToken: z.string().nullable().optional(),
     runOnHost: z.boolean().optional(),
-    providerCommandOverrides: z
-      .partialRecord(z.enum(['claude', 'claude-interactive', 'codex', 'gemini', 'pi']), z.string())
-      .optional(),
     slack: z
       .object({
         enabled: z.boolean(),
@@ -85,13 +107,13 @@ export const AppSettingsPatchSchema = z
         tmpfs: z.array(z.string()),
       })
       .optional(),
-    containerPrune: z
+    containers: z
       .object({
-        idleHours: z.number().min(0),
-        maxAgeDays: z.number().min(0),
+        pruneIdleHours: z.number().min(0).optional(),
+        pruneMaxAgeDays: z.number().min(0).optional(),
       })
       .optional(),
-    worktrees: z
+    worktree: z
       .object({
         autoCreate: z.boolean(),
         pruneOnStop: z.boolean(),
@@ -102,15 +124,10 @@ export const AppSettingsPatchSchema = z
         ttsEnabled: z.boolean(),
       })
       .optional(),
-    envSafelist: z.array(z.string()).optional(),
-    envVars: z.record(z.string(), z.string()).optional(),
-    autopilot: z
+    env: z
       .object({
-        enabled: z.boolean().optional(),
-        maxConsecutiveTurns: z.number().int().min(1).max(100).optional(),
-        transcriptMessages: z.number().int().min(1).max(200).optional(),
-        plannerProvider: z.enum(['claude', 'claude-interactive', 'codex', 'gemini', 'pi']).optional(),
-        plannerModel: z.string().optional(),
+        safelist: z.array(z.string()).optional(),
+        vars: z.record(z.string(), z.string()).optional(),
       })
       .optional(),
     meetingProjectPath: z.string().optional(),

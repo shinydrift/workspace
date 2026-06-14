@@ -11,12 +11,14 @@ import {
 
 export const PROJECT_CONFIG_KEYS = [
   'version',
+  'runOnHost',
   'sandbox',
   'kanban',
   'memory',
   'worktree',
   'env',
   'apiKeys',
+  'tailscale',
   'agents',
   'containers',
   'personality',
@@ -267,6 +269,8 @@ function validateProjectConfig(raw: unknown): { config: ProjectConfig; warnings:
     else warnings.push('Invalid "version" ignored');
   }
 
+  pickBool(raw, config as Record<string, unknown>, 'runOnHost', 'runOnHost');
+
   if ('sandbox' in raw) {
     if (isRecord(raw.sandbox)) {
       const sandbox: ProjectConfig['sandbox'] = {};
@@ -376,27 +380,32 @@ function validateProjectConfig(raw: unknown): { config: ProjectConfig; warnings:
   if ('apiKeys' in raw) {
     if (isRecord(raw.apiKeys)) {
       const apiKeys: NonNullable<ProjectConfig['apiKeys']> = {};
-      const stringKeys = [
-        'anthropic',
-        'openai',
-        'google',
-        'openrouter',
-        'voyage',
-        'mistral',
-        'github',
-        'tailscaleAuthKey',
-      ] as const;
+      const stringKeys = ['anthropic', 'openai', 'google', 'openrouter', 'voyage', 'mistral', 'github'] as const;
       for (const k of stringKeys) {
         if (k in raw.apiKeys && typeof raw.apiKeys[k] === 'string') {
           apiKeys[k] = raw.apiKeys[k] as string;
         }
       }
-      if ('tailscaleFunnel' in raw.apiKeys && typeof raw.apiKeys.tailscaleFunnel === 'boolean') {
-        apiKeys.tailscaleFunnel = raw.apiKeys.tailscaleFunnel;
+      // Tailscale moved out of apiKeys into its own `tailscale` block — warn rather than drop silently.
+      if ('tailscaleAuthKey' in raw.apiKeys || 'tailscaleFunnel' in raw.apiKeys) {
+        warnings.push(
+          '"apiKeys.tailscaleAuthKey"/"apiKeys.tailscaleFunnel" moved to the "tailscale" block — ignored here'
+        );
       }
       config.apiKeys = apiKeys;
     } else {
       warnings.push('Invalid "apiKeys" ignored');
+    }
+  }
+
+  if ('tailscale' in raw) {
+    if (isRecord(raw.tailscale)) {
+      const tailscale: NonNullable<ProjectConfig['tailscale']> = {};
+      pickStr(raw.tailscale, tailscale, 'authKey', 'tailscale.authKey');
+      pickBool(raw.tailscale, tailscale, 'funnel', 'tailscale.funnel');
+      config.tailscale = tailscale;
+    } else {
+      warnings.push('Invalid "tailscale" ignored');
     }
   }
 
@@ -408,8 +417,12 @@ function validateProjectConfig(raw: unknown): { config: ProjectConfig; warnings:
         if (valid.length > 0) agents.providerOrder = valid;
       }
       pickNum(raw.agents, agents, 'queueSilenceFallbackMs', 'agents.queueSilenceFallbackMs');
-      pickNum(raw.agents, agents, 'autopilotMaxConsecutiveTurns', 'agents.autopilotMaxConsecutiveTurns');
-      pickNum(raw.agents, agents, 'autopilotTranscriptMessages', 'agents.autopilotTranscriptMessages');
+      if ('autopilot' in raw.agents && isRecord(raw.agents.autopilot)) {
+        const autopilot: NonNullable<NonNullable<ProjectConfig['agents']>['autopilot']> = {};
+        pickNum(raw.agents.autopilot, autopilot, 'maxConsecutiveTurns', 'agents.autopilot.maxConsecutiveTurns');
+        pickNum(raw.agents.autopilot, autopilot, 'transcriptMessages', 'agents.autopilot.transcriptMessages');
+        agents.autopilot = autopilot;
+      }
       config.agents = agents;
     } else {
       warnings.push('Invalid "agents" ignored');

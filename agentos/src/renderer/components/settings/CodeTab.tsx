@@ -1,15 +1,15 @@
 import React, { useMemo } from 'react';
 import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
-import type { MemorySearchSettings } from '../../../shared/types';
+import type { MemoryConfig } from '../../../shared/types';
 import { useSettings } from '../../contexts/SettingsContext';
 import { PresetGrid, detectPreset, type Preset } from './PresetGrid';
 
-type CodeSliderKey = keyof Pick<MemorySearchSettings, 'codeVectorWeight' | 'codeTextWeight' | 'codeDecayHalfLifeDays'>;
+type CodeSliderKey = keyof Pick<MemoryConfig, 'codeVectorWeight' | 'codeTextWeight' | 'codeDecayHalfLifeDays'>;
 
 const PRESET_KEYS: CodeSliderKey[] = ['codeVectorWeight', 'codeTextWeight', 'codeDecayHalfLifeDays'];
 
-const PRESETS: Preset<MemorySearchSettings, CodeSliderKey>[] = [
+const PRESETS: Preset<MemoryConfig, CodeSliderKey>[] = [
   {
     name: 'default',
     label: 'Default',
@@ -75,16 +75,16 @@ const SLIDERS: {
 export function CodeTab() {
   const { memory } = useSettings();
 
-  const patch = (key: CodeSliderKey, value: number) => memory.setMemorySearch({ ...memory.memorySearch, [key]: value });
+  const patch = (key: CodeSliderKey, value: number) => memory.setMemoryConfig({ ...memory.memoryConfig, [key]: value });
 
-  const activePreset = useMemo(() => detectPreset(PRESETS, memory.memorySearch, PRESET_KEYS), [memory.memorySearch]);
+  const activePreset = useMemo(() => detectPreset(PRESETS, memory.memoryConfig, PRESET_KEYS), [memory.memoryConfig]);
 
-  const applyPreset = (preset: Preset<MemorySearchSettings, CodeSliderKey>) => {
-    const next: MemorySearchSettings = { ...memory.memorySearch };
+  const applyPreset = (preset: Preset<MemoryConfig, CodeSliderKey>) => {
+    const next: MemoryConfig = { ...memory.memoryConfig };
     for (const k of PRESET_KEYS) {
       next[k] = preset.settings[k];
     }
-    memory.setMemorySearch(next);
+    memory.setMemoryConfig(next);
   };
 
   return (
@@ -104,7 +104,7 @@ export function CodeTab() {
 
         <div className="space-y-3">
           {SLIDERS.map(({ key, label, low, high, min, max, step, defaultVal }) => {
-            const current = memory.memorySearch[key] ?? defaultVal;
+            const current = memory.memoryConfig[key] ?? defaultVal;
             return (
               <div key={key} className="flex items-center gap-3">
                 <span className="w-36 shrink-0 text-xs text-muted-foreground">

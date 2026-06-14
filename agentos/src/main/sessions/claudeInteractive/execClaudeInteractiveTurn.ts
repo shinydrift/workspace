@@ -105,7 +105,7 @@ export async function execClaudeInteractiveTurn(
         skipPermissions: settings.skipPermissions ?? true,
         runOnHost: launchMode?.runOnHost ?? false,
         launchEnv: launchMode?.hostEnv ?? {},
-        providerCommandOverrides: settings.providerCommandOverrides,
+        providerCommandOverrides: settings.agents.commandOverrides,
         mcp: {
           memoryMcpUrl: launchMode?.memoryMcpUrl ?? null,
           threadMcpUrl: launchMode?.threadMcpUrl ?? null,

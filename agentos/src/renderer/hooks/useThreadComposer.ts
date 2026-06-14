@@ -41,7 +41,7 @@ export function useThreadComposer(projects: SavedProject[]) {
         setModel(primary.model);
         setEffort(primary.effort);
         setReasoning(primary.reasoning);
-        setAutopilotEnabled(settings.autopilot?.enabled ?? false);
+        setAutopilotEnabled(settings.agents?.autopilot?.enabled ?? false);
       } catch (err) {
         console.warn('Failed to load provider settings', err);
       }

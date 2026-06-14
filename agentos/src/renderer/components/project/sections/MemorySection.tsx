@@ -7,7 +7,7 @@ import { Slider } from '@/components/ui/slider';
 import { SectionHeader } from './SectionHeader';
 import { InheritHint } from './InheritHint';
 import { PresetGrid, detectPreset, type Preset } from '../../settings/PresetGrid';
-import type { AppSettings, MemorySearchSettings, ProjectConfig } from '../../../../shared/types';
+import type { AppSettings, ProjectConfig } from '../../../../shared/types';
 
 type MemoryConfig = NonNullable<ProjectConfig['memory']>;
 
@@ -65,7 +65,7 @@ const SEARCH_SLIDERS: {
   min: number;
   max: number;
   step: number;
-  appKey: keyof MemorySearchSettings;
+  appKey: keyof MemoryConfig;
   defaultVal: number;
 }[] = [
   {
@@ -137,7 +137,7 @@ const SEARCH_SLIDERS: {
 ];
 
 export function MemorySection({ memory, appSettings, savingKey, onPatch }: Props) {
-  const ms = appSettings?.memorySearch ?? {};
+  const ms = appSettings?.memory ?? {};
   const [forceCustom, setForceCustom] = useState(false);
 
   const activePreset = useMemo(

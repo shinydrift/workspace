@@ -20,7 +20,7 @@ import {
 export { DEFAULT_BACKEND } from './types';
 
 export function getAppProviderOrder(settings: AppSettings): ProviderEntry[] {
-  const normalized = normalizeProviderOrder(settings.providerOrder);
+  const normalized = normalizeProviderOrder(settings.agents.providerOrder);
   return normalized.length > 0 ? normalized : [...DEFAULT_PROVIDER_ORDER];
 }
 
@@ -109,28 +109,26 @@ export function getEffectiveQueueSilenceFallbackMs(
   settings: AppSettings,
   projectConfig?: ProjectConfig | null
 ): number {
-  return Math.max(200, projectConfig?.agents?.queueSilenceFallbackMs ?? settings.queueSilenceFallbackMs ?? 1_500);
+  return Math.max(
+    200,
+    projectConfig?.agents?.queueSilenceFallbackMs ?? settings.agents.queueSilenceFallbackMs ?? 1_500
+  );
 }
 
 export function getEffectiveAutopilotSettings(
   settings: AppSettings,
   projectConfig?: ProjectConfig | null
 ): AutopilotSettings {
-  const app = { ...DEFAULT_AUTOPILOT_SETTINGS, ...(settings.autopilot ?? {}) };
+  const app = { ...DEFAULT_AUTOPILOT_SETTINGS, ...(settings.agents.autopilot ?? {}) };
+  const projAutopilot = projectConfig?.agents?.autopilot;
   return {
     enabled: app.enabled,
-    maxConsecutiveTurns: Math.max(
-      1,
-      Math.floor(projectConfig?.agents?.autopilotMaxConsecutiveTurns ?? app.maxConsecutiveTurns)
-    ),
-    transcriptMessages: Math.max(
-      1,
-      Math.floor(projectConfig?.agents?.autopilotTranscriptMessages ?? app.transcriptMessages)
-    ),
-    plannerProvider: projectConfig?.agents?.autopilotPlannerProvider ?? app.plannerProvider,
+    maxConsecutiveTurns: Math.max(1, Math.floor(projAutopilot?.maxConsecutiveTurns ?? app.maxConsecutiveTurns)),
+    transcriptMessages: Math.max(1, Math.floor(projAutopilot?.transcriptMessages ?? app.transcriptMessages)),
+    plannerProvider: projAutopilot?.plannerProvider ?? app.plannerProvider,
     plannerModel: (() => {
-      const provider = projectConfig?.agents?.autopilotPlannerProvider ?? app.plannerProvider;
-      const model = projectConfig?.agents?.autopilotPlannerModel ?? app.plannerModel;
+      const provider = projAutopilot?.plannerProvider ?? app.plannerProvider;
+      const model = projAutopilot?.plannerModel ?? app.plannerModel;
       return provider && model && PROVIDER_MODELS[provider]?.includes(model) ? model : undefined;
     })(),
   };
@@ -140,7 +138,7 @@ export function getEffectiveWorktreeSettings(
   settings: AppSettings,
   projectConfig?: ProjectConfig | null
 ): WorktreeSettings {
-  const app = { ...DEFAULT_WORKTREE_SETTINGS, ...(settings.worktrees ?? {}) };
+  const app = { ...DEFAULT_WORKTREE_SETTINGS, ...(settings.worktree ?? {}) };
   return {
     autoCreate: projectConfig?.worktree?.autoCreate ?? app.autoCreate,
     pruneOnStop: projectConfig?.worktree?.pruneOnStop ?? app.pruneOnStop,
@@ -151,9 +149,10 @@ export function getEffectiveContainerPruneSettings(
   settings: AppSettings,
   projectConfig?: ProjectConfig | null
 ): ContainerPruneSettings {
-  const app = { ...DEFAULT_CONTAINER_PRUNE_SETTINGS, ...(settings.containerPrune ?? {}) };
+  const appIdle = settings.containers?.pruneIdleHours ?? DEFAULT_CONTAINER_PRUNE_SETTINGS.idleHours;
+  const appMaxAge = settings.containers?.pruneMaxAgeDays ?? DEFAULT_CONTAINER_PRUNE_SETTINGS.maxAgeDays;
   return {
-    idleHours: Math.max(0, Math.floor(projectConfig?.containers?.pruneIdleHours ?? app.idleHours)),
-    maxAgeDays: Math.max(0, Math.floor(projectConfig?.containers?.pruneMaxAgeDays ?? app.maxAgeDays)),
+    idleHours: Math.max(0, Math.floor(projectConfig?.containers?.pruneIdleHours ?? appIdle)),
+    maxAgeDays: Math.max(0, Math.floor(projectConfig?.containers?.pruneMaxAgeDays ?? appMaxAge)),
   };
 }

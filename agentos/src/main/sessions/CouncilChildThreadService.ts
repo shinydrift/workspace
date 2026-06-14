@@ -112,7 +112,7 @@ export class CouncilChildThreadService {
         councilMcpUrl,
         runOnHost,
         hostEnv,
-        providerCommandOverrides: settings.providerCommandOverrides,
+        providerCommandOverrides: settings.agents.commandOverrides,
       });
     }
 
@@ -127,7 +127,7 @@ export class CouncilChildThreadService {
       mcpBearerToken: getMcpToken(),
       councilMcpUrl,
       runOnHost,
-      providerCommandOverrides: settings.providerCommandOverrides,
+      providerCommandOverrides: settings.agents.commandOverrides,
     });
 
     const procEnv = execArgs.env ? { ...hostEnv, ...execArgs.env } : undefined;

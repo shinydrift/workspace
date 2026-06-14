@@ -45,8 +45,8 @@ class AutomationService {
 
     webhookServer.start(port);
 
-    if (settings.tailscaleAuthKey && settings.tailscaleFunnel) {
-      tailscaleManager.configure(settings.tailscaleAuthKey, port);
+    if (settings.tailscale?.authKey && settings.tailscale?.funnel) {
+      tailscaleManager.configure(settings.tailscale?.authKey, port);
       tailscaleManager.start().catch((err: unknown) => {
         eventLogger.warn('tailscale', 'Tailscale startup failed', { error: getErrorMessage(err) });
       });

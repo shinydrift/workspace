@@ -141,7 +141,7 @@ export async function resolveStartConfig(
       ? { ...projectPersonality, ...stored.personalityOverride }
       : projectPersonality;
   const personalityPrompt = buildPersonalityPrompt(effectivePersonality);
-  const effectiveMemoryRootPath = settings.memoryRootPath ?? path.join(userHome, '.agentos', 'memory', 'projects');
+  const effectiveMemoryRootPath = settings.memory?.rootPath ?? path.join(userHome, '.agentos', 'memory', 'projects');
   let injectionPayload = await resolveInjectionPayload(
     effectiveMemoryRootPath,
     stored.projectId,

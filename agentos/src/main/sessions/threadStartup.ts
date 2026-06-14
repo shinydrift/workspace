@@ -249,18 +249,18 @@ export async function prepareThreadStartup(
     councilMcpPort: resolveMcpPort(councilMcpServer, 'council', threadId),
     kanbanMcpPort: resolveMcpPort(kanbanMcpServer, 'kanban', threadId),
     recordingsMcpPort: resolveMcpPort(recordingsMcpServer, 'recordings', threadId),
-    tailscaleAuthKey: startConfig.projectConfigResult.config?.apiKeys?.tailscaleAuthKey ?? settings.tailscaleAuthKey,
-    tailscaleFunnel: startConfig.projectConfigResult.config?.apiKeys?.tailscaleFunnel ?? settings.tailscaleFunnel,
-    githubToken: startConfig.projectConfigResult.config?.apiKeys?.github ?? settings.githubToken,
-    envSafelist: [...(settings.envSafelist ?? []), ...(startConfig.projectConfigResult.config?.env?.safelist ?? [])],
+    tailscaleAuthKey: startConfig.projectConfigResult.config?.tailscale?.authKey ?? settings.tailscale?.authKey,
+    tailscaleFunnel: startConfig.projectConfigResult.config?.tailscale?.funnel ?? settings.tailscale?.funnel,
+    githubToken: startConfig.projectConfigResult.config?.apiKeys?.github ?? settings.apiKeys?.github,
+    envSafelist: [...(settings.env?.safelist ?? []), ...(startConfig.projectConfigResult.config?.env?.safelist ?? [])],
     envVars: {
-      ...(settings.envVars ?? {}),
+      ...(settings.env?.vars ?? {}),
       ...(startConfig.projectConfigResult.config?.env?.vars ?? {}),
       // backendEnv is last: must win over user envVars so backend routing is authoritative
       ...startConfig.backendEnv,
     },
     seccompProfilePath,
-    providerCommandOverrides: settings.providerCommandOverrides,
+    providerCommandOverrides: settings.agents.commandOverrides,
   });
 
   if (runOnHost) {
