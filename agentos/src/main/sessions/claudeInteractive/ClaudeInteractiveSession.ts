@@ -73,7 +73,12 @@ export class ClaudeInteractiveSession {
     private readonly onDispose: () => void
   ) {
     const claudeDataDir = path.join(app.getPath('home'), '.claude');
-    this.watcher = new ClaudeJsonlWatcher(claudeDataDir);
+    // Claude derives its session JSONL project dir from its cwd, replacing every
+    // non-alphanumeric char with '-'. In Docker the cwd is always /workspace ('-workspace');
+    // on host claude runs in the real worktree, so slugify it the same way or the watcher
+    // tails the wrong dir and the turn never settles (totalEntriesSeen stays 0).
+    const projectDirName = this.args.runOnHost ? this.workingDirectory.replace(/[^a-zA-Z0-9]/g, '-') : '-workspace';
+    this.watcher = new ClaudeJsonlWatcher(claudeDataDir, projectDirName);
     this.hasSpawnedBefore = args.isResume;
   }
 

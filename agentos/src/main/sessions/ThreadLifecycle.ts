@@ -90,7 +90,9 @@ export class ThreadLifecycle {
     } catch {
       reason = 'pty-process-dead';
     }
-    if (!reason) {
+    // Host threads have no container; only the PTY liveness check above applies to them.
+    // Probing docker would always report 'missing' and trigger a needless restart loop.
+    if (!reason && !this.store.launchModes.get(threadId)?.runOnHost) {
       const status = await getContainerStatus(`agentos-session-${threadId}`);
       if (status !== 'running') reason = `container-${status ?? 'missing'}`;
     }

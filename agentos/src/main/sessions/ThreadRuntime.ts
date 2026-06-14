@@ -141,7 +141,9 @@ export class ThreadRuntime {
         hasMemory: startConfig.injectionPayload.hasMemory,
         injected: true,
       });
-      await waitForContainerRunning(containerName);
+      // Host threads have no container — the keep-alive PTY is already running, so waiting
+      // for a container that never gets created would always time out after 30s.
+      if (!launchMode.runOnHost) await waitForContainerRunning(containerName);
     } else {
       this.store.injectionStatuses.set(threadId, {
         hasBoot: startConfig.injectionPayload.hasBoot,

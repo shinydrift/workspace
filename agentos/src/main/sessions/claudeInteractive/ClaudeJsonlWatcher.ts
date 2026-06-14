@@ -56,16 +56,18 @@ type PreparedState = {
  * Usage: call prepareForTurn() synchronously BEFORE sending input to avoid racing the JSONL
  * file creation, then call watchTurn() to await turn completion.
  *
- * The '-workspace' subdirectory is Claude Code's fixed project-dir name when the working
- * directory is /workspace — it strips the leading '/' and replaces '/' with '-'.
+ * `projectDirName` is Claude Code's project-dir name, derived from claude's cwd by replacing
+ * every non-alphanumeric char with '-'. In Docker the cwd is always /workspace (→ '-workspace');
+ * on host it is the real worktree path, so the caller must slugify it the same way or this
+ * watcher tails the wrong directory and never sees the turn's output.
  */
 export class ClaudeJsonlWatcher {
   private readonly projectDir: string;
   private cancelFn: (() => void) | null = null;
   private prepared: PreparedState | null = null;
 
-  constructor(claudeDataDir: string) {
-    this.projectDir = path.join(claudeDataDir, 'projects', '-workspace');
+  constructor(claudeDataDir: string, projectDirName: string) {
+    this.projectDir = path.join(claudeDataDir, 'projects', projectDirName);
   }
 
   /**
