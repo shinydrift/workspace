@@ -7,10 +7,14 @@ import type { TurnEndReason } from '../headlessRunner';
 import { buildClaudeInteractiveArgs, type ClaudeInteractiveArgsOpts } from './buildClaudeInteractiveArgs';
 import { seedClaudeHostConfigOnce } from './seedClaudeHostConfig';
 
-// Wait up to this long for claude's TUI to emit anything (header, prompt, etc.)
-// before writing input. Without this we race claude's boot and the first input
-// is silently dropped.
-const BOOT_READY_TIMEOUT_MS = 3_000;
+// Boot readiness is detected by output QUIESCENCE: once claude's TUI has emitted something and then
+// gone quiet for BOOT_QUIET_MS, its initial render (including the input box) has settled. This beats
+// acting on the first byte, which often lands mid-boot — before the box is mounted and while MCP
+// servers are still wiring up — so the body would be written into a box that isn't listening yet.
+// BOOT_READY_TIMEOUT_MS is the overall cap: if the TUI never goes quiet (or never emits at all),
+// write anyway and let the submission-confirmation deadline backstop a bad boot.
+const BOOT_READY_TIMEOUT_MS = 8_000;
+const BOOT_QUIET_MS = 400;
 
 // After writing the prompt, claude must actually start the turn (it writes its first
 // JSONL entry on accept). A freshly spawned TUI can swallow the trailing \r (Ink's paste
@@ -19,6 +23,42 @@ const BOOT_READY_TIMEOUT_MS = 3_000;
 // accepted, capped at SUBMIT_MAX_RETRIES so an empty box isn't spammed indefinitely.
 const SUBMIT_RETRY_INTERVAL_MS = 2_500;
 const SUBMIT_MAX_RETRIES = 8;
+
+// Deliver the prompt body to the TUI in paced chunks rather than one large write. A single large
+// write can fill the PTY input buffer faster than a freshly booted Ink TUI drains it, silently
+// dropping the tail (including the trailing submit) — large prompts then never land. Chunking with
+// a brief inter-chunk delay keeps the reader ahead of the writer. Conservative defaults; tune
+// against a large-paste repro if needed.
+const WRITE_CHUNK_BYTES = 1_024;
+const WRITE_CHUNK_DELAY_MS = 8;
+
+// After the body is fully written, let Ink finish ingesting the paste (and render its placeholder)
+// before sending Enter as a SEPARATE keystroke. Concatenating \r onto the body lets the paste
+// detector absorb it as content instead of treating it as a submit.
+const SUBMIT_SETTLE_MS = 120;
+
+// Body re-delivery (#3). When a sizable body produces no paste placeholder, it never reached the
+// box — the tail (and the submit) were dropped on PTY overflow, and re-sending \r can't recover it.
+// Only attempt above a size where Ink reliably renders a placeholder when the paste DOES land, so a
+// small body's (normal) lack of placeholder isn't mistaken for a drop. Re-delivery is gated on
+// no-marker + no-JSONL, which together imply "nothing landed", so it won't double-submit a body
+// that's actually in the box. Capped so a persistently wedged TUI hits the submit deadline instead
+// of looping. Threshold/interval are conservative — the abort-log telemetry can refine them.
+const REDELIVER_MIN_BODY_BYTES = 4_096;
+const REDELIVER_CHECK_MS = 3_000;
+const REDELIVER_MAX = 3;
+// Best-effort clear of any partial paste left in the box before re-delivering (Ctrl-U = kill line).
+// If the TUI ignores it the re-delivery may concatenate, but the submit deadline still aborts
+// cleanly — so #3 never makes a drop worse than it already is today.
+const CLEAR_INPUT_SEQUENCE = '\x15';
+
+// Ink renders a large paste as "[Pasted text #N +X lines] paste again to expand". Its presence
+// proves the body reached the input box; its absence for a large body that never submits means the
+// body was dropped, not merely unsubmitted. Shared by the submission-retry nudger and the
+// drop-vs-swallow telemetry in runTurn.
+const PASTE_MARKER_RE = /pasted\s+(text|content)|paste\s+again/i;
+
+const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 // Hard ceiling on how long we wait for claude to *start* the turn. This is deliberately
 // distinct from the turn timeout (timeoutMs), which is unbounded for user turns and so can
@@ -42,22 +82,16 @@ export class ClaudeInteractiveSession {
   private readonly watcher: ClaudeJsonlWatcher;
   private disposed = false;
   private turnInFlight = false;
-  private lastTurnEndedAt = 0;
-  // Hold "in-turn" true briefly after the watcher settles. End_turn_grace can fire
-  // while a trailing tool dispatch (e.g. final MCP write) is still flushing to JSONL,
-  // so autopilot would otherwise enqueue a follow-up turn before claude is really idle.
-  // 1s is enough to soak up the typical trailing-tool window without noticeably delaying
-  // legitimate autopilot continuations.
-  private static readonly POST_TURN_QUIESCENCE_MS = 1_000;
 
-  /** True while a turn is mid-flight, or within the quiescence window after the
-   * watcher settled. Used by autopilot to avoid firing a follow-up turn while
-   * claude may still be flushing trailing tool calls. */
+  /** True only while a turn is genuinely mid-flight. Used by autopilot to avoid starting the
+   * planner while the main thread's own claude turn is still producing output. No post-turn
+   * grace window: `turnInFlight` is cleared only when the JSONL watcher settles on a
+   * `turn_duration`/`stop_hook_summary` marker, which claude writes once the entire turn —
+   * including trailing tool flushes — is complete. So a recent settle means the turn is done,
+   * not still flushing. (The watcher's early/timeout resolution is filtered out upstream before
+   * autopilot is triggered, so it can't be observed here either.) */
   isInTurn(): boolean {
-    if (this.disposed) return false;
-    if (this.turnInFlight) return true;
-    if (this.lastTurnEndedAt === 0) return false;
-    return Date.now() - this.lastTurnEndedAt < ClaudeInteractiveSession.POST_TURN_QUIESCENCE_MS;
+    return !this.disposed && this.turnInFlight;
   }
   // Tracks whether we've spawned claude at least once for this thread's session jsonl.
   // After the first spawn the jsonl exists on disk, so any subsequent respawn (liveness-
@@ -134,29 +168,37 @@ export class ClaudeInteractiveSession {
     return { proc, freshlySpawned: true };
   }
 
-  // Wait for the TUI to emit anything (proves claude has started) or a hard
-  // timeout. Only called on the first turn of a freshly spawned PTY. If the PTY
-  // exits during boot (e.g. claude rejects --session-id as in-use, auth fails),
-  // capture the death-throes output and surface it — otherwise the data emitted
-  // immediately before exit looks identical to a normal boot, runTurn proceeds
-  // to write input to a corpse, and the JSONL watcher hangs forever.
+  // Wait until claude's TUI has rendered and gone quiet (its input box is mounted and listening),
+  // or a hard timeout. Readiness = output quiescence: the TUI emits, then stops for BOOT_QUIET_MS.
+  // Only called on the first turn of a freshly spawned PTY. If the PTY exits during boot (e.g. claude
+  // rejects --session-id as in-use, auth fails), capture the death-throes output and surface it —
+  // otherwise the data emitted immediately before exit looks identical to a normal boot, runTurn
+  // proceeds to write input to a corpse, and the JSONL watcher hangs forever.
   private waitForBootReady(proc: PtyProcess): Promise<{ exited: false } | { exited: true; output: string }> {
     return new Promise((resolve) => {
       let settled = false;
       let buffer = '';
+      let quietTimer: ReturnType<typeof setTimeout> | null = null;
       const cleanup = (): void => {
         proc.off('data', onData);
         proc.off('exit', onExit);
-        clearTimeout(timer);
+        clearTimeout(hardTimer);
+        if (quietTimer) clearTimeout(quietTimer);
+      };
+      const finishReady = (): void => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve({ exited: false });
       };
       const onData = (chunk: string): void => {
         buffer += chunk;
         if (settled) return;
-        settled = true;
-        cleanup();
-        // Brief settle delay so the TUI's prompt input box is ready to receive
-        // characters rather than catching them mid-render.
-        setTimeout(() => resolve({ exited: false }), 300);
+        // Ready once output has been quiet for BOOT_QUIET_MS. Each new chunk pushes the deadline
+        // out, so a bursty boot (header, then MCP status, then the input box) is followed to
+        // completion instead of being acted on at the first byte.
+        if (quietTimer) clearTimeout(quietTimer);
+        quietTimer = setTimeout(finishReady, BOOT_QUIET_MS);
       };
       const onExit = (code: number | undefined): void => {
         if (settled) return;
@@ -169,12 +211,13 @@ export class ClaudeInteractiveSession {
         });
         resolve({ exited: true, output: buffer });
       };
-      const timer = setTimeout(() => {
+      const hardTimer = setTimeout(() => {
         if (settled) return;
         settled = true;
         cleanup();
         eventLogger.warn('claudeIO', 'interactive: boot-ready timeout, writing input anyway', {
           threadId: this.threadId,
+          sawOutput: buffer.length > 0,
         });
         resolve({ exited: false });
       }, BOOT_READY_TIMEOUT_MS);
@@ -183,13 +226,12 @@ export class ClaudeInteractiveSession {
     });
   }
 
-  // Ink's paste detector treats the early write burst as a paste block, rendering it as
-  // "[Pasted text #N +X lines] paste again to expand" — the trailing \r in that burst is
-  // captured as paste content rather than a submit; a freshly booted TUI can also still be
-  // connecting MCP servers when we write. Either way the first submit may not land, so we
-  // re-send a bare \r — once off the paste marker and then on a fixed interval — until claude
-  // accepts the input. The caller disposes this as soon as the first JSONL entry proves the
-  // input was accepted, so a stray \r after a successful submit is at worst one no-op keystroke.
+  // Backstop for the explicit post-settle \r in runTurn: even decoupled from the body, the submit
+  // can fail to land if the TUI is still wiring up MCP servers when it arrives, or Ink captures it
+  // as paste content. So re-send a bare \r — once off the paste marker and then on a fixed interval
+  // — until claude accepts the input. The caller disposes this as soon as the first JSONL entry
+  // proves the input was accepted, so a stray \r after a successful submit is at worst one no-op
+  // keystroke. (This only re-sends \r; a body that was dropped entirely is handled separately.)
   private armSubmissionRetry(): () => void {
     const proc = this.pty;
     if (!proc) return () => {};
@@ -215,9 +257,8 @@ export class ClaudeInteractiveSession {
       // backstop if the input still never landed.
       if (attempts >= SUBMIT_MAX_RETRIES) dispose();
     };
-    const pasteMarkerRe = /pasted\s+(text|content)|paste\s+again/i;
     const onData = (data: string): void => {
-      if (pasteMarkerRe.test(data)) {
+      if (PASTE_MARKER_RE.test(data)) {
         // Nudge once off the marker, then let the interval handle subsequent retries — the
         // TUI re-renders the placeholder on every redraw, so reacting to each chunk would
         // burn the whole retry budget in a single tick.
@@ -228,6 +269,26 @@ export class ClaudeInteractiveSession {
     const interval = setInterval(() => resubmit('interval'), SUBMIT_RETRY_INTERVAL_MS);
     proc.on('data', onData);
     return dispose;
+  }
+
+  // Write the body to the PTY in paced chunks (WRITE_CHUNK_BYTES, spaced by WRITE_CHUNK_DELAY_MS)
+  // so a large paste can't overflow the input buffer faster than the TUI drains it. Never splits a
+  // UTF-16 surrogate pair across a chunk boundary — slicing mid-pair would corrupt that character
+  // on the wire. Does NOT send Enter; runTurn submits separately after a settle. `shouldAbort` lets
+  // a re-delivery bail mid-write the instant the original submit is observed to have landed.
+  private async writeBodyChunked(proc: PtyProcess, body: string, shouldAbort?: () => boolean): Promise<void> {
+    let i = 0;
+    while (i < body.length) {
+      if (shouldAbort?.()) return;
+      let end = Math.min(i + WRITE_CHUNK_BYTES, body.length);
+      if (end < body.length) {
+        const code = body.charCodeAt(end - 1);
+        if (code >= 0xd800 && code <= 0xdbff) end -= 1; // high surrogate at boundary → defer to next chunk
+      }
+      proc.write(body.slice(i, end));
+      i = end;
+      if (i < body.length) await delay(WRITE_CHUNK_DELAY_MS);
+    }
   }
 
   async runTurn(
@@ -259,16 +320,93 @@ export class ClaudeInteractiveSession {
     const body = input.endsWith('\n') ? input.slice(0, -1) : input;
     this.watcher.prepareForTurn(this.sessionId);
 
-    eventLogger.info('claudeIO', 'interactive: writing input + \\r to PTY', {
+    eventLogger.info('claudeIO', 'interactive: writing input to PTY (paced)', {
       threadId: this.threadId,
       bodyLength: body.length,
       sessionId: this.sessionId,
       freshlySpawned,
     });
-    proc.write(body + '\r');
+
+    // Record whether Ink ever rendered a paste placeholder for this body. For a large body that
+    // never submits, the marker's ABSENCE means the body was dropped (PTY overflow) — i.e. a body
+    // re-delivery, not another bare \r, is the fix. Flag only; this listener never sends input.
+    let pasteMarkerSeen = false;
+    const onMarkerData = (data: string): void => {
+      if (PASTE_MARKER_RE.test(data)) pasteMarkerSeen = true;
+    };
+    proc.on('data', onMarkerData);
+
+    try {
+      // Clear any input a prior turn left in the box after failing to submit (typically a collapsed
+      // paste placeholder that never landed), so this turn's body isn't prepended with stale content.
+      // A persistent PTY is reused across turns, so without this a failed turn could corrupt the next.
+      proc.write(CLEAR_INPUT_SEQUENCE);
+      await delay(WRITE_CHUNK_DELAY_MS);
+      // #1 deliver the body in paced chunks so a large paste can't overflow the PTY input buffer.
+      // #2 send Enter as a separate keystroke after a settle, so the paste detector doesn't absorb it.
+      await this.writeBodyChunked(proc, body);
+      await delay(SUBMIT_SETTLE_MS);
+      proc.write('\r');
+    } catch (err) {
+      // A PTY write can throw if the process died mid-write; drop our listener so it doesn't leak,
+      // then let the error propagate (the turn fails and the queue drains).
+      proc.off('data', onMarkerData);
+      throw err;
+    }
     const disposeSubmitRetry = this.armSubmissionRetry();
 
     let firstEntrySeen = false;
+
+    // #3 Body re-delivery. A sizable body that shows no paste marker never reached the box (overflow
+    // dropped it), so re-sending \r is useless — re-deliver the body itself. Gated on large body +
+    // no marker + no JSONL, which together imply nothing landed, so this won't double-submit a body
+    // already in the box. Each attempt clears any partial residue, re-writes (paced), and re-submits;
+    // it aborts the instant the original submit lands. Best-effort: if it can't recover, the submit
+    // deadline still aborts cleanly.
+    let redeliveries = 0;
+    let redeliveryInFlight = false;
+    const redeliveryTimer =
+      body.length >= REDELIVER_MIN_BODY_BYTES
+        ? setInterval(() => {
+            if (firstEntrySeen || pasteMarkerSeen || redeliveryInFlight) return;
+            if (redeliveries >= REDELIVER_MAX) {
+              clearInterval(redeliveryTimer ?? undefined);
+              return;
+            }
+            redeliveryInFlight = true;
+            redeliveries += 1;
+            eventLogger.warn('claudeIO', 'interactive: body not observed in box, re-delivering', {
+              threadId: this.threadId,
+              attempt: redeliveries,
+              bodyLength: body.length,
+            });
+            void (async () => {
+              try {
+                if (firstEntrySeen) return;
+                proc.write(CLEAR_INPUT_SEQUENCE);
+                await delay(WRITE_CHUNK_DELAY_MS);
+                await this.writeBodyChunked(proc, body, () => firstEntrySeen);
+                if (firstEntrySeen) return;
+                await delay(SUBMIT_SETTLE_MS);
+                if (!firstEntrySeen) proc.write('\r');
+              } catch (err) {
+                // Fire-and-forget: a PTY write can throw if the process died mid re-delivery. Swallow
+                // it (logged) so it doesn't surface as an unhandled rejection; the submit deadline
+                // still aborts the turn cleanly.
+                eventLogger.warn('claudeIO', 'interactive: body re-delivery failed', {
+                  threadId: this.threadId,
+                  attempt: redeliveries,
+                  error: String(err),
+                });
+              } finally {
+                redeliveryInFlight = false;
+              }
+            })();
+          }, REDELIVER_CHECK_MS)
+        : null;
+    const disposeRedelivery = (): void => {
+      if (redeliveryTimer) clearInterval(redeliveryTimer);
+    };
 
     // Submission-confirmation deadline. timeoutMs (the turn timeout) is unbounded for user
     // turns, so it can't catch a submit that never lands. If no JSONL entry appears within
@@ -280,6 +418,11 @@ export class ClaudeInteractiveSession {
         threadId: this.threadId,
         sessionId: this.sessionId,
         timeoutMs: SUBMIT_CONFIRM_TIMEOUT_MS,
+        bodyLength: body.length,
+        // false here on a sizable body ⇒ the body never landed (dropped), so re-delivering it —
+        // not another \r — is what's needed. This is the signal for whether the re-delivery path
+        // is worth building.
+        pasteMarkerSeen,
       });
       this.watcher.cancel();
     }, SUBMIT_CONFIRM_TIMEOUT_MS);
@@ -287,9 +430,12 @@ export class ClaudeInteractiveSession {
     const wrappedOnEntry = (entry: JsonlEntry): void => {
       if (!firstEntrySeen) {
         firstEntrySeen = true;
-        // Any JSONL entry proves claude accepted the input: stop nudging \r and cancel the
-        // submission deadline so a long-running turn isn't aborted mid-response.
+        // Any JSONL entry proves claude accepted the input: stop nudging \r, stop re-delivery, drop
+        // the paste-marker observer, and cancel the submission deadline so a long-running turn isn't
+        // aborted mid-response.
         disposeSubmitRetry();
+        disposeRedelivery();
+        proc.off('data', onMarkerData);
         clearTimeout(submitDeadline);
       }
       onEntry(entry);
@@ -316,9 +462,10 @@ export class ClaudeInteractiveSession {
       throw err;
     } finally {
       this.turnInFlight = false;
-      this.lastTurnEndedAt = Date.now();
       clearTimeout(submitDeadline);
       disposeSubmitRetry();
+      disposeRedelivery();
+      proc.off('data', onMarkerData);
     }
   }
 
