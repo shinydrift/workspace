@@ -95,6 +95,7 @@ export function ComposerToolbar({
           projectName={projectName ?? ''}
           workingDir={workingDir ?? ''}
           onSelect={onProjectChange}
+          onBrowseFolder={onBrowseFolder}
         />
       ) : projects?.length === 0 && onBrowseFolder ? (
         <Button

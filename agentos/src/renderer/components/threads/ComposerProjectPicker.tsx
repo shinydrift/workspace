@@ -9,9 +9,10 @@ interface Props {
   projectName: string;
   workingDir: string;
   onSelect: (project: SavedProject) => void;
+  onBrowseFolder?: () => void | Promise<void>;
 }
 
-export function ComposerProjectPicker({ projects, projectName, workingDir, onSelect }: Props) {
+export function ComposerProjectPicker({ projects, projectName, workingDir, onSelect, onBrowseFolder }: Props) {
   const [showPicker, setShowPicker] = useState(false);
 
   const displayLabel = projectName || workingDir || null;
@@ -44,6 +45,22 @@ export function ComposerProjectPicker({ projects, projectName, workingDir, onSel
           return p.name.toLowerCase().includes(lq) || p.path.toLowerCase().includes(lq);
         }}
         placeholder="Search projects…"
+        footer={
+          onBrowseFolder ? (
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => {
+                setShowPicker(false);
+                void onBrowseFolder();
+              }}
+              className="h-9 w-full justify-start gap-1.5 rounded-none px-3 text-xs text-muted-foreground hover:bg-accent/60 hover:text-foreground"
+            >
+              <FolderOpen className="h-3.5 w-3.5 shrink-0" />
+              Browse for folder…
+            </Button>
+          ) : undefined
+        }
       />
     </>
   );
