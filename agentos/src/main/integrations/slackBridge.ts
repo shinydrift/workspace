@@ -3,7 +3,7 @@ import { WebClient } from '@slack/web-api';
 import { getErrorMessage } from '../../shared/utils/errorMessage';
 import type { AppSettings, Message, SlackChannelOption, ThreadStatusEvent } from '../../shared/types';
 import { DEFAULT_SLACK_SETTINGS, parseAutopilotDecision } from '../../shared/types';
-import { getStore } from '../store/index';
+import { getStore, setSettings } from '../store/index';
 import { BaseBridge } from './BaseBridge';
 import { eventLogger } from '../utils/eventLog';
 import { slackMcpServer } from './slackMcpServer';
@@ -84,6 +84,9 @@ class SlackBridge extends BaseBridge<SlackBridgeDeps> {
   private pendingAutopilotChecks = new Map<string, Array<{ channelId: string; messageTs: string; emoji: string }>>();
   /** Deduplicates concurrent createThread calls for the same Slack thread binding. */
   private pendingThreadCreations = new Map<string, Promise<{ id: string; workingDirectory: string }>>();
+  /** Channels whose auto-mapping has already been persisted this process — guards the
+   * read-modify-write in persistChannelMapping against concurrent first inbound events. */
+  private persistedChannelMappings = new Set<string>();
   private routingService = new SlackRoutingService({
     workspaceManager: this.workspaceManager,
     fileService: this.fileService,
@@ -139,14 +142,13 @@ class SlackBridge extends BaseBridge<SlackBridgeDeps> {
     }
 
     const sortedWatchedIds = [...slack.watchedChannelIds].map((id) => id.trim().toUpperCase()).sort();
-    const channelMapSorted = Object.fromEntries(
-      Object.entries(slack.channelWorkspaceMap ?? {}).sort(([a], [b]) => a.localeCompare(b))
-    );
+    // channelWorkspaceMap is intentionally excluded: it only affects per-event routing
+    // (read fresh on each inbound message), not the socket connection or catch-up. Including
+    // it would restart the socket every time we auto-persist a new channel→workspace mapping.
     const socketConfigKey = JSON.stringify({
       botToken,
       appToken: slack.appToken,
       watchedChannelIds: sortedWatchedIds,
-      channelWorkspaceMap: channelMapSorted,
       defaultWorkingDirectory: slack.defaultWorkingDirectory,
     });
 
@@ -437,11 +439,20 @@ class SlackBridge extends BaseBridge<SlackBridgeDeps> {
     // routingService's markPending call.
     this.catchupService.markPending(channelId, event.ts);
 
+    const normalizedChannelId = channelId.trim().toUpperCase();
+    const alreadyMapped = Boolean(
+      (settings.channelWorkspaceMap[normalizedChannelId] ?? settings.channelWorkspaceMap[channelId.trim()] ?? '').trim()
+    );
     const defaultWorkingDirectory = await this.workspaceManager.resolveChannelWorkspace(
       channelId,
       settings.channelWorkspaceMap,
       settings.defaultWorkingDirectory
     );
+    // Persist the resolved workspace as an explicit mapping the first time we see a channel,
+    // so it shows as mapped in Settings and resolves to the same folder going forward.
+    if (defaultWorkingDirectory && !alreadyMapped) {
+      this.persistChannelMapping(normalizedChannelId, defaultWorkingDirectory);
+    }
     const rootThreadTs = await this.threadResolver.resolveRootThreadTs(channelId, event.ts, event.thread_ts);
     await this.routingService.processInboundMessage({
       channelId,
@@ -521,6 +532,23 @@ class SlackBridge extends BaseBridge<SlackBridgeDeps> {
   private readSlackSettings() {
     const current = getStore().get('settings');
     return { ...DEFAULT_SLACK_SETTINGS, ...(current.slack ?? {}) };
+  }
+
+  private persistChannelMapping(channelId: string, workspacePath: string): void {
+    // Synchronous claim before the read-modify-write below. JS is single-threaded, so the
+    // first concurrent first-message to reach here wins and the rest no-op — preventing two
+    // events from persisting divergent paths (e.g. when conversations.info is flaky).
+    if (this.persistedChannelMappings.has(channelId)) return;
+    const slack = this.readSlackSettings();
+    const map = { ...(slack.channelWorkspaceMap ?? {}) };
+    if ((map[channelId] ?? '').trim()) {
+      this.persistedChannelMappings.add(channelId);
+      return; // already mapped
+    }
+    map[channelId] = workspacePath;
+    this.persistedChannelMappings.add(channelId);
+    setSettings({ slack: { ...slack, channelWorkspaceMap: map } });
+    eventLogger.info('slack', 'Persisted Slack channel workspace mapping', { channelId, workspacePath });
   }
 
   private async logSlackAuthDiagnostics(watchedChannelCount: number, watchedChannelIds: string[]): Promise<void> {

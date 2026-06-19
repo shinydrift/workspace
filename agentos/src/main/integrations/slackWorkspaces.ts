@@ -89,7 +89,15 @@ export class SlackWorkspaceManager {
     const byName = projects.find((candidate) => candidate.name.toLowerCase() === entry.toLowerCase());
     if (byName) return byName.path;
 
-    return entry || fallback;
+    const target = entry || fallback;
+    if (!target) return null;
+    if (!path.isAbsolute(target)) {
+      // The mapping value matched no known project and isn't an absolute path (stale id,
+      // typo, etc.). Degrade to the per-channel folder under the default root rather than
+      // creating a junk directory relative to the process working directory.
+      return await this.ensureUnmappedChannelWorkspace(channelId, fallback);
+    }
+    return (await this.ensureWorkspaceDir(target, channelId)) ? target : null;
   }
 
   async ensureUnmappedChannelWorkspace(channelId: string, fallbackRoot: string | null): Promise<string | null> {
@@ -98,8 +106,23 @@ export class SlackWorkspaceManager {
 
     const folderName = await this.buildChannelFolderName(channelId);
     const workspacePath = path.join(root, folderName);
-    await fs.promises.mkdir(workspacePath, { recursive: true });
-    return workspacePath;
+    return (await this.ensureWorkspaceDir(workspacePath, channelId)) ? workspacePath : null;
+  }
+
+  // Creates the workspace directory, returning false (not throwing) on failure so callers
+  // resolve to null and the inbound flow surfaces it instead of leaving the message stuck.
+  private async ensureWorkspaceDir(workspacePath: string, channelId: string): Promise<boolean> {
+    try {
+      await fs.promises.mkdir(workspacePath, { recursive: true });
+      return true;
+    } catch (error) {
+      eventLogger.warn('slack', 'Failed to create Slack channel workspace directory', {
+        channelId,
+        workspacePath,
+        error: getErrorMessage(error),
+      });
+      return false;
+    }
   }
 
   async buildChannelFolderName(channelId: string): Promise<string> {
