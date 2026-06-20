@@ -49,6 +49,24 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
       exit 1
     fi
   fi
+
+  # macos-alias (appdmg's native dep) compiles against the active SDK's libc++
+  # headers. A new SDK (e.g. macOS 26) uses builtins like __builtin_ctzg that an
+  # older active clang (e.g. an outdated Xcode.app) can't parse. If the active
+  # toolchain doesn't know that builtin but the Command Line Tools clang does,
+  # point native builds at the Command Line Tools for this run. The probe uses
+  # no headers so it doesn't depend on SDK/sysroot resolution.
+  probe_cxx() { echo 'unsigned f(unsigned x){return __builtin_ctzg(x);}' | "$1" -x c++ -std=c++20 -fsyntax-only - >/dev/null 2>&1; }
+  if ! probe_cxx "$(command -v clang)"; then
+    CLT_CLANG=/Library/Developer/CommandLineTools/usr/bin/clang
+    if [[ -x "$CLT_CLANG" ]] && probe_cxx "$CLT_CLANG"; then
+      echo "Switching native builds to Command Line Tools (active clang can't compile the current SDK headers)"
+      export DEVELOPER_DIR=/Library/Developer/CommandLineTools
+    else
+      echo "Error: no working C++ toolchain for the current SDK. Update Xcode/Command Line Tools (xcode-select --install)."
+      exit 1
+    fi
+  fi
 fi
 
 ensure_appdmg() {
