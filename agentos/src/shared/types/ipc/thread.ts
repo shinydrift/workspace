@@ -32,6 +32,7 @@ export interface CreateThreadRequest {
   createWorktree?: boolean;
   projectName?: string;
   projectPath?: string;
+  subdir?: string;
 }
 
 export interface ThreadInjectionStatus {

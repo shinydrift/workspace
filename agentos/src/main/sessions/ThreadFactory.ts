@@ -14,6 +14,7 @@ import {
 import { createSessionWorktree, removeSessionWorktree } from '../utils/worktree';
 import { eventLogger } from '../utils/eventLog';
 import { loadProjectConfig } from '../config/projectConfig';
+import { normalizeSubdir } from '../../shared/utils/subdir';
 import { integrationContextManager } from '../integrations/IntegrationContextManager';
 import { analyticsService } from '../analytics/service';
 import { saveProject as saveProjectFn, touchProject as touchProjectFn } from './containerProjectManager';
@@ -36,6 +37,9 @@ export class ThreadFactory {
     const callerManagedWorktree = req.projectPath != null && req.projectPath !== req.workingDirectory;
     const projectPath = req.projectPath ?? req.workingDirectory;
     const project = saveProjectFn(projectPath, req.projectName);
+    // Snapshot the subdir alongside workingDirectory so the thread's run location is fixed for
+    // its lifetime. An explicit request subdir wins; otherwise inherit the project's setting.
+    const subdir = req.subdir !== undefined ? normalizeSubdir(req.subdir) : project.subdir;
     const projectConfigResult = await loadProjectConfig(projectPath);
     const settings = store.get('settings');
     const primaryEntry = getPrimaryProviderEntry(settings, projectConfigResult.config);
@@ -69,6 +73,7 @@ export class ThreadFactory {
       projectId: project.id,
       workingDirectory,
       projectPath,
+      subdir,
       usingWorktree,
       provider,
       model,

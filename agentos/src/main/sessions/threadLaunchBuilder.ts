@@ -198,6 +198,7 @@ export async function buildThreadLaunchArgs(params: {
       seccompProfilePath,
       extraEnv: containerEnv,
       providerCommandOverrides: params.providerCommandOverrides,
+      subdir: stored.subdir,
     }
   );
 

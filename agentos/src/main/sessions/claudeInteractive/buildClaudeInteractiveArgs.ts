@@ -26,6 +26,9 @@ export type ClaudeInteractiveArgsOpts = {
   extraEnv?: Record<string, string>;
   /** Run claude directly on the host instead of `docker exec` into the container. */
   runOnHost?: boolean;
+  /** Repo-root-relative subdir the thread runs in. Shifts the host cwd / container workdir and the
+   * derived session-JSONL project dir. Undefined ⇒ runs at the repo root. */
+  subdir?: string;
   /** Launch-time env to apply to the host process (API keys, backend routing, ids). */
   launchEnv?: Record<string, string>;
   /** Per-provider CLI command overrides; interactive sessions use the `claude` override. */

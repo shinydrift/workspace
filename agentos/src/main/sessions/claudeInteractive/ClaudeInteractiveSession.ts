@@ -6,6 +6,7 @@ import { ClaudeJsonlWatcher, type JsonlEntry } from './ClaudeJsonlWatcher';
 import type { TurnEndReason } from '../headlessRunner';
 import { buildClaudeInteractiveArgs, type ClaudeInteractiveArgsOpts } from './buildClaudeInteractiveArgs';
 import { seedClaudeHostConfigOnce } from './seedClaudeHostConfig';
+import { effectiveHostCwd, claudeProjectDirName } from '../effectiveCwd';
 
 // Boot readiness is detected by output QUIESCENCE: once claude's TUI has emitted something and then
 // gone quiet for BOOT_QUIET_MS, its initial render (including the input box) has settled. This beats
@@ -107,11 +108,10 @@ export class ClaudeInteractiveSession {
     private readonly onDispose: () => void
   ) {
     const claudeDataDir = path.join(app.getPath('home'), '.claude');
-    // Claude derives its session JSONL project dir from its cwd, replacing every
-    // non-alphanumeric char with '-'. In Docker the cwd is always /workspace ('-workspace');
-    // on host claude runs in the real worktree, so slugify it the same way or the watcher
-    // tails the wrong dir and the turn never settles (totalEntriesSeen stays 0).
-    const projectDirName = this.args.runOnHost ? this.workingDirectory.replace(/[^a-zA-Z0-9]/g, '-') : '-workspace';
+    // Claude derives its session JSONL project dir from its cwd, replacing every non-alphanumeric
+    // char with '-'. The cwd is /workspace/<subdir> in Docker or the real worktree (+subdir) on
+    // host; if the watcher tails the wrong dir the turn never settles (totalEntriesSeen stays 0).
+    const projectDirName = claudeProjectDirName(this.workingDirectory, this.args.subdir, this.args.runOnHost ?? false);
     this.watcher = new ClaudeJsonlWatcher(claudeDataDir, projectDirName);
     this.hasSpawnedBefore = args.isResume;
   }
@@ -150,7 +150,8 @@ export class ClaudeInteractiveSession {
       sessionId: this.sessionId,
       resume: this.hasSpawnedBefore,
     });
-    const proc = new PtyProcess(command, args, this.workingDirectory, this.args.runOnHost ? env : undefined);
+    const cwd = effectiveHostCwd(this.workingDirectory, this.args.subdir, this.args.runOnHost ?? false);
+    const proc = new PtyProcess(command, args, cwd, this.args.runOnHost ? env : undefined);
     proc.on('exit', (code) => {
       eventLogger.info('claudeIO', 'interactive: claude PTY exited', {
         threadId: this.threadId,

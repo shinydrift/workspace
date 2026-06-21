@@ -29,6 +29,7 @@ export interface Thread {
   projectId: string;
   workingDirectory: string;
   projectPath?: string;
+  subdir?: string; // repo-root-relative working dir within workingDirectory; snapshot of the project's subdir
   usingWorktree?: boolean;
   provider?: Provider;
   model?: string; // optional CLI --model override; resolved at thread creation from providerOrder

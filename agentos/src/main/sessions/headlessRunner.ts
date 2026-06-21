@@ -13,6 +13,7 @@ import { getStore } from '../store/index';
 import * as threadStore from '../threads/threadStore';
 import { emitTurnStarted, emitTurnEnded } from '../events';
 import { PtyProcess } from './PtyProcess';
+import { effectiveHostCwd, claudeProjectDirName } from './effectiveCwd';
 import type { ThreadRuntimeStore } from './ThreadRuntimeStore';
 import type { ContainerManager } from './ContainerManager';
 import type { ThreadOutputManager } from './threadOutput';
@@ -117,7 +118,11 @@ export async function execHeadlessTurn(
   // particularly common after migrating session storage (e.g. per-thread dir → ~/.claude).
   if (claudeSessionId) {
     const userHome = app.getPath('home');
-    const sessionFile = path.join(userHome, '.claude', 'projects', '-workspace', `${claudeSessionId}.jsonl`);
+    // claude writes its session JSONL under projects/<slug-of-cwd>/. With a subdir the container
+    // (or host) cwd is /workspace/<subdir>, not /workspace — derive the dir so the existence check
+    // doesn't false-negative and wipe a live session every turn.
+    const projectDir = claudeProjectDirName(thread.workingDirectory, thread.subdir, launchMode?.runOnHost ?? false);
+    const sessionFile = path.join(userHome, '.claude', 'projects', projectDir, `${claudeSessionId}.jsonl`);
     if (!fs.existsSync(sessionFile)) {
       eventLogger.info('thread', 'Session file not found, clearing stale session ID', {
         threadId,
@@ -191,9 +196,11 @@ export async function execHeadlessTurn(
   // (API keys, backend routing, AGENTOS_* ids) under the per-turn env from buildDockerExecArgs.
   const turnEnv = execArgs.env ? { ...(launchMode?.hostEnv ?? {}), ...execArgs.env } : undefined;
 
+  const turnCwd = effectiveHostCwd(thread.workingDirectory, thread.subdir, runOnHost);
+
   let turnProc: PtyProcess;
   try {
-    turnProc = new PtyProcess(execArgs.command, execArgs.args, thread.workingDirectory, turnEnv);
+    turnProc = new PtyProcess(execArgs.command, execArgs.args, turnCwd, turnEnv);
   } catch (error) {
     const message = getErrorMessage(error);
     eventLogger.error('thread', 'Failed to start headless turn process', {

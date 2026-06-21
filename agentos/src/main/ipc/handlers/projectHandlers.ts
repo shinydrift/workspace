@@ -30,6 +30,7 @@ import { getProjectByPath } from '../../threads/db';
 const SaveProjectSchema: z.ZodType<SaveProjectRequest> = z.object({
   path: filePath,
   name: shortName.optional(),
+  subdir: z.string().optional(),
 });
 
 const ProjectPathSchema = z.object({ projectPath: filePath });
@@ -40,7 +41,7 @@ export function registerProjectHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.PROJECT_SAVE, (e, raw) =>
     handleIpc(() => {
       const req = SaveProjectSchema.parse(raw);
-      const project = saveProject(req.path, req.name);
+      const project = saveProject(req.path, req.name, req.subdir);
       broadcastProjectSaved(project, e.sender);
       return project;
     })

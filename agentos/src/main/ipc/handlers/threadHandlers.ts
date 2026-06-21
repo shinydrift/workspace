@@ -15,6 +15,7 @@ const CreateThreadSchema = z.object({
   reasoning: z.enum(['low', 'medium', 'high', 'extra-high']).optional(),
   createWorktree: z.boolean().optional(),
   projectName: shortName.optional(),
+  subdir: z.string().optional(),
 });
 
 const RenameThreadSchema = z.object({

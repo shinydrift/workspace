@@ -3,6 +3,7 @@ import { nanoid } from 'nanoid';
 import { getStore } from '../store/index';
 import * as threadStore from '../threads/threadStore';
 import { PtyProcess } from './PtyProcess';
+import { effectiveHostCwd } from './effectiveCwd';
 import { buildDockerExecArgs } from '../utils/docker/sandbox';
 import { councilService, councilEvents } from '../council/service';
 import { buildCouncilBootInstructions } from '../council/bootInstructions';
@@ -62,6 +63,7 @@ export class CouncilChildThreadService {
       projectId: parent.projectId,
       workingDirectory: parent.workingDirectory,
       projectPath: parent.projectPath,
+      subdir: parent.subdir,
       usingWorktree: parent.usingWorktree,
       provider: opts.member.provider,
       model: opts.member.model,
@@ -131,7 +133,12 @@ export class CouncilChildThreadService {
     });
 
     const procEnv = execArgs.env ? { ...hostEnv, ...execArgs.env } : undefined;
-    const proc = new PtyProcess(execArgs.command, execArgs.args, parent.workingDirectory, procEnv);
+    const proc = new PtyProcess(
+      execArgs.command,
+      execArgs.args,
+      effectiveHostCwd(parent.workingDirectory, parent.subdir, runOnHost),
+      procEnv
+    );
 
     let outcomeRecorded = false;
 
@@ -239,6 +246,7 @@ export class CouncilChildThreadService {
           effort: opts.member.effort,
           skipPermissions: true,
           runOnHost: opts.runOnHost,
+          subdir: opts.childThread.subdir,
           launchEnv: opts.hostEnv,
           providerCommandOverrides: opts.providerCommandOverrides,
           mcp: { councilMcpUrl: opts.councilMcpUrl },

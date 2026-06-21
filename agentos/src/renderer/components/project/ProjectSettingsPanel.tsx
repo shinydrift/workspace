@@ -49,12 +49,15 @@ export function ProjectSettingsPanel({
     savedProject,
     name,
     setName,
+    subdir,
+    setSubdir,
     confirmDelete,
     setConfirmDelete,
     deleting,
     savingKey,
     updateConfig,
     handleRenameSave,
+    handleSubdirSave,
     handleDelete,
   } = useProjectSettingsForm({ projectPath, projectName, onConfigChange, onProjectDeleted, onProjectRenamed });
 
@@ -80,6 +83,9 @@ export function ProjectSettingsPanel({
             <GeneralSection
               name={name}
               setName={setName}
+              subdir={subdir}
+              setSubdir={setSubdir}
+              onSubdirSave={() => void handleSubdirSave()}
               projectPath={projectPath}
               onSave={() => void handleRenameSave()}
             />

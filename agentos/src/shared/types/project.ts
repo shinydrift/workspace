@@ -32,6 +32,12 @@ export interface SavedProject {
   id: string;
   name: string;
   path: string;
+  /**
+   * Optional repo-root-relative working directory. When set, the repo root (`path`)
+   * is still mounted as the project root, but the agent runs inside this subdirectory —
+   * lets one monorepo back several projects/Slack channels scoped to different packages.
+   */
+  subdir?: string;
   createdAt: number;
   lastUsedAt: number;
   dockerfileHash?: string;

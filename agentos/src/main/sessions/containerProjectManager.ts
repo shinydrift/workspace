@@ -25,6 +25,7 @@ import * as threadStore from '../threads/threadStore';
 import { PROVIDER_CONFIGS } from '../utils/providerConfig';
 import type { Thread, SavedProject, ContainerSummary, AppSettings, Provider } from '../../shared/types';
 import { getEffectiveContainerPruneSettings } from '../../shared/effectiveProjectSettings';
+import { normalizeSubdir } from '../../shared/utils/subdir';
 
 // ---------------------------------------------------------------------------
 // Container pruning
@@ -184,13 +185,17 @@ export async function touchContainerFromActivity(
 // Project CRUD
 // ---------------------------------------------------------------------------
 
-export function saveProject(pathValue: string, name?: string): SavedProject {
+export function saveProject(pathValue: string, name?: string, subdir?: string): SavedProject {
   const now = Date.now();
+  const normalizedSubdir = normalizeSubdir(subdir);
   const existing = getProjectByPath(pathValue);
   if (existing) {
     const updated: SavedProject = {
       ...existing,
       name: name?.trim() || existing.name,
+      // Only overwrite subdir when the caller passed one; thread creation calls saveProject
+      // with no subdir arg and must not clobber a subdir set via project settings.
+      subdir: subdir === undefined ? existing.subdir : normalizedSubdir,
       lastUsedAt: now,
     };
     saveProjectToDb(updated);
@@ -202,6 +207,7 @@ export function saveProject(pathValue: string, name?: string): SavedProject {
     id,
     name: name?.trim() || path.basename(pathValue),
     path: pathValue,
+    subdir: normalizedSubdir,
     createdAt: now,
     lastUsedAt: now,
   };

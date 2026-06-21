@@ -4,6 +4,7 @@ import { getStore } from '../store/index';
 import * as threadStore from '../threads/threadStore';
 import * as kanbanDb from '../kanban/db';
 import { PtyProcess } from './PtyProcess';
+import { effectiveHostCwd } from './effectiveCwd';
 import { buildDockerExecArgs } from '../utils/docker/sandbox';
 import { getApiKey } from '../utils/providerConfig';
 import { readClaudeOauthToken } from './threadAuth';
@@ -85,6 +86,7 @@ export class StageWorkerService {
       projectId: parent.projectId,
       workingDirectory: parent.workingDirectory,
       projectPath: parent.projectPath,
+      subdir: parent.subdir,
       usingWorktree: parent.usingWorktree,
       provider: effectiveProvider,
       model: effectiveModel,
@@ -185,7 +187,12 @@ export class StageWorkerService {
     });
 
     const procEnv = execArgs.env ? { ...hostEnv, ...execArgs.env } : undefined;
-    const proc = new PtyProcess(execArgs.command, execArgs.args, parent.workingDirectory, procEnv);
+    const proc = new PtyProcess(
+      execArgs.command,
+      execArgs.args,
+      effectiveHostCwd(parent.workingDirectory, parent.subdir, runOnHost),
+      procEnv
+    );
 
     this.runner.setup({
       childThread,
@@ -293,6 +300,7 @@ export class StageWorkerService {
           skipPermissions: true,
           extraEnv: opts.extraEnv,
           runOnHost: opts.runOnHost,
+          subdir: opts.childThread.subdir,
           launchEnv: opts.hostEnv,
           providerCommandOverrides: opts.providerCommandOverrides,
           mcp: {

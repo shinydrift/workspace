@@ -21,6 +21,7 @@ export function useProjectSettingsForm({
   const [savedProject, setSavedProject] = useState<SavedProject | null>(null);
 
   const [name, setName] = useState(projectName);
+  const [subdir, setSubdir] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [savingKey, setSavingKey] = useState<string | null>(null);
@@ -37,6 +38,7 @@ export function useProjectSettingsForm({
       if (!mountedRef.current) return;
       const p = projects.find((proj) => proj.path === projectPath) ?? null;
       setSavedProject(p);
+      setSubdir(p?.subdir ?? '');
     });
   }, [projectPath]);
 
@@ -66,6 +68,22 @@ export function useProjectSettingsForm({
     onProjectRenamed(trimmed);
   }
 
+  async function handleSubdirSave() {
+    const trimmed = subdir.trim();
+    if (trimmed === (savedProject?.subdir ?? '')) return;
+    try {
+      const updated = await window.electronAPI.project.save({ path: projectPath, subdir: trimmed });
+      if (mountedRef.current) {
+        setSavedProject(updated);
+        setSubdir(updated.subdir ?? '');
+      }
+    } catch {
+      // Main rejects invalid subdirs (absolute / `..` escapes). Revert the field to the last saved
+      // value rather than leaving a value that re-throws on every blur/Enter.
+      if (mountedRef.current) setSubdir(savedProject?.subdir ?? '');
+    }
+  }
+
   async function handleDelete() {
     if (!savedProject) return;
     setDeleting(true);
@@ -83,12 +101,15 @@ export function useProjectSettingsForm({
     savedProject,
     name,
     setName,
+    subdir,
+    setSubdir,
     confirmDelete,
     setConfirmDelete,
     deleting,
     savingKey,
     updateConfig,
     handleRenameSave,
+    handleSubdirSave,
     handleDelete,
   };
 }

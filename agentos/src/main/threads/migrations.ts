@@ -405,6 +405,22 @@ CREATE INDEX idx_stb_channel   ON slack_thread_bindings(channel_id);
 CREATE INDEX idx_stb_thread_id ON slack_thread_bindings(thread_id);
 `,
   },
+  {
+    // Monorepo support: a project (and the threads it spawns) may run in a subdirectory of
+    // the repo root. The root stays the mount source; `subdir` shifts the working directory
+    // within it. Nullable — existing rows default to NULL (whole-repo, unchanged behaviour).
+    name: '0007_add_subdir',
+    run: (db) => {
+      const projectCols = db.prepare(`PRAGMA table_info(projects)`).all() as { name: string }[];
+      if (!projectCols.some((c) => c.name === 'subdir')) {
+        db.exec(`ALTER TABLE projects ADD COLUMN subdir TEXT`);
+      }
+      const threadCols = db.prepare(`PRAGMA table_info(threads)`).all() as { name: string }[];
+      if (!threadCols.some((c) => c.name === 'subdir')) {
+        db.exec(`ALTER TABLE threads ADD COLUMN subdir TEXT`);
+      }
+    },
+  },
 ];
 
 // Derived from THREADS_MIGRATIONS so the seeding branch never goes stale.

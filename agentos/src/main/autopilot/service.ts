@@ -10,6 +10,7 @@ import { loadProjectConfig } from '../config/projectConfig';
 import type { ProjectConfigLoadResult } from '../config/projectConfig';
 import { randomUUID } from 'node:crypto';
 import { PtyProcess } from '../sessions/PtyProcess';
+import { effectiveHostCwd } from '../sessions/effectiveCwd';
 import { getMcpToken } from '../mcp/mcpAuth';
 import { autopilotMcpServer } from '../integrations/autopilotMcpServer';
 import { ClaudeInteractiveSession } from '../sessions/claudeInteractive/ClaudeInteractiveSession';
@@ -180,6 +181,7 @@ export class ProviderAutopilotAdapter implements AutopilotAdapter {
       return this.runInteractivePlanner({
         threadId: params.thread.id,
         workingDirectory: params.thread.workingDirectory,
+        subdir: params.thread.subdir,
         submissionToken,
         transcript,
         systemPrompt,
@@ -215,7 +217,12 @@ export class ProviderAutopilotAdapter implements AutopilotAdapter {
       providerCommandOverrides: settings.agents.commandOverrides,
     });
 
-    const proc = new PtyProcess(execArgs.command, execArgs.args, params.thread.workingDirectory, execArgs.env);
+    const proc = new PtyProcess(
+      execArgs.command,
+      execArgs.args,
+      effectiveHostCwd(params.thread.workingDirectory, params.thread.subdir, runOnHost),
+      execArgs.env
+    );
     let raw = '';
     let rawTruncated = false;
 
@@ -309,6 +316,7 @@ export class ProviderAutopilotAdapter implements AutopilotAdapter {
   private async runInteractivePlanner(p: {
     threadId: string;
     workingDirectory: string;
+    subdir: string | undefined;
     submissionToken: string;
     transcript: string;
     systemPrompt: string;
@@ -341,6 +349,7 @@ export class ProviderAutopilotAdapter implements AutopilotAdapter {
         allowedTools: ['mcp__agentos-autopilot', AUTOPILOT_TRANSCRIPT_TOOL, AUTOPILOT_SUBMIT_TOOL],
         skipPermissions: false,
         runOnHost: p.runOnHost,
+        subdir: p.subdir,
         launchEnv: p.runOnHost ? p.hostEnv : {},
         providerCommandOverrides: p.settings.agents.commandOverrides,
         // Only the autopilot server — the planner has no reason to reach memory/thread/etc.

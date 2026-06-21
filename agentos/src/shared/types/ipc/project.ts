@@ -31,4 +31,5 @@ export interface ProjectConfigOpenResult {
 export interface SaveProjectRequest {
   path: string;
   name?: string;
+  subdir?: string;
 }

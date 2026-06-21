@@ -8,6 +8,7 @@ import { PROVIDER_CONFIGS, resolveProviderCommand } from '../providerConfig';
 import { CLAUDE_CODE_OAUTH_TOKEN_ENV } from '../../sessions/threadAuth';
 import { eventLogger } from '../eventLog';
 import { AGENTOS_MCP_BEARER_TOKEN_ENV_VAR, getMcpAuthHeaders } from '../../mcp/mcpAuth';
+import { normalizeSubdir } from '../../../shared/utils/subdir';
 
 const execFileAsync = promisify(execFile);
 
@@ -35,6 +36,24 @@ function validateBindMount(hostPath: string, containerPath: string): void {
   }
 }
 
+/**
+ * Resolve the container working directory for a (mount, subdir) pair. The repo root is mounted
+ * at /workspace; an optional subdir shifts the workdir to /workspace/<subdir>. Validates the
+ * subdir actually exists on the host under the mount so the container doesn't start in a
+ * non-existent dir (which would wedge every turn).
+ */
+function resolveContainerWorkdir(workingDir: string, subdir: string | undefined): string {
+  // Normalize defensively (rejects `..`/absolute escapes) even though the runtime caller passes an
+  // already-normalized snapshot — buildDockerRunArgs is exported and must not honor a raw `..`.
+  const norm = normalizeSubdir(subdir);
+  if (!norm) return '/workspace';
+  const hostPath = path.join(workingDir, norm);
+  if (!fs.existsSync(hostPath)) {
+    throw new Error(`Project subdirectory does not exist under the repo root: ${hostPath}`);
+  }
+  return path.posix.join('/workspace', norm);
+}
+
 export function buildDockerRunArgs(
   sessionId: string,
   workingDir: string,
@@ -52,9 +71,13 @@ export function buildDockerRunArgs(
     extraEnv?: Record<string, string>;
     seccompProfilePath?: string;
     providerCommandOverrides?: Partial<Record<Provider, string>>;
+    /** Repo-root-relative working dir within the mount. The whole repo is still mounted at
+     * /workspace; the container's workdir becomes /workspace/<subdir>. */
+    subdir?: string;
   } = {}
 ): DockerArgs {
   validateBindMount(workingDir, '/workspace');
+  const containerWorkdir = resolveContainerWorkdir(workingDir, opts.subdir);
 
   const cfg = PROVIDER_CONFIGS[provider];
   const sec: SandboxSecuritySettings = { ...DEFAULT_SANDBOX_SETTINGS, ...security };
@@ -68,7 +91,7 @@ export function buildDockerRunArgs(
     '-v',
     `${workingDir}:/workspace`,
     '--workdir',
-    '/workspace',
+    containerWorkdir,
 
     // Read-only root + tmpfs
     ...(sec.readOnlyRoot ? ['--read-only'] : []),
