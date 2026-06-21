@@ -85,11 +85,14 @@ function buildTranscript(messages: Message[]): string {
 
 const MAX_RAW_CHARS = 256 * 1024; // #2: cap PTY output to prevent memory exhaustion
 const MAX_TRANSCRIPT_CHARS = 32_000; // N6: cap transcript bytes to prevent oversized planner prompts
-const PLANNER_TIMEOUT_MS = 30_000; // #3: reduced from 90s
+// Headless and interactive planners share the same budget: even the headless one-shot can spend
+// its time on CLI boot + MCP wiring + inference, so the tighter 30s ceiling produced spurious
+// timeout-kills on otherwise-healthy runs.
+const PLANNER_TIMEOUT_MS = 120_000;
 // Interactive planner spins up a fresh PTY (TUI boot + MCP wiring + submit retries), so its
 // cold-start budget is far larger than the headless one-shot. Bounds the turn after submission;
 // ClaudeInteractiveSession applies its own submit-confirmation deadline on top.
-const INTERACTIVE_PLANNER_TIMEOUT_MS = 120_000;
+const INTERACTIVE_PLANNER_TIMEOUT_MS = PLANNER_TIMEOUT_MS;
 
 export class ProviderAutopilotAdapter implements AutopilotAdapter {
   constructor(public readonly id: Provider) {}
@@ -259,7 +262,7 @@ export class ProviderAutopilotAdapter implements AutopilotAdapter {
             proc.kill();
             escalateTimer = setTimeout(() => proc.kill(), 5_000);
             escalateTimer.unref();
-            finish(new Error('Autopilot planner timed out after 30s'));
+            finish(new Error(`Autopilot planner timed out after ${PLANNER_TIMEOUT_MS / 1000}s`));
           }, PLANNER_TIMEOUT_MS);
 
           proc.on('data', (chunk: string) => {
