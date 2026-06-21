@@ -33,19 +33,46 @@ export function buildAutopilotDecision(
  * all planners share one MCP server and bearer token.
  */
 class AutopilotSubmissionRegistry {
-  private byThread = new Map<string, { token: string; action: AutopilotAction | null }>();
+  private byThread = new Map<
+    string,
+    { token: string; transcript: string; fetched: boolean; action: AutopilotAction | null }
+  >();
   private tokenToThread = new Map<string, string>();
 
-  /** Open a submission slot before launching the planner, bound to the given single-use token. */
-  open(threadId: string, token: string): void {
+  /**
+   * Open a submission slot before launching the planner, bound to the given single-use token.
+   * The prepared transcript is stashed here so the planner can fetch it via the get_transcript
+   * tool (keyed by token) instead of receiving it inlined in the prompt.
+   */
+  open(threadId: string, token: string, transcript: string): void {
     this.close(threadId); // clear any stale slot for this thread
-    this.byThread.set(threadId, { token, action: null });
+    this.byThread.set(threadId, { token, transcript, fetched: false, action: null });
     this.tokenToThread.set(token, threadId);
   }
 
   /** True while a planner submission is awaited for this thread. */
   isOpen(threadId: string): boolean {
     return this.byThread.has(threadId);
+  }
+
+  /**
+   * Read the prepared transcript bound to a run token, or null if the token is unknown.
+   * Marks the slot as fetched so submit() can reject a send_message that never read the transcript.
+   */
+  getTranscript(token: string): string | null {
+    const threadId = this.tokenToThread.get(token);
+    if (threadId === undefined) return null;
+    const slot = this.byThread.get(threadId);
+    if (!slot) return null;
+    slot.fetched = true;
+    return slot.transcript;
+  }
+
+  /** True if get_transcript has been called for this token's slot. */
+  wasTranscriptFetched(token: string): boolean {
+    const threadId = this.tokenToThread.get(token);
+    if (threadId === undefined) return false;
+    return this.byThread.get(threadId)?.fetched ?? false;
   }
 
   /** Record the planner's decision against its run token. Returns false if the token is unknown. */

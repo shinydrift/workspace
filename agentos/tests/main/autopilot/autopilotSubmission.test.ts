@@ -46,7 +46,7 @@ test('submit is rejected for an unknown token', () => {
 });
 
 test('open then submit-by-token records the decision for peek-by-thread', () => {
-  autopilotSubmissionRegistry.open('t-1', 'tok-1');
+  autopilotSubmissionRegistry.open('t-1', 'tok-1', 'transcript-1');
   assert.equal(autopilotSubmissionRegistry.isOpen('t-1'), true);
   assert.equal(autopilotSubmissionRegistry.peek('t-1'), null);
 
@@ -59,8 +59,8 @@ test('open then submit-by-token records the decision for peek-by-thread', () => 
 });
 
 test('a token cannot write into a different thread (no cross-thread injection)', () => {
-  autopilotSubmissionRegistry.open('t-a', 'tok-a');
-  autopilotSubmissionRegistry.open('t-b', 'tok-b');
+  autopilotSubmissionRegistry.open('t-a', 'tok-a', 'transcript-a');
+  autopilotSubmissionRegistry.open('t-b', 'tok-b', 'transcript-b');
 
   // Using t-a's token only ever writes t-a's slot, never t-b's.
   autopilotSubmissionRegistry.submit('tok-a', { action: 'send_message', message: 'hi', reason: 'r' });
@@ -72,14 +72,32 @@ test('a token cannot write into a different thread (no cross-thread injection)',
 });
 
 test('token is invalidated after close', () => {
-  autopilotSubmissionRegistry.open('t-2', 'tok-2');
+  autopilotSubmissionRegistry.open('t-2', 'tok-2', 'transcript-2');
   autopilotSubmissionRegistry.close('t-2');
   assert.equal(autopilotSubmissionRegistry.submit('tok-2', { action: 'stop', reason: 'late' }), false);
 });
 
+test('getTranscript returns the stashed transcript by token, null after close', () => {
+  autopilotSubmissionRegistry.open('t-tx', 'tok-tx', 'hello world');
+  assert.equal(autopilotSubmissionRegistry.getTranscript('tok-tx'), 'hello world');
+  assert.equal(autopilotSubmissionRegistry.getTranscript('no-such-token'), null);
+  autopilotSubmissionRegistry.close('t-tx');
+  assert.equal(autopilotSubmissionRegistry.getTranscript('tok-tx'), null);
+});
+
+test('wasTranscriptFetched flips only after get_transcript is called', () => {
+  autopilotSubmissionRegistry.open('t-f', 'tok-f', 'some transcript');
+  assert.equal(autopilotSubmissionRegistry.wasTranscriptFetched('tok-f'), false);
+  assert.equal(autopilotSubmissionRegistry.wasTranscriptFetched('no-such-token'), false);
+  autopilotSubmissionRegistry.getTranscript('tok-f');
+  assert.equal(autopilotSubmissionRegistry.wasTranscriptFetched('tok-f'), true);
+  autopilotSubmissionRegistry.close('t-f');
+  assert.equal(autopilotSubmissionRegistry.wasTranscriptFetched('tok-f'), false);
+});
+
 test('re-opening a thread retires the previous token', () => {
-  autopilotSubmissionRegistry.open('t-3', 'tok-old');
-  autopilotSubmissionRegistry.open('t-3', 'tok-new');
+  autopilotSubmissionRegistry.open('t-3', 'tok-old', 'transcript-old');
+  autopilotSubmissionRegistry.open('t-3', 'tok-new', 'transcript-new');
   assert.equal(autopilotSubmissionRegistry.submit('tok-old', { action: 'stop', reason: 'stale' }), false);
   assert.equal(autopilotSubmissionRegistry.submit('tok-new', { action: 'stop', reason: 'fresh' }), true);
   assert.deepEqual(autopilotSubmissionRegistry.peek('t-3'), { action: 'stop', reason: 'fresh' });
