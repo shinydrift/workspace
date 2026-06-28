@@ -27,20 +27,19 @@ function send(msg: WorkerOutbound): void {
   parentPort!.postMessage(msg);
 }
 
-function probeNativeModules(): WorkerReady['probe'] {
+async function probeNativeModules(): Promise<WorkerReady['probe']> {
   const probe: WorkerReady['probe'] = {
     betterSqlite3: false,
     sqliteVec: false,
     nodeLlamaCpp: false,
     errors: [],
   };
-  // createRequire gives us a sync probe without polluting the module graph
-  // with optional native dependencies we'd otherwise have to top-level await.
+  // createRequire gives us a sync probe for the CJS native modules without
+  // polluting the module graph with optional native dependencies.
   const req = createRequire(import.meta.url);
   for (const [name, key] of [
     ['better-sqlite3', 'betterSqlite3'],
     ['sqlite-vec', 'sqliteVec'],
-    ['node-llama-cpp', 'nodeLlamaCpp'],
   ] as const) {
     try {
       req(name);
@@ -48,6 +47,14 @@ function probeNativeModules(): WorkerReady['probe'] {
     } catch (err) {
       probe.errors.push(`${name}: ${err instanceof Error ? err.message : String(err)}`);
     }
+  }
+  // node-llama-cpp is ESM with top-level await — require() throws on it, so it
+  // must be probed via dynamic import() (matching how provider.ts loads it).
+  try {
+    await import('node-llama-cpp');
+    probe.nodeLlamaCpp = true;
+  } catch (err) {
+    probe.errors.push(`node-llama-cpp: ${err instanceof Error ? err.message : String(err)}`);
   }
   return probe;
 }
@@ -143,4 +150,8 @@ parentPort.on('message', (event) => {
   }
 });
 
-send({ kind: 'ready', probe: probeNativeModules() });
+// Async IIFE rather than top-level await: the bundled indexer.js is CJS, where
+// top-level await is itself unsupported — the same failure class we're fixing.
+void (async () => {
+  send({ kind: 'ready', probe: await probeNativeModules() });
+})();
