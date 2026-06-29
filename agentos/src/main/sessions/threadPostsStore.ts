@@ -6,7 +6,7 @@ import type {
   ThreadPostKind,
   ThreadPostAuthor,
   ThreadPostAttachment,
-  ThreadPostStatus,
+  ThreadPostTerminalStatus,
   ThreadStatusEvent,
 } from '../../shared/types';
 import { eventLogger } from '../utils/eventLog';
@@ -21,17 +21,11 @@ import { deriveThreadPostStatus } from './threadPostStatus';
  */
 class ThreadPostsStore {
   private dir = '';
-  /** The prompt post a thread's current turn is processing — the target for status updates. */
+  /** The prompt post a thread's current turn is processing — the target for the terminal status. */
   private currentPromptId = new Map<string, string>();
-  private councilPending: (threadId: string) => boolean = () => false;
 
   setDir(dir: string): void {
     this.dir = dir;
-  }
-
-  /** Injected at bootstrap so status derivation can pick 🏛️ over 🤖 without coupling to councilService. */
-  setCouncilResolver(fn: (threadId: string) => boolean): void {
-    this.councilPending = fn;
   }
 
   append(
@@ -81,17 +75,21 @@ class ThreadPostsStore {
   }
 
   /**
-   * Mirrors the agent-processing lifecycle onto the thread's current prompt post — the Thread-view
-   * counterpart of the Slack reaction lifecycle. Driven off the same medium-agnostic ThreadStatusEvent.
+   * Persists the terminal outcome (✅ done / ❌ error) onto the thread's current prompt post when its
+   * turn resolves. Once written, the prompt is cleared as the current target so a later idle/running
+   * event can't overwrite the outcome. The transient working/autopilot/council badge is derived live
+   * in the renderer, so it is intentionally not persisted here.
    */
   applyThreadStatus(payload: ThreadStatusEvent): void {
     const postId = this.currentPromptId.get(payload.threadId);
     if (!postId) return;
-    const status = deriveThreadPostStatus(payload, this.councilPending(payload.threadId));
-    if (status) this.setStatus(payload.threadId, postId, status);
+    const status = deriveThreadPostStatus(payload);
+    if (!status) return;
+    this.currentPromptId.delete(payload.threadId);
+    this.setStatus(payload.threadId, postId, status);
   }
 
-  private setStatus(threadId: string, postId: string, status: ThreadPostStatus): void {
+  private setStatus(threadId: string, postId: string, status: ThreadPostTerminalStatus): void {
     const p = path.join(this.dir, `${threadId}.jsonl`);
     if (!fs.existsSync(p)) return;
     try {

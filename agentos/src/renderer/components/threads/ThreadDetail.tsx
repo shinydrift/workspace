@@ -10,6 +10,8 @@ import { ThreadPostsView } from '../thread/ThreadPostsView';
 import { ThreadInsightsPanel } from '../insights/ThreadInsightsPanel';
 import { useMessages } from '../../hooks/useMessages';
 import { useThreadPosts } from '../../hooks/useThreadPosts';
+import { useCouncilRuns } from '../../hooks/useCouncilRuns';
+import { deriveLiveThreadPostStatus } from '../../lib/threadPostStatus';
 import { ThreadDetailHeader } from './ThreadDetailHeader';
 import { CouncilRunPanel } from '../chat/CouncilRunPanel';
 import { TaskSheetPanel } from '../board/TaskSheetPanel';
@@ -36,6 +38,9 @@ export function ThreadDetail({ thread, noCard, initialView }: Props) {
   });
   const { messages, streamingBlocks, isStreaming } = useMessages(thread);
   const threadPosts = useThreadPosts(thread.id);
+  const councilRuns = useCouncilRuns(thread.id);
+  const councilPending = councilRuns.some((e) => e.run.status === 'pending' || e.run.status === 'running');
+  const liveStatus = deriveLiveThreadPostStatus(thread.status, thread.autopilotState, councilPending);
 
   useEffect(() => {
     let cancelled = false;
@@ -92,7 +97,7 @@ export function ThreadDetail({ thread, noCard, initialView }: Props) {
       {detailView === 'terminal' && <TerminalPane threadId={thread.id} />}
       <div className={detailView === 'thread' ? 'relative flex min-h-0 flex-1 flex-col' : 'hidden'}>
         <ScrollFade />
-        <ThreadPostsView posts={threadPosts} />
+        <ThreadPostsView posts={threadPosts} liveStatus={liveStatus} />
       </div>
       <div className={detailView === 'chat' ? 'relative flex min-h-0 flex-1 flex-col' : 'hidden'}>
         <ScrollFade />

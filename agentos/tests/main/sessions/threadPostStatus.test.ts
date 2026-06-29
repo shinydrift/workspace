@@ -1,8 +1,9 @@
 /**
  * Real-import tests for sessions/threadPostStatus.ts — deriveThreadPostStatus.
  *
- * The mapping mirrors the Slack reaction lifecycle onto a thread's current prompt post. It's a pure
- * function with no dependencies, so it imports cleanly with no mocks.
+ * This derives only the TERMINAL status persisted on a prompt post (done/error). Transient
+ * working/autopilot/council states are derived live in the renderer and must NOT be persisted here.
+ * Pure function, no mocks.
  */
 
 import test from 'node:test';
@@ -14,47 +15,40 @@ function event(overrides: Partial<ThreadStatusEvent> = {}): ThreadStatusEvent {
   return { threadId: 't1', status: 'running', ...overrides };
 }
 
-test('running → working', () => {
-  assert.equal(deriveThreadPostStatus(event({ status: 'running' }), false), 'working');
+test('running → not terminal (nothing persisted)', () => {
+  assert.equal(deriveThreadPostStatus(event({ status: 'running' })), undefined);
 });
 
-test('idle → done', () => {
-  assert.equal(deriveThreadPostStatus(event({ status: 'idle' }), false), 'done');
+test('idle → done (non-autopilot turn complete)', () => {
+  assert.equal(deriveThreadPostStatus(event({ status: 'idle' })), 'done');
 });
 
 test('error → error, regardless of autopilot', () => {
-  assert.equal(deriveThreadPostStatus(event({ status: 'error' }), false), 'error');
+  assert.equal(deriveThreadPostStatus(event({ status: 'error' })), 'error');
   assert.equal(
-    deriveThreadPostStatus(event({ status: 'error', autopilotEnabled: true, autopilotState: 'thinking' }), false),
+    deriveThreadPostStatus(event({ status: 'error', autopilotEnabled: true, autopilotState: 'thinking' })),
     'error'
   );
 });
 
-test('autopilot pending → autopilot when no council', () => {
-  for (const autopilotState of ['thinking', 'sent'] as const) {
+test('autopilot mid-loop is not terminal — even on an intermediate idle', () => {
+  for (const autopilotState of ['thinking', 'sent', 'idle'] as const) {
     assert.equal(
-      deriveThreadPostStatus(event({ status: 'running', autopilotEnabled: true, autopilotState }), false),
-      'autopilot'
+      deriveThreadPostStatus(event({ status: 'idle', autopilotEnabled: true, autopilotState })),
+      undefined,
+      `autopilotState=${autopilotState} should not persist done`
     );
   }
 });
 
-test('autopilot pending → council when a council run is pending', () => {
-  assert.equal(
-    deriveThreadPostStatus(event({ status: 'running', autopilotEnabled: true, autopilotState: 'thinking' }), true),
-    'council'
-  );
+test('autopilot settled → done', () => {
+  for (const autopilotState of ['stopped', 'blocked'] as const) {
+    assert.equal(deriveThreadPostStatus(event({ status: 'idle', autopilotEnabled: true, autopilotState })), 'done');
+  }
 });
 
-test('autopilot enabled but settled (stopped) falls through to thread status', () => {
-  assert.equal(
-    deriveThreadPostStatus(event({ status: 'idle', autopilotEnabled: true, autopilotState: 'stopped' }), false),
-    'done'
-  );
-});
-
-test('transitional states leave the prior status in place', () => {
+test('transitional thread states are not terminal', () => {
   for (const status of ['stopped', 'building', 'archived'] as const) {
-    assert.equal(deriveThreadPostStatus(event({ status }), false), undefined);
+    assert.equal(deriveThreadPostStatus(event({ status })), undefined);
   }
 });

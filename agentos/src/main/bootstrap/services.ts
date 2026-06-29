@@ -231,7 +231,6 @@ export function bootServices(
     })
   );
   councilService.rearmTimers();
-  threadPostsStore.setCouncilResolver((threadId) => councilService.hasPendingRunForThread(threadId));
 
   // ── Phase 2: optional services (sync, safeInit-wrapped) ──────────────────
   setLocalhostAuthBypass(!getStore().get('settings').mcpRequireAuth);

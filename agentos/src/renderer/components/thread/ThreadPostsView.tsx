@@ -1,5 +1,6 @@
 import React, { memo, useEffect, useMemo, useRef } from 'react';
-import type { ThreadPost } from '../../../shared/types';
+import type { ThreadPost, ThreadPostStatus } from '../../../shared/types';
+import type { LiveThreadPostStatus } from '../../lib/threadPostStatus';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { renderMarkdown } from '../../lib/markdown';
 import { handleCodeCopy } from '../chat/messageUtils';
@@ -11,8 +12,9 @@ const KIND_LABEL: Record<Exclude<ThreadPost['kind'], 'prompt'>, string> = {
   file: 'File',
 };
 
-// Mirrors the Slack reaction lifecycle the agent applies to inbound messages.
-const STATUS_BADGE: Record<NonNullable<ThreadPost['status']>, { emoji: string; label: string }> = {
+// Mirrors the Slack reaction lifecycle the agent applies to inbound messages. The transient
+// working/autopilot/council states arrive live; done/error are persisted on the post.
+const STATUS_BADGE: Record<ThreadPostStatus, { emoji: string; label: string }> = {
   working: { emoji: '👀', label: 'Working' },
   autopilot: { emoji: '🤖', label: 'Autopilot running' },
   council: { emoji: '🏛️', label: 'Council running' },
@@ -24,11 +26,13 @@ function formatTime(ms: number): string {
   return new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 }
 
-const PostRow = memo(function PostRow({ post }: { post: ThreadPost }) {
+const PostRow = memo(function PostRow({ post, live }: { post: ThreadPost; live: LiveThreadPostStatus | null }) {
   const isUser = post.author === 'user';
   const html = useMemo(() => renderMarkdown(post.text), [post.text]);
   const badge = post.kind === 'prompt' ? null : KIND_LABEL[post.kind];
-  const status = post.status ? STATUS_BADGE[post.status] : null;
+  // Persisted terminal outcome wins; otherwise show the live transient badge (current prompt only).
+  const effectiveStatus = post.status ?? live;
+  const status = effectiveStatus ? STATUS_BADGE[effectiveStatus] : null;
 
   return (
     <div className="flex gap-3">
@@ -70,9 +74,23 @@ const PostRow = memo(function PostRow({ post }: { post: ThreadPost }) {
   );
 });
 
-export function ThreadPostsView({ posts }: { posts: ThreadPost[] }) {
+export function ThreadPostsView({
+  posts,
+  liveStatus,
+}: {
+  posts: ThreadPost[];
+  liveStatus: LiveThreadPostStatus | null;
+}) {
   const containerRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  // The live transient badge attaches to the most recent prompt — the turn currently in flight.
+  const latestPromptId = useMemo(() => {
+    for (let i = posts.length - 1; i >= 0; i--) {
+      if (posts[i].kind === 'prompt') return posts[i].id;
+    }
+    return null;
+  }, [posts]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
@@ -86,7 +104,9 @@ export function ThreadPostsView({ posts }: { posts: ThreadPost[] }) {
             No thread messages yet. Prompts and the agent&apos;s updates will appear here.
           </div>
         ) : (
-          posts.map((post) => <PostRow key={post.id} post={post} />)
+          posts.map((post) => (
+            <PostRow key={post.id} post={post} live={post.id === latestPromptId ? liveStatus : null} />
+          ))
         )}
         <div ref={bottomRef} />
       </div>
