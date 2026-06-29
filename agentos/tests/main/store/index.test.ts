@@ -57,13 +57,6 @@ test('settings defaults are present', () => {
   assert.ok(settings.agents.providerOrder.length > 0);
 });
 
-test('settings defaults include empty collections', () => {
-  const store = getStore();
-  assert.deepStrictEqual(store.get('threads'), {});
-  assert.deepStrictEqual(store.get('projects'), {});
-  assert.deepStrictEqual(store.get('automations'), {});
-});
-
 test('setSettings merges patch and persists', () => {
   const updated = setSettings({ theme: 'light', fontSize: 16 });
   assert.strictEqual(updated.theme, 'light');

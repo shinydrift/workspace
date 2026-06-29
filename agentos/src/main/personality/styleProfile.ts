@@ -11,7 +11,7 @@ export function traitDescription(traits: BigFiveTraits): string {
   if (traits.agreeableness <= 2) lines.push('direct, states disagreement plainly');
   if (traits.neuroticism >= 4) lines.push('emotionally reactive, sensitive to uncertainty');
   if (traits.neuroticism <= 2) lines.push('emotionally steady, unfazed by ambiguity');
-  if (lines.length === 0) return '';
+  if (lines.length === 0) return 'balanced, adapts style to context';
   return lines.join('. ');
 }
 

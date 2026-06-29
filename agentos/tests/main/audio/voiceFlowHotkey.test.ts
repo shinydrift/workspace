@@ -15,6 +15,7 @@ const MOCK_KEY = {
   AltRight: 301,
   Space: 57,
   F13: 183,
+  Escape: 1,
 };
 
 // Handler registries — populated when VoiceFlowHotkey.start() registers with uiohook / ipcMain.
@@ -99,11 +100,12 @@ test('resolveKeyCodes: Meta returns both left and right meta keycodes', () => {
   assert.strictEqual(codes.size, 2);
 });
 
-test('resolveKeyCodes: unknown key falls back to default (Space)', () => {
+test('resolveKeyCodes: unknown key falls back to default (Alt)', () => {
   const codes = resolveKeyCodes('NonExistentKey');
-  // Default key is Space
-  assert.ok(codes.has(MOCK_KEY.Space), 'fallback should include Space');
-  assert.strictEqual(codes.size, 1);
+  // Default key is Alt — both left and right variants match
+  assert.ok(codes.has(MOCK_KEY.Alt), 'fallback should include left Alt');
+  assert.ok(codes.has(MOCK_KEY.AltRight), 'fallback should include right Alt');
+  assert.strictEqual(codes.size, 2);
 });
 
 // ---------------------------------------------------------------------------
@@ -118,67 +120,64 @@ function makeWindow(sentMessages: string[]) {
   };
 }
 
-test('hold abort: releasing key before 3s cancels countdown and resets recording state', () => {
+test('hold abort: releasing key before the threshold cancels the countdown — recording never starts', () => {
   mock.timers.enable(['setTimeout']);
   const instance = new VoiceFlowHotkey();
   instance.start(() => null);
 
-  // Simulate a short tap (keydown then immediate keyup)
-  uiohookHandlers['keydown']?.forEach((h) => h({ keycode: MOCK_KEY.Space }));
-  assert.strictEqual(instance.isRecording, true, 'isRecording should be true after keydown');
+  // Keydown arms the hold countdown — recording has NOT begun yet.
+  uiohookHandlers['keydown']?.forEach((h) => h({ keycode: MOCK_KEY.Alt }));
+  assert.strictEqual(instance.isRecording, false, 'isRecording should be false during countdown');
+  assert.notStrictEqual(instance.startTimer, null, 'startTimer should be armed after keydown');
 
-  uiohookHandlers['keyup']?.forEach((h) => h({ keycode: MOCK_KEY.Space }));
-  assert.strictEqual(instance.isRecording, false, 'isRecording should be false after early keyup');
+  // Release before the threshold — the countdown is cancelled.
+  uiohookHandlers['keyup']?.forEach((h) => h({ keycode: MOCK_KEY.Alt }));
   assert.strictEqual(instance.startTimer, null, 'startTimer should be cleared');
+  assert.strictEqual(instance.isRecording, false, 'isRecording should remain false after early keyup');
 
-  // Advancing past countdown should have no effect — timer was already cancelled
-  mock.timers.tick(3001);
+  // Advancing past the countdown has no effect — the timer was already cancelled.
+  mock.timers.tick(1001);
+  assert.strictEqual(instance.isRecording, false, 'isRecording stays false — countdown was cancelled');
 
   instance.stop();
   mock.timers.reset();
 });
 
-test('second distinct keydown during recording sends VOICE_FLOW_STOP, not RECORDING_CANCEL', () => {
+test('full hold cycle: countdown completes, then key release sends VOICE_FLOW_STOP', () => {
+  mock.timers.enable(['setTimeout']);
   const sentMessages: string[] = [];
   const instance = new VoiceFlowHotkey();
   instance.start(() => makeWindow(sentMessages));
 
-  // Put instance directly into recording state (countdown already completed)
-  instance.isRecording = true;
-  instance.activeKeycode = null;
+  // Hold past the threshold — recording starts.
+  uiohookHandlers['keydown']?.forEach((h) => h({ keycode: MOCK_KEY.Alt }));
+  mock.timers.tick(1001);
+  assert.strictEqual(instance.isRecording, true, 'isRecording should be true after the hold threshold');
 
-  uiohookHandlers['keydown']?.forEach((h) => h({ keycode: MOCK_KEY.Space }));
-
+  // Release while recording — stop and transcribe.
+  uiohookHandlers['keyup']?.forEach((h) => h({ keycode: MOCK_KEY.Alt }));
+  assert.strictEqual(instance.isRecording, false, 'isRecording should be false after keyup');
   assert.ok(sentMessages.includes('event:voiceFlow:stop'), 'should send VOICE_FLOW_STOP');
   assert.ok(!sentMessages.includes('event:recording:cancel'), 'should NOT send RECORDING_CANCEL');
 
   instance.stop();
+  mock.timers.reset();
 });
 
-test('key-repeat on stop press is debounced: only one VOICE_FLOW_STOP sent', () => {
-  const sentMessages: string[] = [];
+test('key-repeat during hold is debounced: countdown is armed only once', () => {
+  mock.timers.enable(['setTimeout']);
   const instance = new VoiceFlowHotkey();
-  instance.start(() => makeWindow(sentMessages));
+  instance.start(() => null);
 
-  // Put instance directly into recording state
-  instance.isRecording = true;
-  instance.activeKeycode = null;
+  // First keydown arms the countdown.
+  uiohookHandlers['keydown']?.forEach((h) => h({ keycode: MOCK_KEY.Alt }));
+  const armedTimer = instance.startTimer;
+  assert.notStrictEqual(armedTimer, null, 'first keydown should arm the countdown');
 
-  // First stop press — sets activeKeycode, sends VOICE_FLOW_STOP
-  uiohookHandlers['keydown']?.forEach((h) => h({ keycode: MOCK_KEY.Space }));
-  assert.strictEqual(
-    sentMessages.filter((e) => e === 'event:voiceFlow:stop').length,
-    1,
-    'first press should send one VOICE_FLOW_STOP',
-  );
-
-  // OS key-repeat while still holding — activeKeycode is set, should be debounced
-  uiohookHandlers['keydown']?.forEach((h) => h({ keycode: MOCK_KEY.Space }));
-  assert.strictEqual(
-    sentMessages.filter((e) => e === 'event:voiceFlow:stop').length,
-    1,
-    'repeat should be debounced — no second VOICE_FLOW_STOP',
-  );
+  // OS key-repeat fires more keydowns while still holding — activeKeycode is set, so they are ignored.
+  uiohookHandlers['keydown']?.forEach((h) => h({ keycode: MOCK_KEY.Alt }));
+  assert.strictEqual(instance.startTimer, armedTimer, 'repeat keydown should not re-arm the countdown');
 
   instance.stop();
+  mock.timers.reset();
 });

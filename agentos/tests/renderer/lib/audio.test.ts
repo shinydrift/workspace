@@ -26,13 +26,19 @@ test('attachAudioCapture: uses AudioWorkletNode when module loads', async () => 
   const chunks: Float32Array[] = [];
   const addModule = vi.fn().mockResolvedValue(undefined);
   const source = { connect: vi.fn() };
-  const audioCtx = { audioWorklet: { addModule } } as unknown as AudioContext;
+  const silencer = { gain: { value: 1 }, connect: vi.fn(), disconnect: vi.fn() };
+  const audioCtx = {
+    audioWorklet: { addModule },
+    createGain: vi.fn(() => silencer),
+    destination: {},
+  } as unknown as AudioContext;
   const createObjectURL = vi.fn(() => 'blob:pcm-worklet');
   const revokeObjectURL = vi.fn();
 
   class FakeAudioWorkletNode {
     static instances: FakeAudioWorkletNode[] = [];
     port: { onmessage: ((e: MessageEvent<Float32Array>) => void) | null } = { onmessage: null };
+    connect = vi.fn();
     disconnect = vi.fn();
 
     constructor(

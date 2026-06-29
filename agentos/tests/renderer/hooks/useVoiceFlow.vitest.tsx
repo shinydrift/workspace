@@ -33,6 +33,9 @@ class MockAudioContext {
   createGain = vi.fn(function () {
     return { gain: { value: 0 }, connect: vi.fn() };
   });
+  createAnalyser = vi.fn(function () {
+    return { fftSize: 256, connect: vi.fn(), getFloatTimeDomainData: vi.fn() };
+  });
   createOscillator = vi.fn(function () {
     return { frequency: { value: 0 }, connect: vi.fn(), start: vi.fn(), stop: vi.fn(), onended: null };
   });
@@ -41,10 +44,10 @@ class MockAudioContext {
 
 // ── Test state ────────────────────────────────────────────────────────────────
 
-let voiceFlowStartCb: (() => void) | null = null;
-let voiceFlowStopCb:
-  | ((payload: { appFocused: boolean; externalTextField: boolean; frontmostApp: string | null }) => void)
-  | null = null;
+// Routing (appFocused / frontmostApp) is delivered with the START event and captured in routingRef;
+// the STOP event carries no payload (it just triggers the auto-stop path).
+let voiceFlowStartCb: ((payload: { appFocused: boolean; frontmostApp: string | null }) => void) | null = null;
+let voiceFlowStopCb: (() => void) | null = null;
 let recordingCancelCb: (() => void) | null = null;
 let lastOnChunk: ((chunk: Float32Array) => void) | undefined;
 
@@ -60,18 +63,17 @@ function extendElectronAPI() {
       pasteTranscript: vi.fn().mockResolvedValue(undefined),
       focus: vi.fn().mockResolvedValue(undefined),
       broadcastRecordingState: vi.fn(),
+      notifyVoiceFlowStopped: vi.fn(),
     },
     on: {
       ...window.electronAPI.on,
-      voiceFlowStart: vi.fn(function (cb: () => void) {
+      voiceFlowStart: vi.fn(function (cb: (p: { appFocused: boolean; frontmostApp: string | null }) => void) {
         voiceFlowStartCb = cb;
         return function () {
           voiceFlowStartCb = null;
         };
       }),
-      voiceFlowStop: vi.fn(function (
-        cb: (p: { appFocused: boolean; externalTextField: boolean; frontmostApp: string | null }) => void
-      ) {
+      voiceFlowStop: vi.fn(function (cb: () => void) {
         voiceFlowStopCb = cb;
         return function () {
           voiceFlowStopCb = null;
@@ -134,7 +136,7 @@ describe('useVoiceFlow', () => {
     expect(result.current.state).toBe('idle');
   });
 
-  it('stop called while getUserMedia is pending → no recording starts, stays idle', async () => {
+  it('cancel called while getUserMedia is pending → no recording starts, stays idle', async () => {
     let resolveGetUserMedia!: (stream: MediaStream) => void;
     vi.mocked(navigator.mediaDevices.getUserMedia).mockReturnValueOnce(
       new Promise<MediaStream>((resolve) => {
@@ -145,11 +147,11 @@ describe('useVoiceFlow', () => {
     const { result } = renderHook(() => useVoiceFlow());
 
     act(() => {
-      voiceFlowStartCb?.();
+      voiceFlowStartCb?.({ appFocused: true, frontmostApp: null });
     });
-    // Fire stop immediately while getUserMedia is still pending.
+    // Fire cancel immediately while getUserMedia is still pending — sets the pending-stop flag.
     act(() => {
-      voiceFlowStopCb?.({ appFocused: true, externalTextField: false, frontmostApp: null });
+      recordingCancelCb?.();
     });
 
     // Resolve getUserMedia — the hook should detect the pending stop flag and bail.
@@ -166,13 +168,13 @@ describe('useVoiceFlow', () => {
     const { result } = renderHook(() => useVoiceFlow());
 
     act(() => {
-      voiceFlowStartCb?.();
+      voiceFlowStartCb?.({ appFocused: true, frontmostApp: null });
     });
     await waitFor(() => expect(result.current.state).toBe('recording'));
 
     // Stop with no PCM chunks pushed → audio is silent.
     await act(async () => {
-      voiceFlowStopCb?.({ appFocused: true, externalTextField: false, frontmostApp: null });
+      voiceFlowStopCb?.();
     });
 
     await waitFor(() => expect(result.current.state).toBe('idle'));
@@ -186,7 +188,7 @@ describe('useVoiceFlow', () => {
     const { result } = renderHook(() => useVoiceFlow());
 
     act(() => {
-      voiceFlowStartCb?.();
+      voiceFlowStartCb?.({ appFocused: true, frontmostApp: null });
     });
     await waitFor(() => expect(result.current.state).toBe('recording'));
 
@@ -196,7 +198,7 @@ describe('useVoiceFlow', () => {
     });
 
     await act(async () => {
-      voiceFlowStopCb?.({ appFocused: true, externalTextField: false, frontmostApp: null });
+      voiceFlowStopCb?.();
     });
 
     await waitFor(() => expect(result.current.state).toBe('idle'));
@@ -210,7 +212,7 @@ describe('useVoiceFlow', () => {
     const { result } = renderHook(() => useVoiceFlow());
 
     act(() => {
-      voiceFlowStartCb?.();
+      voiceFlowStartCb?.({ appFocused: false, frontmostApp: 'Safari' });
     });
     await waitFor(() => expect(result.current.state).toBe('recording'));
 
@@ -219,7 +221,7 @@ describe('useVoiceFlow', () => {
     });
 
     await act(async () => {
-      voiceFlowStopCb?.({ appFocused: false, externalTextField: true, frontmostApp: 'Safari' });
+      voiceFlowStopCb?.();
     });
 
     await waitFor(() => expect(result.current.state).toBe('idle'));
@@ -231,7 +233,7 @@ describe('useVoiceFlow', () => {
     const { result } = renderHook(() => useVoiceFlow());
 
     act(() => {
-      voiceFlowStartCb?.();
+      voiceFlowStartCb?.({ appFocused: false, frontmostApp: 'Chrome' });
     });
     await waitFor(() => expect(result.current.state).toBe('recording'));
 
@@ -240,7 +242,7 @@ describe('useVoiceFlow', () => {
     });
 
     await act(async () => {
-      voiceFlowStopCb?.({ appFocused: false, externalTextField: false, frontmostApp: 'Chrome' });
+      voiceFlowStopCb?.();
     });
 
     await waitFor(() => expect(result.current.state).toBe('idle'));
@@ -254,7 +256,7 @@ describe('useVoiceFlow', () => {
     const { result } = renderHook(() => useVoiceFlow());
 
     act(() => {
-      voiceFlowStartCb?.();
+      voiceFlowStartCb?.({ appFocused: false, frontmostApp: 'Notes' });
     });
     await waitFor(() => expect(result.current.state).toBe('recording'));
 
@@ -263,7 +265,7 @@ describe('useVoiceFlow', () => {
     });
 
     await act(async () => {
-      voiceFlowStopCb?.({ appFocused: false, externalTextField: true, frontmostApp: 'Notes' });
+      voiceFlowStopCb?.();
     });
 
     await waitFor(() => expect(result.current.state).toBe('idle'));
@@ -277,7 +279,7 @@ describe('useVoiceFlow', () => {
     const { result } = renderHook(() => useVoiceFlow());
 
     act(() => {
-      voiceFlowStartCb?.();
+      voiceFlowStartCb?.({ appFocused: false, frontmostApp: null });
     });
     await waitFor(() => expect(result.current.state).toBe('recording'));
 
@@ -286,7 +288,7 @@ describe('useVoiceFlow', () => {
     });
 
     await act(async () => {
-      voiceFlowStopCb?.({ appFocused: false, externalTextField: false, frontmostApp: null });
+      voiceFlowStopCb?.();
     });
 
     await waitFor(() => expect(result.current.state).toBe('idle'));

@@ -40,6 +40,7 @@ Module._load = function (...args: [string, unknown, boolean]) {
         },
         on: () => {},
         off: () => {},
+        setMaxListeners: () => {},
       },
     };
   }

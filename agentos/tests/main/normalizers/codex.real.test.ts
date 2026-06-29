@@ -114,7 +114,7 @@ test('normalizeCodexMessages: plain text → single-item array', () => {
   assert.equal(results[0].content, 'Hello');
 });
 
-test('normalizeCodexMessages: token usage attached to first result only', () => {
+test('normalizeCodexMessages: token usage attached to last result only', () => {
   const raw = [
     JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'A' } }),
     JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'B' } }),
@@ -122,8 +122,8 @@ test('normalizeCodexMessages: token usage attached to first result only', () => 
   ].join('\n');
   const results = normalizeCodexMessages({ ...BASE, raw });
   assert.ok(results.length >= 2);
-  assert.ok(results[0].tokenUsage !== undefined);
-  assert.equal(results[1].tokenUsage, undefined);
+  assert.ok(results[results.length - 1].tokenUsage !== undefined);
+  assert.equal(results[0].tokenUsage, undefined);
 });
 
 // ── decodeCodexBuffer ─────────────────────────────────────────────────────────

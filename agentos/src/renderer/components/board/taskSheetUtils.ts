@@ -24,6 +24,33 @@ export function getTaskActorLabel(event: KanbanTaskEvent, threads: Record<string
   return eventThread.agentRole ?? eventThread.name ?? `thread ${event.threadId.slice(0, 8)}`;
 }
 
+// One-line title + optional body for a task event, used by activity views.
+export function describeTaskEvent(event: KanbanTaskEvent): { title: string; body?: string } {
+  const data = event.data;
+  const str = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
+  switch (event.kind) {
+    case 'created':
+      return { title: 'Task created' };
+    case 'assigned':
+      return { title: 'Task assigned' };
+    case 'moved': {
+      const from = String(data.fromStatus ?? 'unknown');
+      const to = String(data.toStatus ?? 'unknown');
+      return { title: `${from} -> ${to}`, body: str(data.reason) };
+    }
+    case 'progress': {
+      const pct = typeof data.progress === 'number' ? `${data.progress}%` : 'updated';
+      return { title: `Progress ${pct}`, body: str(data.note) };
+    }
+    case 'review':
+      return { title: data.verdict === 'approved' ? 'Review Approved' : 'Changes Requested', body: str(data.summary) };
+    case 'blocker':
+      return { title: data.blocked === false ? 'Blocker cleared' : 'Blocked', body: str(data.summary) };
+    default:
+      return { title: 'Comment', body: str(data.content) };
+  }
+}
+
 export function getTaskReviewState(task: KanbanTask | null, events: KanbanTaskEvent[]) {
   const reversedEvents = [...events].reverse();
   const latestReviewVerdict = reversedEvents.find((event) => event.kind === 'review') ?? null;

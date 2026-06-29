@@ -33,6 +33,7 @@ const mockIpcRenderer = {
       handlers[channel] = handlers[channel].filter((h) => h !== handler);
     }
   },
+  setMaxListeners: (_n: number) => {},
 };
 
 const mockContextBridge = {

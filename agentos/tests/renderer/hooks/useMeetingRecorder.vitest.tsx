@@ -11,6 +11,9 @@ import { useMeetingRecorder } from '../../../src/renderer/hooks/useMeetingRecord
 
 vi.mock('@/lib/audio', () => ({
   attachAudioCapture: vi.fn(),
+  resamplePcmTo16kHz: vi.fn(async function () {
+    return new Float32Array(16);
+  }),
   encodePcmAsWav: vi.fn(function () {
     return new ArrayBuffer(128);
   }),
@@ -53,6 +56,8 @@ function extendElectronAPI() {
     },
     files: {
       saveTranscript: vi.fn().mockResolvedValue({ path: '.agentos/transcripts/test.txt' }),
+      saveRecording: vi.fn().mockResolvedValue({ recordingId: 'rec-1' }),
+      setRecordingThread: vi.fn().mockResolvedValue(null),
     },
     terminal: {
       sendInput: vi.fn().mockResolvedValue(undefined),
