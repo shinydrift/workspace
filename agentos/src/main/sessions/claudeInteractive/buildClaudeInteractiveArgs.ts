@@ -37,7 +37,6 @@ export type ClaudeInteractiveArgsOpts = {
     memoryMcpUrl?: string | null;
     threadMcpUrl?: string | null;
     councilMcpUrl?: string | null;
-    slackMcpUrl?: string | null;
     kanbanMcpUrl?: string | null;
     recordingsMcpUrl?: string | null;
     /** Autopilot planner only: exposes the submit_autopilot_decision tool. Not wired for
@@ -51,7 +50,6 @@ function enabledMcp(mcp: ClaudeInteractiveArgsOpts['mcp']): Array<{ name: string
     { name: 'agentos-memory', url: mcp.memoryMcpUrl },
     { name: 'agentos-thread', url: mcp.threadMcpUrl },
     { name: 'agentos-council', url: mcp.councilMcpUrl },
-    { name: 'agentos-slack', url: mcp.slackMcpUrl },
     { name: 'agentos-kanban', url: mcp.kanbanMcpUrl },
     { name: 'agentos-recordings', url: mcp.recordingsMcpUrl },
     { name: 'agentos-autopilot', url: mcp.autopilotMcpUrl },

@@ -52,33 +52,26 @@ function waitForAssistantResponse(threadId: string, signal?: AbortSignal): Promi
 
 // ── Integration context setup ─────────────────────────────────────────────────
 
-async function postAutomationStartMessage(job: AutomationJob): Promise<{ channelId: string; threadTs: string } | null> {
+function resolveAutomationChannel(job: AutomationJob): string | null {
   const notification = job.notification;
   if (!notification || notification.channel !== 'slack') return null;
-
-  const channelId = notification.slackChannelId ?? resolveSlackChannelForProject(job.projectId);
-  if (!channelId) return null;
-
-  return slackBridge.startAutomationThread(channelId, job.name);
+  return notification.slackChannelId ?? resolveSlackChannelForProject(job.projectId);
 }
 
-async function setupNotificationContext(
-  threadId: string,
-  job: AutomationJob,
-  slackStart: { channelId: string; threadTs: string } | null
-): Promise<void> {
+async function setupNotificationContext(threadId: string, job: AutomationJob, channelId: string | null): Promise<void> {
   const notification = job.notification;
   if (!notification) return;
 
   if (notification.channel === 'slack') {
-    if (slackStart) {
-      threadManager.setSlackContext(threadId, slackStart);
-      slackBridge.bindThreadToSlackThread(threadId, slackStart.channelId, slackStart.threadTs);
+    if (channelId) {
+      // Channel-scoped binding (no reply anchor): the agent's start line and summary post through
+      // the thread path and echo to the channel as new top-level messages.
+      threadManager.setSlackContext(threadId, { channelId, threadTs: null });
+      slackBridge.bindThreadToSlackThread(threadId, channelId);
       eventLogger.info('automation', 'Slack context set for automation thread', {
         automationId: job.id,
         threadId,
-        channelId: slackStart.channelId,
-        threadTs: slackStart.threadTs,
+        channelId,
         resolved: !notification.slackChannelId,
       });
     } else {
@@ -137,13 +130,13 @@ export async function executeRun(
 
   const projectPath = project.path;
 
-  const slackStart = await postAutomationStartMessage(job);
+  const channelId = resolveAutomationChannel(job);
 
   const threadId = await createAutomationThread(job, projectPath);
   const thread = threadManager.getThread(threadId);
   if (!thread) throw new Error(`Thread ${threadId} not found after creation`);
 
-  await setupNotificationContext(threadId, job, slackStart);
+  await setupNotificationContext(threadId, job, channelId);
 
   if (thread.status !== 'running') {
     await threadManager.startThread(threadId);

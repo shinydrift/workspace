@@ -4,6 +4,7 @@ import type { WebClient } from '@slack/web-api';
 import { getAllProjects, getSlackBinding, saveSlackBinding, getAllSlackBindings } from '../threads/db';
 import { eventLogger } from '../utils/eventLog';
 import { getErrorMessage } from '../../shared/utils/errorMessage';
+import type { Medium, SlackThreadBinding } from '../../shared/types';
 
 function sanitizeChannelFolderSegment(value: string): string {
   const normalized = value
@@ -14,14 +15,7 @@ function sanitizeChannelFolderSegment(value: string): string {
   return normalized || 'channel';
 }
 
-export type SlackBinding = {
-  key: string;
-  channelId: string;
-  threadTs: string;
-  threadId?: string;
-  createdAt: number;
-  lastInboundTs?: string; // kept for backwards compat with existing stored data
-};
+export type SlackBinding = SlackThreadBinding;
 
 export class SlackWorkspaceManager {
   private webClient: WebClient | null = null;
@@ -30,13 +24,18 @@ export class SlackWorkspaceManager {
     this.webClient = client;
   }
 
-  resolveOrCreateBinding(channelId: string, threadTs: string): SlackBinding {
-    const key = `${channelId}:${threadTs}`;
+  /**
+   * Resolve (or create) a binding. Omit `threadTs` for a channel-scoped binding whose echoes post
+   * as new top-level messages (e.g. automation summaries with no thread to reply to).
+   */
+  resolveOrCreateBinding(channelId: string, threadTs?: string, medium: Medium = 'slack'): SlackBinding {
+    const key = `${medium}:${channelId}:${threadTs ?? ''}`;
     const existing = getSlackBinding(key);
     if (existing) return existing;
 
     const binding: SlackBinding = {
       key,
+      medium,
       channelId,
       threadTs,
       createdAt: Date.now(),
@@ -51,13 +50,19 @@ export class SlackWorkspaceManager {
     saveSlackBinding({ ...existing, ...patch } as SlackBinding);
   }
 
-  bindingsForThread(
-    threadId: string
-  ): Array<{ key: string; threadId: string; channelId: string; threadTs: string; lastInboundTs?: string }> {
+  bindingsForThread(threadId: string): Array<{
+    key: string;
+    medium: Medium;
+    threadId: string;
+    channelId: string;
+    threadTs?: string;
+    lastInboundTs?: string;
+  }> {
     return getAllSlackBindings()
       .filter((binding) => binding.threadId === threadId)
       .map((binding) => ({
         key: binding.key,
+        medium: binding.medium,
         threadId: binding.threadId as string,
         channelId: binding.channelId,
         threadTs: binding.threadTs,

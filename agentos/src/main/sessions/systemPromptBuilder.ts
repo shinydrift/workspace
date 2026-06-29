@@ -8,7 +8,6 @@ export type HeadlessPromptInput = {
   runOnHost: boolean;
   projectId: string;
   threadId: string;
-  slackMcpPort: number;
   memoryMcpPort: number;
   threadMcpPort: number;
   councilMcpPort: number;
@@ -24,7 +23,6 @@ export type HeadlessPromptResult = {
   memoryMcpUrl: string | null;
   threadMcpUrl: string | null;
   councilMcpUrl: string | null;
-  slackMcpUrl: string | null;
   kanbanMcpUrl: string | null;
   recordingsMcpUrl: string | null;
 };
@@ -37,7 +35,6 @@ export function buildHeadlessSystemPrompt(input: HeadlessPromptInput): HeadlessP
     runOnHost,
     projectId,
     threadId,
-    slackMcpPort,
     memoryMcpPort,
     threadMcpPort,
     councilMcpPort,
@@ -145,7 +142,6 @@ export function buildHeadlessSystemPrompt(input: HeadlessPromptInput): HeadlessP
     `- Bullet: start line with • or -\n` +
     `- Do NOT use ## headers, **double asterisks**, or --- separators — they appear as raw text.`;
 
-  let slackMcpUrl: string | null = null;
   if (useHeadless) {
     let postingPrompt: string | null = null;
     if (!slackCtx && !agentRole) {
@@ -210,19 +206,21 @@ export function buildHeadlessSystemPrompt(input: HeadlessPromptInput): HeadlessP
         `\nOnly posts you make via these tools appear in the Thread view and Slack — your stdout is not forwarded.`;
       extraEnv = { ...(extraEnv ?? {}), SLACK_CHANNEL_ID: slackCtx.channelId, SLACK_THREAD_TS: slackCtx.threadTs };
     } else if (slackCtx) {
-      // Automation: post a single summary to the channel as a new top-level message when done.
-      // This top-level (no-thread) post has no thread binding to echo to, so it keeps using the
-      // Slack MCP server directly.
-      slackMcpUrl = mcpUrl(slackMcpPort, runOnHost);
+      // Automation: channel-scoped binding, no reply anchor. Posts go through the thread path like
+      // everything else — they land in the Thread view and echo to the channel as new top-level
+      // messages. Fully autonomous; no approval gate.
       postingPrompt =
-        `\nThis is an automated task. When you have finished, post a concise summary to Slack using the 'agentos-slack' MCP server.\n` +
-        `SLACK_CHANNEL_ID=${slackCtx.channelId}\n` +
-        `Use this single tool at the end:\n` +
-        `- post_update(channel_id, message): post your summary as a new message to the channel.\n` +
-        `Pass SLACK_CHANNEL_ID as channel_id. Do not pass thread_ts — this should be a new top-level post.\n` +
-        `Post only once when fully done. Do not post intermediate updates.\n` +
-        slackFormattingGuide;
-      extraEnv = { ...(extraEnv ?? {}), SLACK_CHANNEL_ID: slackCtx.channelId };
+        `\nThis is an automated task running in its own thread.\n` +
+        `Post to the current thread via the 'agentos-thread' MCP server — posts appear in the in-app ` +
+        `Thread view (the primary surface) and echo to any connected channel as new top-level messages:\n` +
+        `- post_update(thread_id, message): post an update.\n` +
+        `Always pass AGENTOS_THREAD_ID as thread_id.\n` +
+        `\nPost exactly twice:\n` +
+        `1. A one-line note when you start (what the automation is doing).\n` +
+        `2. A concise summary when you finish.\n` +
+        `Do NOT ask for approval or use ask_clarification — proceed autonomously.\n` +
+        slackFormattingGuide +
+        `\nOnly posts you make via these tools appear in the Thread view and any channel — your stdout is not forwarded.`;
     }
     // Autonomous non-Slack roles (stage-*, Slack-disconnected task-main) match no branch and get
     // no posting prompt — they report via their own mechanism rather than the Thread view.
@@ -237,7 +235,6 @@ export function buildHeadlessSystemPrompt(input: HeadlessPromptInput): HeadlessP
     memoryMcpUrl,
     threadMcpUrl,
     councilMcpUrl,
-    slackMcpUrl,
     kanbanMcpUrl,
     recordingsMcpUrl,
   };

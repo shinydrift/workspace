@@ -22,7 +22,6 @@ export type ThreadLaunchArgs = {
   memoryMcpUrl: string | null;
   threadMcpUrl: string | null;
   councilMcpUrl: string | null;
-  slackMcpUrl: string | null;
   kanbanMcpUrl: string | null;
   recordingsMcpUrl: string | null;
 };
@@ -56,7 +55,6 @@ export async function buildThreadLaunchArgs(params: {
   injectionPayload: { payload?: string | null };
   useHeadless: boolean;
   sessionDataDir: string;
-  slackMcpPort: number;
   memoryMcpPort: number;
   threadMcpPort: number;
   councilMcpPort: number;
@@ -84,7 +82,6 @@ export async function buildThreadLaunchArgs(params: {
     injectionPayload,
     useHeadless,
     sessionDataDir,
-    slackMcpPort,
     memoryMcpPort,
     threadMcpPort,
     councilMcpPort,
@@ -100,39 +97,30 @@ export async function buildThreadLaunchArgs(params: {
 
   const task = stored.agentRole && stored.taskId ? getTask(stored.projectId, stored.taskId) : null;
 
-  const {
-    effectiveSystemPrompt,
-    extraEnv,
-    memoryMcpUrl,
-    threadMcpUrl,
-    councilMcpUrl,
-    slackMcpUrl,
-    kanbanMcpUrl,
-    recordingsMcpUrl,
-  } = buildHeadlessSystemPrompt({
-    initialPayload: injectionPayload.payload ?? null,
-    slackCtx: integrationContextManager.getSlackContext(threadId) ?? null,
-    useHeadless,
-    runOnHost,
-    projectId: stored.projectId,
-    threadId,
-    slackMcpPort,
-    memoryMcpPort,
-    threadMcpPort,
-    councilMcpPort,
-    kanbanMcpPort,
-    recordingsMcpPort,
-    agentRole: stored.agentRole ?? null,
+  const { effectiveSystemPrompt, extraEnv, memoryMcpUrl, threadMcpUrl, councilMcpUrl, kanbanMcpUrl, recordingsMcpUrl } =
+    buildHeadlessSystemPrompt({
+      initialPayload: injectionPayload.payload ?? null,
+      slackCtx: integrationContextManager.getSlackContext(threadId) ?? null,
+      useHeadless,
+      runOnHost,
+      projectId: stored.projectId,
+      threadId,
+      memoryMcpPort,
+      threadMcpPort,
+      councilMcpPort,
+      kanbanMcpPort,
+      recordingsMcpPort,
+      agentRole: stored.agentRole ?? null,
 
-    taskCtx: task
-      ? {
-          id: task.id,
-          title: task.title,
-          description: task.description,
-          status: task.status,
-        }
-      : null,
-  });
+      taskCtx: task
+        ? {
+            id: task.id,
+            title: task.title,
+            description: task.description,
+            status: task.status,
+          }
+        : null,
+    });
 
   const claudeOauthToken = await readClaudeOauthToken();
   const containerEnv: Record<string, string> = {
@@ -170,7 +158,6 @@ export async function buildThreadLaunchArgs(params: {
       memoryMcpUrl,
       threadMcpUrl,
       councilMcpUrl,
-      slackMcpUrl,
       kanbanMcpUrl,
       recordingsMcpUrl,
     };
@@ -210,7 +197,6 @@ export async function buildThreadLaunchArgs(params: {
     memoryMcpUrl,
     threadMcpUrl,
     councilMcpUrl,
-    slackMcpUrl,
     kanbanMcpUrl,
     recordingsMcpUrl,
   };

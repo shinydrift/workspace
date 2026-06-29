@@ -7,16 +7,15 @@ import { DEFAULT_SLACK_SETTINGS, parseAutopilotDecision } from '../../shared/typ
 import { getStore, setSettings } from '../store/index';
 import { BaseBridge } from './BaseBridge';
 import { eventLogger } from '../utils/eventLog';
-import { slackMcpServer } from './slackMcpServer';
 import { SlackWorkspaceManager } from './slackWorkspaces';
+import { registerMediumPoster, getMediumPoster, type EchoTarget } from './mediumPosters';
 import { clampSlackText, convertMarkdownToMrkdwn } from './slackFormatting';
 import { DedupCache } from './DedupCache';
 import { SlackFileService } from './slackFileService';
 import { SlackCatchupService, type SlackInboundEvent } from './slackCatchupService';
 import { SlackRoutingService } from './slackRoutingService';
 import { SlackThreadResolver } from './slackThreadResolver';
-import { resolveSlackUploadWorkspace } from './slackUploadWorkspace';
-import { getProject, getSlackBinding } from '../threads/db';
+import { getProject } from '../threads/db';
 import { getThread } from '../threads/threadStore';
 import { councilService } from '../council/service';
 
@@ -130,12 +129,7 @@ class SlackBridge extends BaseBridge<SlackBridgeDeps> {
       this.stopSocketMode();
       this.webClient = new WebClient(botToken);
       this.workspaceManager.setWebClient(this.webClient);
-      slackMcpServer.init(this.webClient, (channelId, threadTs) => {
-        if (threadTs === undefined) return null;
-        const binding = getSlackBinding(`${channelId}:${threadTs}`);
-        return resolveSlackUploadWorkspace(binding, (threadId) => getThread(threadId)?.workingDirectory ?? null);
-      });
-      slackMcpServer.start();
+      this.registerSlackPoster();
       this.startedBotToken = botToken;
     }
 
@@ -253,9 +247,8 @@ class SlackBridge extends BaseBridge<SlackBridgeDeps> {
       return;
     }
     if (!text) return;
-    const bindings = this.workspaceManager.bindingsForThread(params.threadId);
-    for (const binding of bindings) {
-      void this.postMessage(binding.channelId, text, binding.threadTs);
+    for (const binding of this.workspaceManager.bindingsForThread(params.threadId)) {
+      getMediumPoster(binding.medium)?.post({ channelId: binding.channelId, threadTs: binding.threadTs }, text);
     }
   }
 
@@ -265,17 +258,41 @@ class SlackBridge extends BaseBridge<SlackBridgeDeps> {
    * the thread view is the source of truth; Slack is a best-effort mirror.
    */
   echoThreadPost(threadId: string, text: string): void {
-    if (!this.webClient || !text.trim()) return;
+    if (!text.trim()) return;
     for (const binding of this.workspaceManager.bindingsForThread(threadId)) {
-      void this.postMessage(binding.channelId, text, binding.threadTs);
+      getMediumPoster(binding.medium)?.post({ channelId: binding.channelId, threadTs: binding.threadTs }, text);
     }
   }
 
-  /** Echo an uploaded file to Slack as a reply to every bound channel thread. No-op when disconnected/unbound. */
+  /** Echo an uploaded file to every medium bound to this thread. No-op when disconnected/unbound. */
   async echoUploadFile(threadId: string, hostPath: string, filename: string, comment?: string): Promise<void> {
+    for (const binding of this.workspaceManager.bindingsForThread(threadId)) {
+      await getMediumPoster(binding.medium)?.upload(
+        { channelId: binding.channelId, threadTs: binding.threadTs },
+        hostPath,
+        filename,
+        comment
+      );
+    }
+  }
+
+  /**
+   * The Slack implementation of the MediumPoster seam, registered once a bot token is present. Posts
+   * land top-level when `target.threadTs` is absent (channel-scoped binding). The Thread view is the
+   * source of truth, so every call here is best-effort and silently no-ops when disconnected.
+   */
+  private registerSlackPoster(): void {
+    registerMediumPoster({
+      medium: 'slack',
+      post: (target, text) => {
+        void this.postMessage(target.channelId, text, target.threadTs);
+      },
+      upload: (target, hostPath, filename, comment) => this.slackUpload(target, hostPath, filename, comment),
+    });
+  }
+
+  private async slackUpload(target: EchoTarget, hostPath: string, filename: string, comment?: string): Promise<void> {
     if (!this.webClient) return;
-    const bindings = this.workspaceManager.bindingsForThread(threadId);
-    if (bindings.length === 0) return;
 
     const fd = await open(hostPath, 'r');
     let file: Buffer;
@@ -297,20 +314,15 @@ class SlackBridge extends BaseBridge<SlackBridgeDeps> {
     }
 
     const initial = comment ? { initial_comment: clampSlackText(convertMarkdownToMrkdwn(comment)) } : {};
-    for (const binding of bindings) {
-      await this.safeSlackCall(
-        'Slack uploadFile failed',
-        () =>
-          this.webClient!.files.uploadV2({
-            channel_id: binding.channelId,
-            thread_ts: binding.threadTs,
-            file,
-            filename,
-            ...initial,
-          }),
-        { channelId: binding.channelId }
-      );
-    }
+    // The SDK's upload args require thread_ts when present rather than accepting undefined, so branch
+    // on it: omit entirely for channel-scoped (top-level) uploads.
+    const args =
+      target.threadTs === undefined
+        ? { channel_id: target.channelId, file, filename, ...initial }
+        : { channel_id: target.channelId, thread_ts: target.threadTs, file, filename, ...initial };
+    await this.safeSlackCall('Slack uploadFile failed', () => this.webClient!.files.uploadV2(args), {
+      channelId: target.channelId,
+    });
   }
 
   async listDiscoverableChannels(): Promise<SlackChannelOption[]> {
@@ -362,28 +374,6 @@ class SlackBridge extends BaseBridge<SlackBridgeDeps> {
     }
   }
 
-  async startAutomationThread(
-    channelId: string,
-    jobName: string
-  ): Promise<{ channelId: string; threadTs: string } | null> {
-    if (!this.webClient) return null;
-    try {
-      const result = await this.webClient.chat.postMessage({
-        channel: channelId,
-        text: `⚡ Automation: *${escapeMrkdwn(jobName)}* is running...`,
-      });
-      const ts = result.ts;
-      if (!ts) return null;
-      return { channelId, threadTs: ts };
-    } catch (error) {
-      eventLogger.warn('slack', 'Failed to start automation Slack thread', {
-        error: getErrorMessage(error),
-        channelId,
-      });
-      return null;
-    }
-  }
-
   /**
    * Persist a Slack thread binding for a bot-initiated thread (kanban main thread,
    * automation run). `setSlackContext` only records the channel/ts in-memory, but
@@ -393,8 +383,11 @@ class SlackBridge extends BaseBridge<SlackBridgeDeps> {
    * Won't steal a binding that already points to a still-running thread (e.g. a
    * user's own Slack-initiated thread). Reconcile is unaffected: the dead main
    * thread's binding is reclaimable because that thread is no longer running.
+   *
+   * Omit `threadTs` for a channel-scoped binding (automation summaries with no reply anchor) —
+   * its echoes post as new top-level channel messages.
    */
-  bindThreadToSlackThread(threadId: string, channelId: string, threadTs: string): void {
+  bindThreadToSlackThread(threadId: string, channelId: string, threadTs?: string): void {
     const binding = this.workspaceManager.resolveOrCreateBinding(channelId, threadTs);
     if (binding.threadId && binding.threadId !== threadId && getThread(binding.threadId)?.status === 'running') {
       return;
@@ -453,7 +446,6 @@ class SlackBridge extends BaseBridge<SlackBridgeDeps> {
     this.catchupService.clear();
     this.workspaceManager.setWebClient(null);
     this.webClient = null;
-    slackMcpServer.stop();
   }
 
   dispose(): void {
@@ -560,7 +552,7 @@ class SlackBridge extends BaseBridge<SlackBridgeDeps> {
     );
   }
 
-  private async postMessage(channelId: string, text: string, threadTs: string): Promise<void> {
+  private async postMessage(channelId: string, text: string, threadTs?: string): Promise<void> {
     if (!this.webClient) return;
     await this.safeSlackCall(
       'Slack postMessage failed',
@@ -568,7 +560,7 @@ class SlackBridge extends BaseBridge<SlackBridgeDeps> {
         this.webClient!.chat.postMessage({
           channel: channelId,
           text: clampSlackText(convertMarkdownToMrkdwn(text)),
-          thread_ts: threadTs,
+          ...(threadTs ? { thread_ts: threadTs } : {}),
         }),
       { channelId }
     );

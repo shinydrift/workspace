@@ -37,10 +37,12 @@ export interface AutopilotAdapter {
   }): Promise<AutopilotAction>;
 }
 
+// Outbound message tools — autopilot folds these calls into the text it reasons over so its decision
+// sees what the agent posted to the user. All posting now flows through the agentos-thread MCP.
 const TRACKED_TOOLS = new Set([
-  'mcp__agentos-slack__post_update',
-  'mcp__agentos-slack__ask_clarification',
-  'mcp__agentos-slack__upload_file',
+  'mcp__agentos-thread__post_update',
+  'mcp__agentos-thread__ask_clarification',
+  'mcp__agentos-thread__upload_file',
 ]);
 
 function buildTrackedToolIds(messages: Message[]): Set<string> {

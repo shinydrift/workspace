@@ -290,11 +290,21 @@ export type PublicSettings = Omit<AppSettings, 'apiKeys' | 'slack' | 'tailscale'
   env?: { safelist?: string[] };
 };
 
+/**
+ * Messaging medium an AgentOS thread can echo to. Slack is the only one wired today; the
+ * binding carries this discriminator so the outbound echo layer (see MediumPoster) can dispatch
+ * per medium without the rest of the code knowing which one. Add a value here when wiring a new one.
+ */
+export type Medium = 'slack';
+
 export interface SlackThreadBinding {
   key: string;
+  /** Which messaging medium this binding echoes to. Existing rows default to 'slack'. */
+  medium: Medium;
   threadId?: string;
   channelId: string;
-  threadTs: string;
+  /** Reply anchor within the channel. Absent = channel-scoped: echoes post as new top-level messages. */
+  threadTs?: string;
   createdAt: number;
   lastInboundTs?: string; // kept for backwards compat with existing stored data
 }

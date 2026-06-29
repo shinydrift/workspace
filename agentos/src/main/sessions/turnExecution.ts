@@ -117,7 +117,6 @@ export type LaunchMode = {
   memoryMcpUrl: string | null;
   threadMcpUrl: string | null;
   councilMcpUrl: string | null;
-  slackMcpUrl: string | null;
   kanbanMcpUrl: string | null;
   recordingsMcpUrl: string | null;
 };

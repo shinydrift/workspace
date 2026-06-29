@@ -102,7 +102,6 @@ export async function execHeadlessTurn(
   const memoryMcpUrl = launchMode?.memoryMcpUrl ?? null;
   const threadMcpUrl = launchMode?.threadMcpUrl ?? null;
   const councilMcpUrl = launchMode?.councilMcpUrl ?? null;
-  const slackMcpUrl = launchMode?.slackMcpUrl ?? null;
   const kanbanMcpUrl = launchMode?.kanbanMcpUrl ?? null;
   const recordingsMcpUrl = launchMode?.recordingsMcpUrl ?? null;
   const agentRole = thread.agentRole ?? null;
@@ -179,7 +178,6 @@ export async function execHeadlessTurn(
     memoryMcpUrl,
     threadMcpUrl,
     councilMcpUrl,
-    slackMcpUrl,
     kanbanMcpUrl,
     recordingsMcpUrl,
     disallowedTools,

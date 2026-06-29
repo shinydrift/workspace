@@ -108,9 +108,11 @@ export const slackThreadBindings = sqliteTable(
   'slack_thread_bindings',
   {
     key: text('key').primaryKey(),
+    medium: text('medium').notNull().default('slack'),
     threadId: text('thread_id').references(() => threads.id, { onDelete: 'set null' }),
     channelId: text('channel_id').notNull(),
-    threadTs: text('thread_ts').notNull(),
+    // Nullable: a channel-scoped binding (no reply anchor) echoes as new top-level messages.
+    threadTs: text('thread_ts'),
     createdAt: integer('created_at').notNull(),
     lastInboundTs: text('last_inbound_ts'),
   },

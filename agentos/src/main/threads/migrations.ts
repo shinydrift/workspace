@@ -421,6 +421,34 @@ CREATE INDEX idx_stb_thread_id ON slack_thread_bindings(thread_id);
       }
     },
   },
+  {
+    // Generalize the binding from a Slack-thread tuple to a channel binding on any medium:
+    //   - add `medium` (the echo-target discriminator; existing rows are Slack),
+    //   - make `thread_ts` nullable so a binding can be channel-scoped (no reply anchor →
+    //     echoes post as new top-level messages, e.g. automation summaries),
+    //   - re-key with the medium prefix to stay unique across future mediums.
+    // SQLite < 3.35 has no DROP/ALTER COLUMN, so rebuild the table (same pattern as 0006).
+    name: '0008_channel_binding_medium',
+    sql: `
+CREATE TABLE slack_thread_bindings_new (
+  key             TEXT PRIMARY KEY,
+  medium          TEXT NOT NULL DEFAULT 'slack',
+  thread_id       TEXT REFERENCES threads(id) ON DELETE SET NULL,
+  channel_id      TEXT NOT NULL,
+  thread_ts       TEXT,
+  created_at      INTEGER NOT NULL,
+  last_inbound_ts TEXT
+);
+INSERT INTO slack_thread_bindings_new
+  (key, medium, thread_id, channel_id, thread_ts, created_at, last_inbound_ts)
+  SELECT 'slack:' || channel_id || ':' || thread_ts, 'slack', thread_id, channel_id, thread_ts, created_at, last_inbound_ts
+  FROM slack_thread_bindings;
+DROP TABLE slack_thread_bindings;
+ALTER TABLE slack_thread_bindings_new RENAME TO slack_thread_bindings;
+CREATE INDEX idx_stb_channel   ON slack_thread_bindings(channel_id);
+CREATE INDEX idx_stb_thread_id ON slack_thread_bindings(thread_id);
+`,
+  },
 ];
 
 // Derived from THREADS_MIGRATIONS so the seeding branch never goes stale.

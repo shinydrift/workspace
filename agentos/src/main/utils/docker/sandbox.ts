@@ -158,7 +158,6 @@ type McpOpts = {
   memoryMcpUrl?: string | null;
   threadMcpUrl?: string | null;
   councilMcpUrl?: string | null;
-  slackMcpUrl?: string | null;
   kanbanMcpUrl?: string | null;
   recordingsMcpUrl?: string | null;
   autopilotMcpUrl?: string | null;
@@ -171,7 +170,6 @@ function enabledMcpServers(opts: McpOpts): McpServer[] {
     { name: 'agentos-memory', url: opts.memoryMcpUrl },
     { name: 'agentos-thread', url: opts.threadMcpUrl },
     { name: 'agentos-council', url: opts.councilMcpUrl },
-    { name: 'agentos-slack', url: opts.slackMcpUrl },
     { name: 'agentos-kanban', url: opts.kanbanMcpUrl },
     { name: 'agentos-recordings', url: opts.recordingsMcpUrl },
     { name: 'agentos-autopilot', url: opts.autopilotMcpUrl },

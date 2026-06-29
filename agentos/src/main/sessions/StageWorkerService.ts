@@ -127,7 +127,6 @@ export class StageWorkerService {
       runOnHost,
       projectId: parent.projectId,
       threadId: childId,
-      slackMcpPort: 0,
       memoryMcpPort: memoryMcpServer.actualPort ?? 0,
       threadMcpPort: threadMcpServer.actualPort ?? 0,
       councilMcpPort: councilMcpServer.actualPort ?? 0,

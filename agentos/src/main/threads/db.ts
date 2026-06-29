@@ -251,9 +251,10 @@ type BindingRow = typeof slackThreadBindings.$inferSelect;
 function rowToBinding(row: BindingRow): SlackThreadBinding {
   return {
     key: row.key,
+    medium: (row.medium as SlackThreadBinding['medium']) ?? 'slack',
     threadId: row.threadId ?? undefined,
     channelId: row.channelId,
-    threadTs: row.threadTs,
+    threadTs: row.threadTs ?? undefined,
     createdAt: row.createdAt,
     lastInboundTs: row.lastInboundTs ?? undefined,
   };
@@ -262,9 +263,10 @@ function rowToBinding(row: BindingRow): SlackThreadBinding {
 function bindingToRow(binding: SlackThreadBinding): typeof slackThreadBindings.$inferInsert {
   return {
     key: binding.key,
+    medium: binding.medium,
     threadId: binding.threadId ?? null,
     channelId: binding.channelId,
-    threadTs: binding.threadTs,
+    threadTs: binding.threadTs ?? null,
     createdAt: binding.createdAt,
     lastInboundTs: binding.lastInboundTs ?? null,
   };

@@ -111,7 +111,6 @@ export async function execClaudeInteractiveTurn(
           memoryMcpUrl: launchMode?.memoryMcpUrl ?? null,
           threadMcpUrl: launchMode?.threadMcpUrl ?? null,
           councilMcpUrl: launchMode?.councilMcpUrl ?? null,
-          slackMcpUrl: launchMode?.slackMcpUrl ?? null,
           kanbanMcpUrl: launchMode?.kanbanMcpUrl ?? null,
           recordingsMcpUrl: launchMode?.recordingsMcpUrl ?? null,
         },

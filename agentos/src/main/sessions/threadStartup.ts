@@ -20,7 +20,6 @@ import { threadMcpServer } from '../integrations/threadMcpServer';
 import { councilMcpServer } from '../integrations/councilMcpServer';
 import { kanbanMcpServer } from '../kanban/mcpServer';
 import { recordingsMcpServer } from '../integrations/recordingsMcpServer';
-import { slackMcpServer } from '../integrations/slackMcpServer';
 import { PtyProcess } from './PtyProcess';
 import { removeContainer as removeDockerContainer } from '../utils/dockerCleanup';
 import { eventLogger } from '../utils/eventLog';
@@ -226,7 +225,6 @@ export async function prepareThreadStartup(
     memoryMcpUrl,
     threadMcpUrl,
     councilMcpUrl,
-    slackMcpUrl,
     kanbanMcpUrl,
     recordingsMcpUrl,
   } = await buildThreadLaunchArgs({
@@ -243,7 +241,6 @@ export async function prepareThreadStartup(
     injectionPayload: startConfig.injectionPayload,
     useHeadless,
     sessionDataDir,
-    slackMcpPort: resolveMcpPort(slackMcpServer, 'slack', threadId),
     memoryMcpPort: resolveMcpPort(memoryMcpServer, 'memory', threadId),
     threadMcpPort: resolveMcpPort(threadMcpServer, 'thread', threadId),
     councilMcpPort: resolveMcpPort(councilMcpServer, 'council', threadId),
@@ -286,7 +283,6 @@ export async function prepareThreadStartup(
     memoryMcpUrl,
     threadMcpUrl,
     councilMcpUrl,
-    slackMcpUrl,
     kanbanMcpUrl,
     recordingsMcpUrl,
   };

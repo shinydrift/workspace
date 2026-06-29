@@ -9,12 +9,13 @@ import { AGENTOS_MCP_BEARER_TOKEN_ENV_VAR, getMcpAuthHeaders } from '../mcp/mcpA
 type LaunchMode = {
   memoryMcpUrl: string | null;
   threadMcpUrl: string | null;
-  slackMcpUrl: string | null;
   kanbanMcpUrl: string | null;
   recordingsMcpUrl: string | null;
   runOnHost?: boolean;
 };
 
+// Kept in sync with the servers we write below, plus 'agentos-slack' which is no longer written but
+// must still be purged from any config files left over from before it was removed.
 const AGENTOS_MANAGED_SERVERS = [
   'agentos-memory',
   'agentos-thread',
@@ -98,7 +99,6 @@ export function rebuildManagedMcpConfig(
     const servers: Record<string, string> = {};
     if (launchMode.memoryMcpUrl) servers['agentos-memory'] = launchMode.memoryMcpUrl;
     if (launchMode.threadMcpUrl) servers['agentos-thread'] = launchMode.threadMcpUrl;
-    if (launchMode.slackMcpUrl) servers['agentos-slack'] = launchMode.slackMcpUrl;
     if (launchMode.kanbanMcpUrl) servers['agentos-kanban'] = launchMode.kanbanMcpUrl;
     if (launchMode.recordingsMcpUrl) servers['agentos-recordings'] = launchMode.recordingsMcpUrl;
 

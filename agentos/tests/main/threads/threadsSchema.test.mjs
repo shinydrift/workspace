@@ -110,9 +110,10 @@ CREATE INDEX idx_recordings_created_at ON recordings(created_at DESC);
 
 CREATE TABLE slack_thread_bindings (
   key             TEXT PRIMARY KEY,
+  medium          TEXT NOT NULL DEFAULT 'slack',
   thread_id       TEXT REFERENCES threads(id) ON DELETE SET NULL,
   channel_id      TEXT NOT NULL,
-  thread_ts       TEXT NOT NULL,
+  thread_ts       TEXT,
   created_at      INTEGER NOT NULL,
   last_inbound_ts TEXT
 );
@@ -305,6 +306,23 @@ test('0003 ADD COLUMN guard prevents duplicate-column-name errors', () => {
   }
   // Still works — the guard short-circuited.
   assert.ok(cols.includes('pi_session_id'));
+});
+
+// ── Channel-scoped bindings (0008) ────────────────────────────────────────────
+// thread_ts is nullable so a binding can be channel-scoped (no reply anchor) — its echoes post
+// as new top-level messages. medium defaults to 'slack'.
+
+test('slack_thread_bindings accepts a channel-scoped row (null thread_ts) and defaults medium', () => {
+  const db = openDb();
+  seedProject(db);
+  seedThread(db, 't1');
+  db.prepare(
+    `INSERT INTO slack_thread_bindings (key, thread_id, channel_id, thread_ts, created_at)
+     VALUES ('slack:C1:', 't1', 'C1', NULL, 0)`
+  ).run();
+  const row = db.prepare('SELECT medium, thread_ts FROM slack_thread_bindings WHERE key = ?').get('slack:C1:');
+  assert.equal(row.thread_ts, null);
+  assert.equal(row.medium, 'slack');
 });
 
 // ── Indexes present ───────────────────────────────────────────────────────────
