@@ -1,141 +1,35 @@
-import type { Provider, ProviderEntry } from './provider';
+import type {
+  AppSettings,
+  PersonalitySettings,
+  BigFiveTraits,
+  AutopilotSettings,
+  SlackSettings,
+  WorktreeSettings,
+  SandboxSecuritySettings,
+} from '../config/schema';
 
-export type EmbeddingProvider = 'auto' | 'openai' | 'google' | 'voyage' | 'mistral' | 'local';
-
-export interface ApiKeys {
-  anthropic?: string;
-  openai?: string;
-  google?: string;
-  openrouter?: string;
-  voyage?: string;
-  mistral?: string;
-  github?: string;
-}
-
-export interface TailscaleSettings {
-  authKey?: string | null;
-  funnel?: boolean;
-}
-
-export interface ContainersConfig {
-  pruneIdleHours?: number;
-  pruneMaxAgeDays?: number;
-}
-
-export interface EnvConfig {
-  safelist?: string[];
-  vars?: Record<string, string>;
-}
-
-export interface AgentsConfig {
-  providerOrder: ProviderEntry[];
-  lastProvider?: Provider;
-  queueSilenceFallbackMs?: number;
-  /**
-   * Per-provider override for the CLI command used to launch a provider. The value is
-   * whitespace-split into a command + prefix args, e.g. `"aifx agent claude"` launches
-   * `aifx agent claude …` instead of `claude …`. Applies everywhere a provider is spawned
-   * (host + container exec, council, autopilot, kanban). Unset providers fall back to their
-   * default binary. Under Docker the command must already exist inside the sandbox image.
-   */
-  commandOverrides?: Partial<Record<Provider, string>>;
-  autopilot?: AutopilotSettings;
-}
-
-export interface MemoryConfig {
-  enabled?: boolean;
-  rootPath?: string | null;
-  extraPaths?: string[];
-  embeddingProvider?: EmbeddingProvider;
-  embeddingModel?: string;
-  localModelPath?: string | null;
-  // Search tuning
-  maxResults?: number; // default 8
-  minScore?: number; // default 0.5
-  vectorWeight?: number; // default 0.7
-  textWeight?: number; // default 0.3
-  codeVectorWeight?: number; // default 0.55; overrides vectorWeight for code search only
-  codeTextWeight?: number; // default 0.45; overrides textWeight for code search only
-  decayHalfLifeDays?: number; // default 45
-  codeDecayHalfLifeDays?: number; // default 180; set 0 to disable code decay
-  mmrLambda?: number; // default 0.7
-  sessionRetentionDays?: number; // default undefined (no pruning)
-  // Decay / graph controls (project-level memory features)
-  decayEnabled?: boolean;
-  decayMinScore?: number;
-  graphEnabled?: boolean;
-  graphBoost?: number;
-}
-
-/**
- * The app-owned configuration surface that a project may selectively override.
- * `AppSettings` is the concrete base; `ProjectConfig` is a deep-partial of this
- * (plus project-only fields). Both sides share these names and structures.
- */
-export interface BaseConfig {
-  /**
-   * When true, threads run the provider CLI directly on the host machine with NO sandbox
-   * isolation, instead of inside a Docker container. The agent gets full read/write access
-   * to the host with `--dangerously-skip-permissions`. Requires the provider CLI on PATH.
-   * Project config may override this per-project. Default: false.
-   */
-  runOnHost?: boolean;
-  sandbox?: SandboxSecuritySettings;
-  agents: AgentsConfig;
-  apiKeys?: ApiKeys;
-  tailscale?: TailscaleSettings;
-  worktree?: WorktreeSettings;
-  containers?: ContainersConfig;
-  env?: EnvConfig;
-  memory?: MemoryConfig;
-  recording?: RecordingSettings;
-}
-
-export interface AppSettings extends BaseConfig {
-  claudeStreamJson: boolean;
-  skipPermissions: boolean;
-  maxLogBufferSize: number;
-  logRetentionDays?: number;
-  persistDebugLogs: boolean;
-  devMode: boolean;
-  theme: 'dark' | 'light' | 'system';
-  fontSize: number;
-  webhookPort?: number;
-  slack?: SlackSettings;
-  voice?: VoiceSettings;
-  voiceFlow?: VoiceFlowSettings;
-  meetingProjectPath?: string;
-  /** When true, all MCP server requests require a valid bearer token even from localhost. Default: false. */
-  mcpRequireAuth?: boolean;
-}
-
-export interface VoiceFlowSettings {
-  /** Key name from uiohook-napi's UiohookKey, e.g. 'ShiftLeft', 'F13'. Default: 'Alt'. */
-  key?: string;
-  /** STT model to use for transcription. Default: 'base.en'. */
-  model?: 'base.en' | 'small.en' | 'medium.en' | 'large-v3-turbo-q5_0';
-}
-
-export interface RecordingTemplate {
-  id: string;
-  name: string;
-  content: string;
-}
-
-export interface RecordingSettings {
-  templates?: RecordingTemplate[];
-  activeTemplateId?: string; // undefined = use built-in default
-}
-
-export const RECORDING_DEFAULT_TEMPLATE_ID = 'default';
-
-export interface BigFiveTraits {
-  openness: number; // 1–5 scale
-  conscientiousness: number;
-  extraversion: number;
-  agreeableness: number;
-  neuroticism: number; // 1 = stable/steady, 5 = reactive/volatile
-}
+// Config-shape types are inferred from the canonical schema (single source of truth).
+export type {
+  EmbeddingProvider,
+  ApiKeys,
+  TailscaleSettings,
+  ContainersConfig,
+  EnvConfig,
+  AgentsConfig,
+  MemoryConfig,
+  AppSettings,
+  VoiceFlowSettings,
+  RecordingTemplate,
+  RecordingSettings,
+  BigFiveTraits,
+  PersonalitySnapshot,
+  PersonalitySettings,
+  AutopilotSettings,
+  VoiceSettings,
+  SlackSettings,
+  WorktreeSettings,
+  SandboxSecuritySettings,
+} from '../config/schema';
 
 export interface PersonaPreset {
   id: string;
@@ -144,25 +38,7 @@ export interface PersonaPreset {
   traits?: BigFiveTraits;
 }
 
-export interface PersonalitySnapshot {
-  agentStyle: string;
-  autopilotInstructions: string;
-  bigFive?: BigFiveTraits;
-  generatedAt: number;
-  messageCount?: number;
-}
-
-export interface PersonalitySettings {
-  agentStyle: string;
-  autopilotInstructions: string;
-  bigFive?: BigFiveTraits;
-  activePresetId?: string;
-  generatedAt?: number;
-  /** Number of user messages analysed in the last LLM-derived refresh. */
-  messageCount?: number;
-  /** Last 3 LLM-derived snapshots, newest first. Used for rollback. */
-  history?: PersonalitySnapshot[];
-}
+export const RECORDING_DEFAULT_TEMPLATE_ID = 'default';
 
 export const DEFAULT_PRESET_ID = 'default';
 export const CUSTOM_PRESET_ID = 'custom';
@@ -209,33 +85,11 @@ export function getPreset(id: string): PersonaPreset | undefined {
   return PERSONA_PRESETS.find((p) => p.id === id);
 }
 
-export interface AutopilotSettings {
-  enabled?: boolean;
-  maxConsecutiveTurns: number;
-  transcriptMessages: number;
-  plannerProvider?: Provider;
-  plannerModel?: string;
-}
-
 export const DEFAULT_AUTOPILOT_SETTINGS: AutopilotSettings = {
   enabled: false,
   maxConsecutiveTurns: 10,
   transcriptMessages: 25,
 };
-
-export interface VoiceSettings {
-  ttsEnabled: boolean;
-}
-
-export interface SlackSettings {
-  enabled: boolean;
-  botToken: string | null;
-  appToken: string | null;
-  watchedChannelIds: string[];
-  channelWorkspaceMap: Record<string, string>;
-  requireMention: boolean;
-  defaultWorkingDirectory: string | null;
-}
 
 export const DEFAULT_SLACK_SETTINGS: SlackSettings = {
   enabled: false,
@@ -245,11 +99,6 @@ export const DEFAULT_SLACK_SETTINGS: SlackSettings = {
   channelWorkspaceMap: {},
   requireMention: false,
   defaultWorkingDirectory: null,
-};
-
-export type WorktreeSettings = {
-  autoCreate: boolean;
-  pruneOnStop: boolean;
 };
 
 export const DEFAULT_WORKTREE_SETTINGS: WorktreeSettings = {
@@ -265,16 +114,6 @@ export type ContainerPruneSettings = {
 export const DEFAULT_CONTAINER_PRUNE_SETTINGS: ContainerPruneSettings = {
   idleHours: 24,
   maxAgeDays: 7,
-};
-
-export type SandboxSecuritySettings = {
-  readOnlyRoot: boolean; // default: false — opt-in after per-CLI write-path testing
-  dropAllCapabilities: boolean; // default: true
-  noNewPrivileges: boolean; // default: true
-  network: 'none' | 'bridge' | 'host'; // default: 'bridge' — CLIs need internet for API calls
-  memory?: string; // e.g. "2g", "512m" — optional
-  cpus?: string; // e.g. "2.0" — optional
-  tmpfs: string[]; // default: ['/tmp', '/var/tmp']
 };
 
 export const DEFAULT_SANDBOX_SETTINGS: SandboxSecuritySettings = {

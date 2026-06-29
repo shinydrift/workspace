@@ -16,6 +16,7 @@ import {
   type ProviderEntry,
   type WorktreeSettings,
 } from './types';
+import { mergeConfig } from './config/merge';
 
 export { DEFAULT_BACKEND } from './types';
 
@@ -105,30 +106,32 @@ export function getEffectiveReasoningForProvider(
   return getAppProviderOrder(settings).find((e) => e.provider === 'codex')?.reasoning;
 }
 
+// Non-provider accessors derive from the single generic merge (project-wins). Provider-order
+// resolution stays in the five getEffective*ForProvider accessors above — see merge.ts for why.
 export function getEffectiveQueueSilenceFallbackMs(
   settings: AppSettings,
   projectConfig?: ProjectConfig | null
 ): number {
-  return Math.max(
-    200,
-    projectConfig?.agents?.queueSilenceFallbackMs ?? settings.agents.queueSilenceFallbackMs ?? 1_500
-  );
+  const merged = mergeConfig(settings, projectConfig);
+  return Math.max(200, merged.agents.queueSilenceFallbackMs ?? 1_500);
 }
 
 export function getEffectiveAutopilotSettings(
   settings: AppSettings,
   projectConfig?: ProjectConfig | null
 ): AutopilotSettings {
-  const app = { ...DEFAULT_AUTOPILOT_SETTINGS, ...(settings.agents.autopilot ?? {}) };
-  const projAutopilot = projectConfig?.agents?.autopilot;
+  // Project config may only override maxConsecutiveTurns/transcriptMessages (its schema
+  // narrows autopilot to those two), so the merge keeps enabled/planner* app-controlled.
+  const merged = mergeConfig(settings, projectConfig);
+  const autopilot = { ...DEFAULT_AUTOPILOT_SETTINGS, ...(merged.agents.autopilot ?? {}) };
   return {
-    enabled: app.enabled,
-    maxConsecutiveTurns: Math.max(1, Math.floor(projAutopilot?.maxConsecutiveTurns ?? app.maxConsecutiveTurns)),
-    transcriptMessages: Math.max(1, Math.floor(projAutopilot?.transcriptMessages ?? app.transcriptMessages)),
-    plannerProvider: projAutopilot?.plannerProvider ?? app.plannerProvider,
+    enabled: autopilot.enabled,
+    maxConsecutiveTurns: Math.max(1, Math.floor(autopilot.maxConsecutiveTurns)),
+    transcriptMessages: Math.max(1, Math.floor(autopilot.transcriptMessages)),
+    plannerProvider: autopilot.plannerProvider,
     plannerModel: (() => {
-      const provider = projAutopilot?.plannerProvider ?? app.plannerProvider;
-      const model = projAutopilot?.plannerModel ?? app.plannerModel;
+      const provider = autopilot.plannerProvider;
+      const model = autopilot.plannerModel;
       return provider && model && PROVIDER_MODELS[provider]?.includes(model) ? model : undefined;
     })(),
   };
@@ -138,10 +141,11 @@ export function getEffectiveWorktreeSettings(
   settings: AppSettings,
   projectConfig?: ProjectConfig | null
 ): WorktreeSettings {
-  const app = { ...DEFAULT_WORKTREE_SETTINGS, ...(settings.worktree ?? {}) };
+  const merged = mergeConfig(settings, projectConfig);
+  const worktree = { ...DEFAULT_WORKTREE_SETTINGS, ...(merged.worktree ?? {}) };
   return {
-    autoCreate: projectConfig?.worktree?.autoCreate ?? app.autoCreate,
-    pruneOnStop: projectConfig?.worktree?.pruneOnStop ?? app.pruneOnStop,
+    autoCreate: worktree.autoCreate,
+    pruneOnStop: worktree.pruneOnStop,
   };
 }
 
@@ -149,10 +153,11 @@ export function getEffectiveContainerPruneSettings(
   settings: AppSettings,
   projectConfig?: ProjectConfig | null
 ): ContainerPruneSettings {
-  const appIdle = settings.containers?.pruneIdleHours ?? DEFAULT_CONTAINER_PRUNE_SETTINGS.idleHours;
-  const appMaxAge = settings.containers?.pruneMaxAgeDays ?? DEFAULT_CONTAINER_PRUNE_SETTINGS.maxAgeDays;
+  const merged = mergeConfig(settings, projectConfig);
+  const idleHours = merged.containers?.pruneIdleHours ?? DEFAULT_CONTAINER_PRUNE_SETTINGS.idleHours;
+  const maxAgeDays = merged.containers?.pruneMaxAgeDays ?? DEFAULT_CONTAINER_PRUNE_SETTINGS.maxAgeDays;
   return {
-    idleHours: Math.max(0, Math.floor(projectConfig?.containers?.pruneIdleHours ?? appIdle)),
-    maxAgeDays: Math.max(0, Math.floor(projectConfig?.containers?.pruneMaxAgeDays ?? appMaxAge)),
+    idleHours: Math.max(0, Math.floor(idleHours)),
+    maxAgeDays: Math.max(0, Math.floor(maxAgeDays)),
   };
 }
