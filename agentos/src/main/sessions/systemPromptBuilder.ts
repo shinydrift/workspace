@@ -98,7 +98,10 @@ export function buildHeadlessSystemPrompt(input: HeadlessPromptInput): HeadlessP
   // and EnterPlanMode would leave the thread waiting with no way to approve from Slack.
   // Skip plan mode for messaging integrations (no way to approve via Slack) and for stage workers
   // (fully autonomous — EnterPlanMode would leave the worker waiting with no one to respond).
-  const skipPlanMode = Boolean(slackCtx) || agentRole?.startsWith('stage-');
+  // Also skip for every headless thread: those post via the agentos-thread MCP and gate approval
+  // through ask_clarification (visible in the Thread view), so EnterPlanMode would be redundant and
+  // its plan would never reach the Thread view.
+  const skipPlanMode = Boolean(slackCtx) || useHeadless || agentRole?.startsWith('stage-');
   const parts: string[] = [];
   if (effectiveSystemPrompt) parts.push(effectiveSystemPrompt);
   if (!skipPlanMode) parts.push(planModePrompt);
@@ -143,11 +146,35 @@ export function buildHeadlessSystemPrompt(input: HeadlessPromptInput): HeadlessP
     `- Do NOT use ## headers, **double asterisks**, or --- separators — they appear as raw text.`;
 
   let slackMcpUrl: string | null = null;
-  if (slackCtx && useHeadless) {
-    let slackPrompt: string;
-    if (slackCtx.threadTs && agentRole === 'task-main') {
+  if (useHeadless) {
+    let postingPrompt: string | null = null;
+    if (!slackCtx && !agentRole) {
+      // Pure in-app thread (no messaging integration, interactive — not an autonomous role like
+      // stage-* or a kanban task-main): post via the agentos-thread MCP so the Thread view becomes
+      // the conversation surface. Same workflow as the Slack inbound case, but with neutral wording
+      // and standard Markdown — the Thread view renders standard Markdown, not Slack mrkdwn.
+      // Autonomous non-Slack roles (slackCtx null, agentRole set) get no posting prompt: stage
+      // workers report via report_stage_result, and EnterPlanMode/ask_clarification would strand them.
+      postingPrompt =
+        `\nAutopilot is already active for this thread — do not call set_autopilot.\n` +
+        `Post all replies to the current thread via the 'agentos-thread' MCP server. They appear in the in-app ` +
+        `Thread view, the primary conversation surface:\n` +
+        `- post_update(thread_id, message): post a plan/todos at the start, progress updates during work, and your final result when done.\n` +
+        `- ask_clarification(thread_id, questions): post questions and wait for the user's reply. Phrase questions as plain natural-language text (a numbered list for multiple) — never pass raw JSON or structured field blobs.\n` +
+        `- upload_file(thread_id, file_path, filename?, initial_comment?): attach a file. file_path MUST be an absolute path under /workspace/.agentos/uploads/ — write outbound files there. Paths outside that folder are rejected.\n` +
+        `Always pass the value of AGENTOS_THREAD_ID as thread_id.\n` +
+        `\nWorkflow:\n` +
+        `1. If the request is ambiguous or missing information needed to form a plan, call ask_clarification first and stop — the user will reply.\n` +
+        `2. For coding or implementation tasks where you can form a plan: call post_update with your plan first, then call ask_clarification to get explicit approval before writing or modifying any code. Only proceed after the user confirms.\n` +
+        `3. For non-coding tasks (research, analysis, answering questions): call post_update with a brief plan, proceed, then call post_update with your final result.\n` +
+        `4. For conversational messages (greetings, questions, short answers): call post_update once with your response.\n` +
+        `5. NEVER respond with plain text output — ALL responses must go through post_update or ask_clarification.\n` +
+        `6. For skill-based or multi-step tasks: delegate the work to a subagent via the Agent tool, then call post_update with the returned findings.\n` +
+        `\nFormat messages with standard Markdown.\n` +
+        `\nOnly posts you make via these tools appear in the Thread view — your stdout is not forwarded.`;
+    } else if (slackCtx?.threadTs && agentRole === 'task-main') {
       // Kanban main thread: post autonomous progress updates to the thread, no approval gate.
-      slackPrompt =
+      postingPrompt =
         `\nThis kanban task was created from Slack and mirrors to channel ${slackCtx.channelId}.\n` +
         `Post progress to the current thread via the 'agentos-thread' MCP server — posts appear in the in-app ` +
         `Thread view (the primary surface) and are echoed to Slack when connected:\n` +
@@ -161,9 +188,9 @@ export function buildHeadlessSystemPrompt(input: HeadlessPromptInput): HeadlessP
         slackFormattingGuide +
         `\nOnly posts you make via these tools appear in the Thread view and Slack — your stdout is not forwarded.`;
       extraEnv = { ...(extraEnv ?? {}), SLACK_CHANNEL_ID: slackCtx.channelId, SLACK_THREAD_TS: slackCtx.threadTs };
-    } else if (slackCtx.threadTs) {
+    } else if (slackCtx?.threadTs) {
       // Inbound: post replies to the current thread; Slack mirrors them when connected.
-      slackPrompt =
+      postingPrompt =
         `\nThis task was submitted via Slack and mirrors to channel ${slackCtx.channelId}.\n` +
         `Autopilot is already active for this thread — do not call set_autopilot.\n` +
         `Post all replies to the current thread via the 'agentos-thread' MCP server. They appear in the in-app ` +
@@ -182,12 +209,12 @@ export function buildHeadlessSystemPrompt(input: HeadlessPromptInput): HeadlessP
         slackFormattingGuide +
         `\nOnly posts you make via these tools appear in the Thread view and Slack — your stdout is not forwarded.`;
       extraEnv = { ...(extraEnv ?? {}), SLACK_CHANNEL_ID: slackCtx.channelId, SLACK_THREAD_TS: slackCtx.threadTs };
-    } else {
+    } else if (slackCtx) {
       // Automation: post a single summary to the channel as a new top-level message when done.
       // This top-level (no-thread) post has no thread binding to echo to, so it keeps using the
       // Slack MCP server directly.
       slackMcpUrl = mcpUrl(slackMcpPort, runOnHost);
-      slackPrompt =
+      postingPrompt =
         `\nThis is an automated task. When you have finished, post a concise summary to Slack using the 'agentos-slack' MCP server.\n` +
         `SLACK_CHANNEL_ID=${slackCtx.channelId}\n` +
         `Use this single tool at the end:\n` +
@@ -197,7 +224,11 @@ export function buildHeadlessSystemPrompt(input: HeadlessPromptInput): HeadlessP
         slackFormattingGuide;
       extraEnv = { ...(extraEnv ?? {}), SLACK_CHANNEL_ID: slackCtx.channelId };
     }
-    effectiveSystemPrompt = effectiveSystemPrompt ? `${effectiveSystemPrompt}\n${slackPrompt}` : slackPrompt;
+    // Autonomous non-Slack roles (stage-*, Slack-disconnected task-main) match no branch and get
+    // no posting prompt — they report via their own mechanism rather than the Thread view.
+    if (postingPrompt) {
+      effectiveSystemPrompt = effectiveSystemPrompt ? `${effectiveSystemPrompt}\n${postingPrompt}` : postingPrompt;
+    }
   }
 
   return {
