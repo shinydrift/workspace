@@ -4,7 +4,7 @@ import type { LiveThreadPostStatus } from '../../lib/threadPostStatus';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { renderMarkdown } from '../../lib/markdown';
 import { handleCodeCopy } from '../chat/messageUtils';
-import { Robot, User, Paperclip } from '@phosphor-icons/react';
+import { Sparkle, User, Paperclip } from '@phosphor-icons/react';
 
 const KIND_LABEL: Record<Exclude<ThreadPost['kind'], 'prompt'>, string> = {
   update: 'Update',
@@ -41,7 +41,7 @@ const PostRow = memo(function PostRow({ post, live }: { post: ThreadPost; live: 
           isUser ? 'bg-muted text-foreground/70' : 'bg-primary/10 text-primary'
         }`}
       >
-        {isUser ? <User className="h-4 w-4" weight="fill" /> : <Robot className="h-4 w-4" weight="fill" />}
+        {isUser ? <User className="h-4 w-4" weight="fill" /> : <Sparkle className="h-4 w-4" weight="fill" />}
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
