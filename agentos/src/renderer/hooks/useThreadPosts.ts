@@ -23,14 +23,20 @@ export function useThreadPosts(threadId: string | null): ThreadPost[] {
       });
     });
 
-    const unsub = window.electronAPI.on.threadPostAppended((event) => {
+    const unsubAppended = window.electronAPI.on.threadPostAppended((event) => {
       if (event.threadId !== threadId) return;
       setPosts((prev) => (prev.some((p) => p.id === event.post.id) ? prev : [...prev, event.post]));
     });
 
+    const unsubUpdated = window.electronAPI.on.threadPostUpdated((event) => {
+      if (event.threadId !== threadId) return;
+      setPosts((prev) => prev.map((p) => (p.id === event.post.id ? event.post : p)));
+    });
+
     return () => {
       cancelled = true;
-      unsub();
+      unsubAppended();
+      unsubUpdated();
     };
   }, [threadId]);
 

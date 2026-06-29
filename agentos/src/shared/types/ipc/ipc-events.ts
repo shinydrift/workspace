@@ -7,6 +7,7 @@ export const IPC_EVENTS = {
   LOG_ENTRY: 'event:log',
   MESSAGE_APPENDED: 'event:message:appended',
   THREAD_POST_APPENDED: 'event:threadPost:appended',
+  THREAD_POST_UPDATED: 'event:threadPost:updated',
   THREAD_CREATED: 'event:thread:created',
   THREAD_DELETED: 'event:thread:deleted',
   TRAY_THREADS_UPDATE: 'event:tray:threadsUpdate',

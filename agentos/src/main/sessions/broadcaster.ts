@@ -6,6 +6,7 @@ import type {
   ThreadRenamedEvent,
   MessageAppendedEvent,
   ThreadPostAppendedEvent,
+  ThreadPostUpdatedEvent,
   AppSettings,
   PublicSettings,
   SavedProject,
@@ -13,6 +14,7 @@ import type {
 import { IPC_EVENTS } from '../../shared/types';
 import { slackBridge } from '../integrations/slackBridge';
 import { emitMessageAppended, emitThreadIdle } from '../events';
+import { threadPostsStore } from './threadPostsStore';
 
 let trayUpdateHook: (() => void) | null = null;
 
@@ -34,6 +36,7 @@ export function broadcastTerminalData(payload: TerminalDataEvent): void {
 
 export function broadcastStatus(payload: ThreadStatusEvent): void {
   slackBridge.onThreadStatus(payload);
+  threadPostsStore.applyThreadStatus(payload);
   broadcastToWindows(IPC_EVENTS.THREAD_STATUS, payload);
   if (payload.status === 'idle') {
     emitThreadIdle({ threadId: payload.threadId });
@@ -54,6 +57,10 @@ export function broadcastMessageAppended(payload: MessageAppendedEvent): void {
 
 export function broadcastThreadPostAppended(payload: ThreadPostAppendedEvent): void {
   broadcastToWindows(IPC_EVENTS.THREAD_POST_APPENDED, payload);
+}
+
+export function broadcastThreadPostUpdated(payload: ThreadPostUpdatedEvent): void {
+  broadcastToWindows(IPC_EVENTS.THREAD_POST_UPDATED, payload);
 }
 
 export function broadcastThreadCreated(thread: Thread): void {

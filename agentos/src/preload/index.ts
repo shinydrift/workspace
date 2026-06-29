@@ -7,6 +7,7 @@ import type {
   ThreadStatusEvent,
   MessageAppendedEvent,
   ThreadPostAppendedEvent,
+  ThreadPostUpdatedEvent,
   ThreadRenamedEvent,
   Thread,
   AppLogEntry,
@@ -341,6 +342,12 @@ const api = {
       const handler = (_: Electron.IpcRendererEvent, payload: ThreadPostAppendedEvent) => cb(payload);
       ipcRenderer.on(IPC_EVENTS.THREAD_POST_APPENDED, handler);
       return () => ipcRenderer.off(IPC_EVENTS.THREAD_POST_APPENDED, handler);
+    },
+
+    threadPostUpdated: (cb: (e: ThreadPostUpdatedEvent) => void): (() => void) => {
+      const handler = (_: Electron.IpcRendererEvent, payload: ThreadPostUpdatedEvent) => cb(payload);
+      ipcRenderer.on(IPC_EVENTS.THREAD_POST_UPDATED, handler);
+      return () => ipcRenderer.off(IPC_EVENTS.THREAD_POST_UPDATED, handler);
     },
 
     threadRenamed: (cb: (e: ThreadRenamedEvent) => void): (() => void) => {

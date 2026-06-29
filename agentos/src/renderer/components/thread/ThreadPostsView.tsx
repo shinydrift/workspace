@@ -11,6 +11,15 @@ const KIND_LABEL: Record<Exclude<ThreadPost['kind'], 'prompt'>, string> = {
   file: 'File',
 };
 
+// Mirrors the Slack reaction lifecycle the agent applies to inbound messages.
+const STATUS_BADGE: Record<NonNullable<ThreadPost['status']>, { emoji: string; label: string }> = {
+  working: { emoji: '👀', label: 'Working' },
+  autopilot: { emoji: '🤖', label: 'Autopilot running' },
+  council: { emoji: '🏛️', label: 'Council running' },
+  done: { emoji: '✅', label: 'Done' },
+  error: { emoji: '❌', label: 'Error' },
+};
+
 function formatTime(ms: number): string {
   return new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 }
@@ -19,6 +28,7 @@ const PostRow = memo(function PostRow({ post }: { post: ThreadPost }) {
   const isUser = post.author === 'user';
   const html = useMemo(() => renderMarkdown(post.text), [post.text]);
   const badge = post.kind === 'prompt' ? null : KIND_LABEL[post.kind];
+  const status = post.status ? STATUS_BADGE[post.status] : null;
 
   return (
     <div className="flex gap-3">
@@ -38,6 +48,11 @@ const PostRow = memo(function PostRow({ post }: { post: ThreadPost }) {
             </span>
           )}
           <span className="text-xs text-muted-foreground">{formatTime(post.createdAt)}</span>
+          {status && (
+            <span className="text-xs" title={status.label} aria-label={status.label}>
+              {status.emoji}
+            </span>
+          )}
         </div>
         <div
           className="chat-markdown prose prose-sm dark:prose-invert mt-0.5 max-w-none [&_p]:m-0"
