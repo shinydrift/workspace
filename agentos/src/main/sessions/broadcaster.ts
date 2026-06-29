@@ -5,6 +5,7 @@ import type {
   ThreadStatusEvent,
   ThreadRenamedEvent,
   MessageAppendedEvent,
+  ThreadPostAppendedEvent,
   AppSettings,
   PublicSettings,
   SavedProject,
@@ -49,6 +50,10 @@ export function broadcastMessageAppended(payload: MessageAppendedEvent): void {
   slackBridge.onMessageAppended(payload);
   broadcastToWindows(IPC_EVENTS.MESSAGE_APPENDED, payload);
   emitMessageAppended(payload);
+}
+
+export function broadcastThreadPostAppended(payload: ThreadPostAppendedEvent): void {
+  broadcastToWindows(IPC_EVENTS.THREAD_POST_APPENDED, payload);
 }
 
 export function broadcastThreadCreated(thread: Thread): void {

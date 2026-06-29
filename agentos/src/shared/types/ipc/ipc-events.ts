@@ -6,6 +6,7 @@ export const IPC_EVENTS = {
   SANDBOX_IMAGE_UPDATED: 'event:sandbox:imageUpdated',
   LOG_ENTRY: 'event:log',
   MESSAGE_APPENDED: 'event:message:appended',
+  THREAD_POST_APPENDED: 'event:threadPost:appended',
   THREAD_CREATED: 'event:thread:created',
   THREAD_DELETED: 'event:thread:deleted',
   TRAY_THREADS_UPDATE: 'event:tray:threadsUpdate',

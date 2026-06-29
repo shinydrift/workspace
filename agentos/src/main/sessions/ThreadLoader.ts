@@ -5,6 +5,7 @@ import { pruneOrphanWorktrees, isWorktreeCleanAsync } from '../utils/worktree';
 import { eventLogger } from '../utils/eventLog';
 import { pruneOrphanProjects as pruneOrphanProjectsFn } from './containerProjectManager';
 import { ensureDataDirs } from './messagePersistence';
+import { threadPostsStore } from './threadPostsStore';
 import type { ThreadOutputManager } from './threadOutput';
 
 // 'archived' is intentionally excluded — archived threads are filtered out before runtime use.
@@ -36,9 +37,10 @@ export class ThreadLoader {
   }
 
   loadFromStore(): void {
-    const { logsDir, messagesDir, sessionsDataDir } = ensureDataDirs(app.getPath('home'));
+    const { logsDir, messagesDir, sessionsDataDir, threadPostsDir } = ensureDataDirs(app.getPath('home'));
     this._sessionsDataDir = sessionsDataDir;
     this.output.setDirs(logsDir, messagesDir);
+    threadPostsStore.setDir(threadPostsDir);
 
     const storedThreadsArr = threadStore.getAllThreads();
     let droppedThreadCount = 0;

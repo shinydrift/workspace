@@ -1,5 +1,6 @@
 import { SocketModeClient } from '@slack/socket-mode';
 import { WebClient } from '@slack/web-api';
+import { open } from 'fs/promises';
 import { getErrorMessage } from '../../shared/utils/errorMessage';
 import type { AppSettings, Message, SlackChannelOption, ThreadStatusEvent } from '../../shared/types';
 import { DEFAULT_SLACK_SETTINGS, parseAutopilotDecision } from '../../shared/types';
@@ -61,6 +62,8 @@ type SlackSocketEnvelope = {
 };
 
 const AUTOPILOT_STATUS_PREFIX = '🤖';
+
+const MAX_ECHO_UPLOAD_BYTES = 100 * 1024 * 1024;
 
 const PERIODIC_CATCHUP_MS = 10 * 60 * 1000;
 
@@ -253,6 +256,60 @@ class SlackBridge extends BaseBridge<SlackBridgeDeps> {
     const bindings = this.workspaceManager.bindingsForThread(params.threadId);
     for (const binding of bindings) {
       void this.postMessage(binding.channelId, text, binding.threadTs);
+    }
+  }
+
+  /**
+   * Echo an agent thread post (update / clarification) to Slack as a reply to every channel thread
+   * bound to this AgentOS thread. No-op when Slack is disconnected or the thread has no binding —
+   * the thread view is the source of truth; Slack is a best-effort mirror.
+   */
+  echoThreadPost(threadId: string, text: string): void {
+    if (!this.webClient || !text.trim()) return;
+    for (const binding of this.workspaceManager.bindingsForThread(threadId)) {
+      void this.postMessage(binding.channelId, text, binding.threadTs);
+    }
+  }
+
+  /** Echo an uploaded file to Slack as a reply to every bound channel thread. No-op when disconnected/unbound. */
+  async echoUploadFile(threadId: string, hostPath: string, filename: string, comment?: string): Promise<void> {
+    if (!this.webClient) return;
+    const bindings = this.workspaceManager.bindingsForThread(threadId);
+    if (bindings.length === 0) return;
+
+    const fd = await open(hostPath, 'r');
+    let file: Buffer;
+    try {
+      const stats = await fd.stat();
+      if (!stats.isFile()) throw new Error(`Not a regular file: ${hostPath}`);
+      if (stats.size > MAX_ECHO_UPLOAD_BYTES) {
+        // The thread post is already recorded (source of truth); skip the best-effort Slack echo
+        // rather than reading a huge file into the main process.
+        eventLogger.warn('slack', 'Skipping Slack echo upload — file exceeds size limit', {
+          hostPath,
+          size: stats.size,
+        });
+        return;
+      }
+      file = await fd.readFile();
+    } finally {
+      await fd.close();
+    }
+
+    const initial = comment ? { initial_comment: clampSlackText(convertMarkdownToMrkdwn(comment)) } : {};
+    for (const binding of bindings) {
+      await this.safeSlackCall(
+        'Slack uploadFile failed',
+        () =>
+          this.webClient!.files.uploadV2({
+            channel_id: binding.channelId,
+            thread_ts: binding.threadTs,
+            file,
+            filename,
+            ...initial,
+          }),
+        { channelId: binding.channelId }
+      );
     }
   }
 

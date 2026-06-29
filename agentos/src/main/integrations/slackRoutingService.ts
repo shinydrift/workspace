@@ -241,7 +241,7 @@ export class SlackRoutingService {
 
     deps.setSlackContext(threadId, { channelId: params.channelId, threadTs: params.rootThreadTs });
     void this.args.addReaction(params.channelId, messageTs, 'eyes');
-    const slackContextNote = `[Slack: reply via post_update(channel_id='${params.channelId}', thread_ts='${params.rootThreadTs}')]`;
+    const slackContextNote = `[Reply via post_update(thread_id, message) on the agentos-thread MCP — pass AGENTOS_THREAD_ID as thread_id. Your reply is saved to the thread view and mirrored to Slack.]`;
     try {
       if (autopilotEnabled) {
         // triggerAfterTurn: false — we're about to call sendInput below; letting setAutopilot

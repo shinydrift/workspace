@@ -6,15 +6,17 @@ import { useInsightsStore } from '../../store/insightsStore';
 import { TerminalPane } from '../terminal/TerminalPane';
 import { PromptInput } from '../prompt/PromptInput';
 import { MessageList } from '../chat/MessageList';
+import { ThreadPostsView } from '../thread/ThreadPostsView';
 import { ThreadInsightsPanel } from '../insights/ThreadInsightsPanel';
 import { useMessages } from '../../hooks/useMessages';
+import { useThreadPosts } from '../../hooks/useThreadPosts';
 import { ThreadDetailHeader } from './ThreadDetailHeader';
 import { CouncilRunPanel } from '../chat/CouncilRunPanel';
 import { TaskSheetPanel } from '../board/TaskSheetPanel';
 import { ContentCard } from '@/components/ui/content-card';
 import { ScrollFade } from '@/components/ui/scroll-fade';
 
-export type DetailView = 'chat' | 'terminal' | 'insights';
+export type DetailView = 'thread' | 'chat' | 'terminal' | 'insights';
 
 interface Props {
   thread: Thread;
@@ -26,13 +28,14 @@ export function ThreadDetail({ thread, noCard, initialView }: Props) {
   const { threadView, setThreadView, devMode } = useUIStore();
   const { upsertThread } = useDomainStore();
   const hasInsightsData = useInsightsStore((s) => !!s.sessionMetrics[thread.id]);
-  const [detailView, setDetailView] = useState<DetailView>(initialView ?? 'chat');
+  const [detailView, setDetailView] = useState<DetailView>(initialView ?? threadView);
   const [injectionStatus, setInjectionStatus] = useState<ThreadInjectionStatus>({
     hasBoot: false,
     hasMemory: false,
     injected: false,
   });
   const { messages, streamingBlocks, isStreaming } = useMessages(thread);
+  const threadPosts = useThreadPosts(thread.id);
 
   useEffect(() => {
     let cancelled = false;
@@ -79,7 +82,7 @@ export function ThreadDetail({ thread, noCard, initialView }: Props) {
       injectionStatus={injectionStatus}
       onViewChange={(view: DetailView) => {
         setDetailView(view);
-        if (view === 'chat' || view === 'terminal') setThreadView(view);
+        if (view === 'thread' || view === 'chat' || view === 'terminal') setThreadView(view);
       }}
     />
   );
@@ -87,6 +90,10 @@ export function ThreadDetail({ thread, noCard, initialView }: Props) {
   const body = (
     <>
       {detailView === 'terminal' && <TerminalPane threadId={thread.id} />}
+      <div className={detailView === 'thread' ? 'relative flex min-h-0 flex-1 flex-col' : 'hidden'}>
+        <ScrollFade />
+        <ThreadPostsView posts={threadPosts} />
+      </div>
       <div className={detailView === 'chat' ? 'relative flex min-h-0 flex-1 flex-col' : 'hidden'}>
         <ScrollFade />
         <MessageList messages={messages} isStreaming={isStreaming} streamingBlocks={streamingBlocks} />
@@ -96,7 +103,7 @@ export function ThreadDetail({ thread, noCard, initialView }: Props) {
       </div>
       {detailView === 'chat' && <TaskSheetPanel threadId={thread.id} />}
       {detailView === 'chat' && <CouncilRunPanel threadId={thread.id} />}
-      {detailView === 'chat' && (
+      {(detailView === 'chat' || detailView === 'thread') && (
         <div className="p-3 max-w-[1200px] w-full mx-auto">
           <div className="rounded-xl border border-border/50 overflow-hidden">
             <PromptInput

@@ -20,6 +20,7 @@ export const THREAD_IPC_CHANNELS = {
   MESSAGES_LIST: 'messages:list',
   MESSAGES_CLEAR: 'messages:clear',
   MESSAGES_PENDING: 'messages:pending',
+  THREAD_POSTS_LIST: 'threadPosts:list',
 } as const;
 
 export interface CreateThreadRequest {

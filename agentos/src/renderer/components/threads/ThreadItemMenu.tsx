@@ -30,6 +30,10 @@ export function ThreadItemMenu({ thread, onOpenChange, onStop, onStartRename, on
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-40">
+        <DropdownMenuItem onSelect={() => setThreadView('thread')}>
+          <span className="w-3 text-xs">{threadView === 'thread' ? '✓' : ''}</span>
+          Thread
+        </DropdownMenuItem>
         <DropdownMenuItem onSelect={() => setThreadView('chat')}>
           <span className="w-3 text-xs">{threadView === 'chat' ? '✓' : ''}</span>
           Chat

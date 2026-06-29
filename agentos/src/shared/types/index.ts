@@ -3,6 +3,7 @@ export * from './settings';
 export * from './project';
 export * from './thread';
 export * from './message';
+export * from './thread-post';
 export * from './automation';
 export * from './ipc';
 export * from './wiki';

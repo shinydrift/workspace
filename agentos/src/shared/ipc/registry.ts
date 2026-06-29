@@ -29,6 +29,7 @@ import type {
   SavedProject,
   SaveProjectRequest,
   Message,
+  ThreadPost,
   AppLogEntry,
   SlackChannelOption,
   ProjectConfigLookup,
@@ -159,6 +160,7 @@ export type IPCMap = {
   'messages:list': { input: { threadId: string }; output: Message[] };
   'messages:pending': { input: { threadId: string }; output: string };
   'messages:clear': { input: { threadId: string }; output: void };
+  'threadPosts:list': { input: { threadId: string }; output: ThreadPost[] };
 
   // Dialog
   'dialog:openDirectory': { input: undefined; output: string | null };
@@ -428,6 +430,7 @@ export const TYPED_CHANNEL_SET: ReadonlySet<string> = new Set<IPCChannel>([
   'messages:list',
   'messages:pending',
   'messages:clear',
+  'threadPosts:list',
   'window:minimize',
   'window:maximize',
   'window:close',

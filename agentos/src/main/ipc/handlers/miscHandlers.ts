@@ -4,6 +4,7 @@ import { ipcMain, shell, desktopCapturer, dialog, BrowserWindow, app, clipboard 
 import { z } from 'zod';
 import { IPC_CHANNELS } from '../../../shared/types';
 import { threadManager, threadReads } from '../../sessions/ThreadManager';
+import { threadPostsStore } from '../../sessions/threadPostsStore';
 import { getLogHistory } from '../../utils/eventLog';
 import { runHealthChecks } from '../../health/service';
 import { getHostShellEnv } from '../../utils/hostEnv';
@@ -32,6 +33,13 @@ export function registerMiscHandlers(): void {
     handleIpc(() => {
       const { threadId: id } = ThreadIdSchema.parse(raw);
       threadManager.clearMessages(id);
+    })
+  );
+
+  ipcMain.handle(IPC_CHANNELS.THREAD_POSTS_LIST, (_e, raw) =>
+    handleIpc(() => {
+      const { threadId: id } = ThreadIdSchema.parse(raw);
+      return threadPostsStore.list(id);
     })
   );
 

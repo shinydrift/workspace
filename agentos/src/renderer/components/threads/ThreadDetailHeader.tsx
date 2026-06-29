@@ -112,7 +112,7 @@ export function ThreadDetailHeader({
           }}
           className="mr-2 rounded-lg bg-muted p-0.5"
         >
-          {(['chat', 'terminal', 'insights'] as const)
+          {(['thread', 'chat', 'terminal', 'insights'] as const)
             .filter((v) => v !== 'insights' || hasInsightsData)
             .filter((v) => v !== 'terminal' || devMode)
             .map((view) => (

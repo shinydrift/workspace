@@ -17,7 +17,7 @@ export interface PendingTranscript {
 
 interface UIStore {
   selectedThreadId: string | null;
-  threadView: 'chat' | 'terminal';
+  threadView: 'thread' | 'chat' | 'terminal';
   sandboxBuildProgress: string | null;
   memoryIndexProgress: string | null;
   threadFilter: ThreadFilter;
@@ -25,7 +25,7 @@ interface UIStore {
   pendingTranscript: PendingTranscript | null;
 
   setSelectedThread: (id: string | null) => void;
-  setThreadView: (view: 'chat' | 'terminal') => void;
+  setThreadView: (view: 'thread' | 'chat' | 'terminal') => void;
   setSandboxBuildProgress: (msg: string | null) => void;
   setMemoryIndexProgress: (msg: string | null) => void;
   setThreadFilter: (patch: Partial<ThreadFilter>) => void;
@@ -35,7 +35,7 @@ interface UIStore {
 
 export const useUIStore = create<UIStore>((set) => ({
   selectedThreadId: null,
-  threadView: 'chat',
+  threadView: 'thread',
   sandboxBuildProgress: null,
   memoryIndexProgress: null,
   threadFilter: { query: '', status: 'all', sortBy: 'newest' },

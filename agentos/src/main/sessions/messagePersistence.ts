@@ -4,15 +4,22 @@ import stripAnsiLib from 'strip-ansi';
 import * as threadStore from '../threads/threadStore';
 import { eventLogger } from '../utils/eventLog';
 
-export function ensureDataDirs(homeDir: string): { logsDir: string; messagesDir: string; sessionsDataDir: string } {
+export function ensureDataDirs(homeDir: string): {
+  logsDir: string;
+  messagesDir: string;
+  sessionsDataDir: string;
+  threadPostsDir: string;
+} {
   const base = path.join(homeDir, '.agentos');
   const logsDir = path.join(base, 'logs');
   const messagesDir = path.join(base, 'messages');
   const sessionsDataDir = path.join(base, 'sessions');
+  const threadPostsDir = path.join(base, 'thread-posts');
   fs.mkdirSync(logsDir, { recursive: true });
   fs.mkdirSync(messagesDir, { recursive: true });
   fs.mkdirSync(sessionsDataDir, { recursive: true });
-  return { logsDir, messagesDir, sessionsDataDir };
+  fs.mkdirSync(threadPostsDir, { recursive: true });
+  return { logsDir, messagesDir, sessionsDataDir, threadPostsDir };
 }
 
 /**

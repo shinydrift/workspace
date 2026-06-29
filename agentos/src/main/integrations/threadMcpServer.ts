@@ -21,6 +21,13 @@ type ListProjectMessagesFn = (
 ) => Array<{ role: string; content: string; timestamp: number }>;
 type SetRecordingTitleFn = (recordingId: string, title: string) => void;
 type TestWebhookEventFn = (jobId: string, payload: unknown) => Promise<{ ok: boolean; error?: string }>;
+type PostThreadUpdateFn = (threadId: string, kind: 'update' | 'clarification', text: string) => void;
+type UploadThreadFileFn = (
+  threadId: string,
+  filePath: string,
+  filename: string | undefined,
+  comment: string | undefined
+) => Promise<string>;
 
 const BigFiveSchema = z.object({
   openness: z.number().min(1).max(5).describe('1–5 scale'),
@@ -43,6 +50,8 @@ class ThreadMcpServer extends BaseMcpServer {
   private listProjectMessagesFn: ListProjectMessagesFn | null = null;
   private setRecordingTitleFn: SetRecordingTitleFn | null = null;
   private testWebhookEventFn: TestWebhookEventFn | null = null;
+  private postThreadUpdateFn: PostThreadUpdateFn | null = null;
+  private uploadThreadFileFn: UploadThreadFileFn | null = null;
 
   init(callbacks: {
     setAutopilot: SetAutopilotFn;
@@ -55,6 +64,8 @@ class ThreadMcpServer extends BaseMcpServer {
     listProjectMessages: ListProjectMessagesFn;
     setRecordingTitle: SetRecordingTitleFn;
     testWebhookEvent: TestWebhookEventFn;
+    postThreadUpdate: PostThreadUpdateFn;
+    uploadThreadFile: UploadThreadFileFn;
   }): void {
     this.setAutopilotFn = callbacks.setAutopilot;
     this.updatePersonalityFn = callbacks.updatePersonality;
@@ -66,6 +77,8 @@ class ThreadMcpServer extends BaseMcpServer {
     this.listProjectMessagesFn = callbacks.listProjectMessages;
     this.setRecordingTitleFn = callbacks.setRecordingTitle;
     this.testWebhookEventFn = callbacks.testWebhookEvent;
+    this.postThreadUpdateFn = callbacks.postThreadUpdate;
+    this.uploadThreadFileFn = callbacks.uploadThreadFile;
   }
 
   start(): void {
@@ -83,6 +96,8 @@ class ThreadMcpServer extends BaseMcpServer {
     this.listProjectMessagesFn = null;
     this.setRecordingTitleFn = null;
     this.testWebhookEventFn = null;
+    this.postThreadUpdateFn = null;
+    this.uploadThreadFileFn = null;
     this.stopHttpServer();
   }
 
@@ -337,6 +352,65 @@ class ThreadMcpServer extends BaseMcpServer {
           const result = await this.testWebhookEventFn(job_id, payload);
           if (!result.ok) throw new Error(result.error ?? 'Unknown error');
           return `Test webhook event enqueued for job ${job_id}. Monitor the resulting agent thread to verify processing.`;
+        })
+    );
+
+    server.tool(
+      'post_update',
+      'Post a progress update or final result to the current thread. The message is saved to the thread view ' +
+        '(the primary conversation surface) and echoed to Slack when the thread is connected to a channel. ' +
+        'Use AGENTOS_THREAD_ID env var for thread_id.',
+      {
+        thread_id: z.string().describe('The thread ID. Use the AGENTOS_THREAD_ID environment variable.'),
+        message: z.string().describe('Message to post to the thread.'),
+      },
+      ({ thread_id, message }) =>
+        this.runTool(() => {
+          if (!this.postThreadUpdateFn) throw new Error('ThreadMcpServer not initialized');
+          this.postThreadUpdateFn(thread_id, 'update', message);
+          return 'Posted.';
+        })
+    );
+
+    server.tool(
+      'ask_clarification',
+      'Post clarifying questions to the current thread and wait for the user to reply. The questions are saved to ' +
+        'the thread view and echoed to Slack when connected. Use AGENTOS_THREAD_ID env var for thread_id.',
+      {
+        thread_id: z.string().describe('The thread ID. Use the AGENTOS_THREAD_ID environment variable.'),
+        questions: z
+          .string()
+          .describe(
+            'Plain natural-language questions. Use a numbered list when asking more than one — NOT a JSON object or array.'
+          ),
+      },
+      ({ thread_id, questions }) =>
+        this.runTool(() => {
+          if (!this.postThreadUpdateFn) throw new Error('ThreadMcpServer not initialized');
+          this.postThreadUpdateFn(thread_id, 'clarification', questions);
+          return 'Questions posted.';
+        })
+    );
+
+    server.tool(
+      'upload_file',
+      'Upload a file to the current thread. The file is attached to the thread view and echoed to Slack when ' +
+        'connected. file_path MUST be an absolute path under /workspace/.agentos/uploads/. ' +
+        'Use AGENTOS_THREAD_ID env var for thread_id.',
+      {
+        thread_id: z.string().describe('The thread ID. Use the AGENTOS_THREAD_ID environment variable.'),
+        file_path: z.string().describe('Absolute path to the file under /workspace/.agentos/uploads/.'),
+        filename: z
+          .string()
+          .min(1)
+          .optional()
+          .describe('Display name for the file (defaults to the basename of file_path).'),
+        initial_comment: z.string().optional().describe('Optional message to accompany the file.'),
+      },
+      ({ thread_id, file_path, filename, initial_comment }) =>
+        this.runTool(async () => {
+          if (!this.uploadThreadFileFn) throw new Error('ThreadMcpServer not initialized');
+          return await this.uploadThreadFileFn(thread_id, file_path, filename, initial_comment);
         })
     );
   }

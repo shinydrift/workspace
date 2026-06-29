@@ -10,6 +10,7 @@ import { removeContainerRegistryEntry } from '../utils/containerRegistry';
 import { isCliReady } from '../utils/readySignalDetector';
 import { eventLogger } from '../utils/eventLog';
 import * as threadStore from '../threads/threadStore';
+import { threadPostsStore } from './threadPostsStore';
 import { PtyProcess } from './PtyProcess';
 import { ThreadRuntimeStore } from './ThreadRuntimeStore';
 import { execHeadlessTurn, isProviderLimitError, type TurnEndReason } from './headlessRunner';
@@ -197,6 +198,11 @@ export class TurnExecutor {
     threadStore.updateThread(threadId, { promptHistory: history, lastActiveAt: Date.now() });
     const messageSource = source === 'autopilot' ? 'autopilot' : source === 'automation' ? 'automation' : 'human';
     this.output.appendNormalizedMessageWithSource(threadId, 'user', messageSource, trimmed, rawInput);
+    // Capture human prompts in the thread view. Slack-origin prompts already flow through this path
+    // (Slack inbound is routed in as user input), so this covers both UI and Slack without duplication.
+    if (messageSource === 'human') {
+      threadPostsStore.append(threadId, 'prompt', 'user', trimmed);
+    }
   }
 
   async runTurn(

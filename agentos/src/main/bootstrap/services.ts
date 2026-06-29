@@ -10,8 +10,10 @@ import { eventLogger, initEventLog } from '../utils/eventLog';
 import { ensureBundledClaudeSkills } from '../utils/claudePlugins';
 import { automationService } from '../automations/service';
 import { slackBridge } from '../integrations/slackBridge';
+import { validateSlackUploadPath } from '../integrations/slackUploadWorkspace';
 import { memoryMcpServer } from '../integrations/memoryMcpServer';
 import { threadMcpServer } from '../integrations/threadMcpServer';
+import { threadPostsStore } from '../sessions/threadPostsStore';
 import { FEATURES } from '../../shared/features';
 import { initVoiceFlowHotkey, stopVoiceFlowHotkey } from '../audio/voiceFlowHotkey';
 import { meetingDetector } from '../meetings/meetingDetector';
@@ -146,6 +148,21 @@ function buildThreadMcpConfig(): Parameters<typeof threadMcpServer.init>[0] {
       if (recording?.threadId) threadManager.renameThread(recording.threadId, title);
     },
     testWebhookEvent: (jobId, payload) => automationService.testWebhookEvent(jobId, payload),
+    postThreadUpdate: (threadId, kind, text) => {
+      threadPostsStore.append(threadId, kind, 'agent', text);
+      slackBridge.echoThreadPost(threadId, text);
+    },
+    uploadThreadFile: async (threadId, filePath, filename, comment) => {
+      const hostWorkingDir = threadManager.getThread(threadId)?.workingDirectory ?? null;
+      if (!hostWorkingDir) throw new Error(`No working directory bound to thread ${threadId}`);
+      // Validates the sandbox prefix, ensures the host uploads dir exists, then realpath-checks
+      // containment so `..`/symlink escapes outside `.agentos/uploads/` are rejected.
+      const resolved = await validateSlackUploadPath(filePath, hostWorkingDir);
+      const name = filename ?? path.basename(resolved);
+      threadPostsStore.append(threadId, 'file', 'agent', comment ?? name, { filename: name, path: resolved });
+      await slackBridge.echoUploadFile(threadId, resolved, name, comment);
+      return 'File uploaded.';
+    },
   };
 }
 

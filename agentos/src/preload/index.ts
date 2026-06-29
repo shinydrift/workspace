@@ -6,6 +6,7 @@ import type {
   TerminalDataEvent,
   ThreadStatusEvent,
   MessageAppendedEvent,
+  ThreadPostAppendedEvent,
   ThreadRenamedEvent,
   Thread,
   AppLogEntry,
@@ -129,6 +130,10 @@ const api = {
     list: (threadId: string) => invoke('messages:list', { threadId }),
     pending: (threadId: string) => invoke('messages:pending', { threadId }),
     clear: (threadId: string) => invoke('messages:clear', { threadId }),
+  },
+
+  threadPosts: {
+    list: (threadId: string) => invoke('threadPosts:list', { threadId }),
   },
 
   dialog: {
@@ -330,6 +335,12 @@ const api = {
       const handler = (_: Electron.IpcRendererEvent, payload: MessageAppendedEvent) => cb(payload);
       ipcRenderer.on(IPC_EVENTS.MESSAGE_APPENDED, handler);
       return () => ipcRenderer.off(IPC_EVENTS.MESSAGE_APPENDED, handler);
+    },
+
+    threadPostAppended: (cb: (e: ThreadPostAppendedEvent) => void): (() => void) => {
+      const handler = (_: Electron.IpcRendererEvent, payload: ThreadPostAppendedEvent) => cb(payload);
+      ipcRenderer.on(IPC_EVENTS.THREAD_POST_APPENDED, handler);
+      return () => ipcRenderer.off(IPC_EVENTS.THREAD_POST_APPENDED, handler);
     },
 
     threadRenamed: (cb: (e: ThreadRenamedEvent) => void): (() => void) => {
