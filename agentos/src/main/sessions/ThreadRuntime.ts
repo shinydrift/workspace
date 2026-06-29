@@ -1,4 +1,3 @@
-import fs from 'fs';
 import stripAnsi from 'strip-ansi';
 import { getErrorMessage } from '../../shared/utils/errorMessage';
 import type { Provider, Thread } from '../../shared/types';
@@ -9,6 +8,7 @@ import {
   createSessionWorktree,
   removeSessionWorktree,
   isWorktreeClean,
+  isWorktreeRegistered,
   isBranchSyncedWithRemote,
 } from '../utils/worktree';
 import { eventLogger } from '../utils/eventLog';
@@ -50,11 +50,26 @@ export class ThreadRuntime {
     if (!stored) throw new Error(`Thread ${threadId} not found`);
     if (this.store.ptys.has(threadId)) return;
 
-    if (stored.usingWorktree && stored.projectPath && !fs.existsSync(stored.workingDirectory)) {
+    // Recreate the worktree before (re)starting if its mount source is gone OR git no longer
+    // tracks it as a worktree — e.g. the 30-min idle stop auto-pruned the clean+synced worktree
+    // (dir + branch removed) while this thread was idle. Without this the container would bind a
+    // missing /workspace and the thread would "have no mounted path" on the next message.
+    if (stored.usingWorktree && stored.projectPath && !isWorktreeRegistered(stored.workingDirectory)) {
       const recreated = await createSessionWorktree(stored.projectPath, stored.name, threadId);
-      const dir = recreated ?? stored.projectPath;
-      threadStore.updateThread(threadId, { workingDirectory: dir, usingWorktree: !!recreated });
-      stored = { ...stored, workingDirectory: dir, usingWorktree: !!recreated };
+      if (recreated) {
+        threadStore.updateThread(threadId, { workingDirectory: recreated });
+        stored = { ...stored, workingDirectory: recreated };
+      } else {
+        // Recreation failed (transient git state). Fall back to the project path for THIS start
+        // only — do NOT persist usingWorktree=false, so the next message retries the worktree
+        // instead of stranding the thread on the main repo permanently. Drop usingWorktree in the
+        // local snapshot so the exit-handler auto-prune below never acts on the main repo.
+        eventLogger.warn('thread', 'Worktree recreate failed; using project path for this start only', {
+          threadId,
+          workingDirectory: stored.workingDirectory,
+        });
+        stored = { ...stored, workingDirectory: stored.projectPath, usingWorktree: false };
+      }
     }
 
     // claude-interactive shares container, binary, auth, and config dir with claude —

@@ -193,6 +193,21 @@ export function isWorktreeClean(worktreePath: string): boolean {
   }
 }
 
+/**
+ * True only if `worktreePath` is a present, git-tracked worktree (the dir exists AND git resolves
+ * it as a work tree). A dir that exists but whose admin entry was pruned — or a path that's gone
+ * entirely — returns false, so the caller recreates and re-mounts it before restarting the
+ * container instead of binding a stale/missing /workspace source.
+ */
+export function isWorktreeRegistered(worktreePath: string): boolean {
+  if (!fs.existsSync(worktreePath)) return false;
+  try {
+    return runGit(['-C', worktreePath, 'rev-parse', '--is-inside-work-tree']) === 'true';
+  } catch {
+    return false;
+  }
+}
+
 export async function isWorktreeCleanAsync(worktreePath: string): Promise<boolean> {
   try {
     const output = await runGitAsync(['-C', worktreePath, 'status', '--porcelain']);
@@ -342,6 +357,21 @@ export async function createSessionWorktree(
     ensureGitignoreEntry(repoRoot, '.agentos/worktrees/');
     const baseBranch = resolveBaseBranch(repoRoot);
 
+    // Reconcile leftovers from a previous half-finished removal so `worktree add` can't fail on an
+    // existing path or a stale registration. First drop any directory still sitting at the target
+    // path — `git worktree prune` only clears admin entries for *missing* dirs, it never deletes a
+    // dir on disk — then prune the now-dangling admin entries. worktreePath is always under
+    // .agentos/worktrees/<slug-shortId>, so this removal is safe (the worktree was clean+synced
+    // when auto-pruned, so no committed work is lost).
+    if (fs.existsSync(worktreePath)) {
+      fs.rmSync(worktreePath, { recursive: true, force: true });
+    }
+    try {
+      await runGitAsync(['-C', repoRoot, 'worktree', 'prune']);
+    } catch {
+      /* best-effort */
+    }
+
     // Prefer origin ref to avoid stale local tips; fall back gracefully if unavailable.
     try {
       await runGitAsync(['-C', repoRoot, 'fetch', 'origin', baseBranch]);
@@ -358,7 +388,23 @@ export async function createSessionWorktree(
       /* origin ref not available – use local */
     }
 
-    await runGitAsync(['-C', repoRoot, 'worktree', 'add', '-b', branchName, worktreePath, startPoint]);
+    // If the branch survived a previous cleanup (its worktree was removed but the ref lingered),
+    // reuse it so committed work isn't lost and `add -b` doesn't fail on an existing branch;
+    // otherwise create it fresh off the base ref. `--force` lets us reclaim the branch even if a
+    // stale registration still has it "checked out" by a worktree that no longer exists.
+    let branchExists = false;
+    try {
+      await runGitAsync(['-C', repoRoot, 'rev-parse', '--verify', `refs/heads/${branchName}`]);
+      branchExists = true;
+    } catch {
+      /* branch doesn't exist – create it fresh */
+    }
+
+    await runGitAsync(
+      branchExists
+        ? ['-C', repoRoot, 'worktree', 'add', '--force', worktreePath, branchName]
+        : ['-C', repoRoot, 'worktree', 'add', '-b', branchName, worktreePath, startPoint]
+    );
 
     // Verify the worktree actually materialized on disk before reporting success.
     // git worktree add can claim success in edge cases (e.g. concurrent prune) where
