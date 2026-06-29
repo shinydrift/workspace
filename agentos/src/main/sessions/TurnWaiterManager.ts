@@ -7,16 +7,12 @@ import { isCliReady } from '../utils/readySignalDetector';
 import { eventLogger } from '../utils/eventLog';
 import { loadProjectConfigSync } from '../config/projectConfig';
 
-const STALL_MS = 120_000;
-
 type TurnWaiter = {
   provider: Provider;
   source: QueueSource;
   tail: string;
   silenceTimer?: NodeJS.Timeout;
   timeoutTimer?: NodeJS.Timeout;
-  stallTimer?: NodeJS.Timeout;
-  onStall?: () => void;
   settle: (reason: 'ready-signal' | 'silence-fallback' | 'timeout' | 'cancelled', error?: Error) => void;
 };
 
@@ -40,10 +36,6 @@ export class TurnWaiterManager {
     waiter.silenceTimer = setTimeout(() => {
       waiter.settle('silence-fallback');
     }, silenceFallbackMs);
-    if (waiter.onStall) {
-      clearTimeout(waiter.stallTimer);
-      waiter.stallTimer = setTimeout(() => waiter.onStall(), STALL_MS);
-    }
   }
 
   reject(threadId: string, error: Error): void {
@@ -57,8 +49,7 @@ export class TurnWaiterManager {
     source: QueueSource,
     hasPty: boolean,
     provider: Provider,
-    timeoutMs?: number,
-    onStall?: () => void
+    timeoutMs?: number
   ): Promise<void> {
     if (!hasPty) {
       throw new Error(`Thread ${threadId} is not running`);
@@ -74,13 +65,11 @@ export class TurnWaiterManager {
         provider,
         source,
         tail: '',
-        onStall,
         settle: (reason, error) => {
           const active = this.waiters.get(threadId);
           if (!active || active !== waiter) return;
           if (waiter.silenceTimer) clearTimeout(waiter.silenceTimer);
           if (waiter.timeoutTimer) clearTimeout(waiter.timeoutTimer);
-          if (waiter.stallTimer) clearTimeout(waiter.stallTimer);
           this.waiters.delete(threadId);
           if (error) {
             reject(error);
@@ -110,9 +99,6 @@ export class TurnWaiterManager {
 
       this.waiters.set(threadId, waiter);
       armSilenceFallback();
-      if (onStall) {
-        waiter.stallTimer = setTimeout(() => onStall(), STALL_MS);
-      }
     });
   }
 

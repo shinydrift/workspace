@@ -21,7 +21,6 @@ import { filterClaudeCliNoise } from './threadOutput';
 import type { QueueSource } from './ThreadInputQueue';
 
 const HEADLESS_IDLE_STOP_MS = 30 * 60 * 1000; // 30 minutes
-const HEADLESS_STALL_MS = 120_000; // 2 minutes with no output → auto-recover
 
 const PROVIDER_LIMIT_SIGNALS = [
   "you've hit your org's monthly usage limit",
@@ -65,7 +64,6 @@ export type HeadlessTurnDeps = {
   output: ThreadOutputManager;
   containers: ContainerManager;
   callbacks: {
-    sendInput: (threadId: string, input: string, source: QueueSource) => Promise<void>;
     stopThread: (threadId: string, opts?: { preserveQueue?: boolean }) => Promise<void>;
     persistUserInput: (threadId: string, source: QueueSource, trimmed: string, raw: string) => void;
     persistSessionIds: (threadId: string, rawOutput: string) => void;
@@ -225,35 +223,7 @@ export async function execHeadlessTurn(
         }, timeoutMs);
       }
 
-      let stalledByTimeout = false;
-      let stallTimer: NodeJS.Timeout | undefined;
-      const resetStallTimer = (): void => {
-        if (stallTimer) clearTimeout(stallTimer);
-        stallTimer = setTimeout(() => {
-          stalledByTimeout = true;
-          if (outputBuffer.trim().length === 0) {
-            // No output at all — genuine cold stall. Re-queue so the model can recover.
-            eventLogger.warn('thread', 'Headless turn stalled with no output, re-queuing', { threadId });
-            void callbacks.sendInput(
-              threadId,
-              'The previous turn stalled. Continue with what you were working on.',
-              'automation'
-            );
-          } else {
-            // Model produced output then stopped — process likely hung after completing.
-            // Do NOT re-queue: the model may have already sent a Slack reply or finished
-            // its work, and a re-queue would cause a duplicate response.
-            eventLogger.warn('thread', 'Headless turn stalled after producing output, killing without re-queue', {
-              threadId,
-            });
-          }
-          turnProc.kill();
-        }, HEADLESS_STALL_MS);
-      };
-      resetStallTimer();
-
       turnProc.on('data', (chunk: string) => {
-        resetStallTimer();
         containers.touchFromActivity(threadId).catch((err) => {
           eventLogger.warn('thread', 'failed to touch container registry', { error: String(err) });
         });
@@ -265,12 +235,7 @@ export async function execHeadlessTurn(
       });
 
       turnProc.on('exit', (exitCode: number | undefined) => {
-        if (stallTimer) clearTimeout(stallTimer);
         if (timeoutTimer) clearTimeout(timeoutTimer);
-        if (stalledByTimeout) {
-          resolve();
-          return;
-        }
         if (exitCode !== 0 && exitCode !== undefined && !store.ptys.has(threadId)) {
           eventLogger.warn('docker', 'Container exited mid-turn', { threadId, provider, source, exitCode });
           reject(new Error(`Container exited mid-turn (exit code ${exitCode})`));

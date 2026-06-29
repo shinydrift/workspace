@@ -384,8 +384,7 @@ export class TurnExecutor {
         source,
         proc !== undefined,
         this.getThreadProvider(threadId),
-        timeoutMs,
-        () => proc?.write('\n')
+        timeoutMs
       );
     } finally {
       emitTurnEnded({ threadId });
@@ -422,7 +421,6 @@ export class TurnExecutor {
         output: this.output,
         containers: this.containers,
         callbacks: {
-          sendInput: (id, inp, src) => this.callbacks.sendInput(id, inp, src),
           stopThread: (id, opts) => this.callbacks.stopThread(id, opts),
           persistUserInput: (id, src, trimmed, raw) => this.persistUserInput(id, src, trimmed, raw),
           persistSessionIds: (id, out) => this.persistSessionIds(id, out),
