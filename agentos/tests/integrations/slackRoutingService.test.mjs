@@ -25,6 +25,16 @@ test('SlackRoutingService: production source has expected guards in processInbou
   assert.match(src, /file_share/);
 });
 
+test('SlackRoutingService: reactions are not driven here — only binds lastInboundTs for the echo', () => {
+  const dir = path.dirname(fileURLToPath(import.meta.url));
+  const src = fs.readFileSync(path.resolve(dir, '../../src/main/integrations/slackRoutingService.ts'), 'utf8');
+  // Binds the inbound message so slackBridge.onThreadStatus knows what to react on.
+  assert.match(src, /updateBinding\(binding\.key, \{ lastInboundTs: messageTs \}\)/);
+  // No reaction calls or emoji literals remain — the status lifecycle owns those now.
+  assert.doesNotMatch(src, /addReaction|removeReaction/);
+  assert.doesNotMatch(src, /robot_face|white_check_mark/);
+});
+
 // ── Inlined guard logic ───────────────────────────────────────────────────────
 
 /**
@@ -118,33 +128,8 @@ test('processInboundMessage: production source builds dedup key as channelId:mes
   assert.match(src, /`\$\{params\.channelId\}:\$\{message\.ts\}`/);
 });
 
-// ── Council reaction branch (source anchor) ──────────────────────────────────
-
-test('executeTask: production source picks council emoji when a council run is pending', () => {
-  const dir = path.dirname(fileURLToPath(import.meta.url));
-  const src = fs.readFileSync(
-    path.resolve(dir, '../../src/main/integrations/slackRoutingService.ts'),
-    'utf8'
-  );
-  // Council-dispatching turns must show a distinct emoji instead of the autopilot robot,
-  // and the chosen emoji must be threaded into onAutopilotPending so it can be removed on resolution.
-  assert.match(src, /hasPendingCouncilRun\(threadId\)\s*\?\s*'classical_building'\s*:\s*'robot_face'/);
-  assert.match(src, /onAutopilotPending\(threadId,\s*\{[^}]*emoji[^}]*\}\)/);
-});
-
-// ── Inlined emoji selection logic ─────────────────────────────────────────────
-
-function selectAutopilotEmoji(hasPendingCouncilRun) {
-  return hasPendingCouncilRun ? 'classical_building' : 'robot_face';
-}
-
-test('selectAutopilotEmoji: council run pending → classical_building', () => {
-  assert.equal(selectAutopilotEmoji(true), 'classical_building');
-});
-
-test('selectAutopilotEmoji: no council run → robot_face', () => {
-  assert.equal(selectAutopilotEmoji(false), 'robot_face');
-});
+// Council/robot emoji selection moved into the shared status lifecycle (deriveThreadReactionEmoji);
+// see tests/shared/threadStatusLifecycle.test.ts. Slack no longer picks emoji in executeTask.
 
 // ── Missing workingDirectory guard ───────────────────────────────────────────
 

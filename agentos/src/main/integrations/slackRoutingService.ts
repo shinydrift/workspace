@@ -34,10 +34,8 @@ export class SlackRoutingService {
       getDeps: () => SlackBridgeDeps | null;
       getBotToken: () => string | undefined;
       postMessage: (channelId: string, text: string, threadTs: string) => Promise<void>;
-      addReaction: (channelId: string, messageTs: string, emoji: string) => Promise<void>;
-      removeReaction: (channelId: string, messageTs: string, emoji: string) => Promise<void>;
-      hasPendingCouncilRun: (threadId: string) => boolean;
-      onAutopilotPending: (threadId: string, check: { channelId: string; messageTs: string; emoji: string }) => void;
+      /** Mark an inbound message ❌ when it fails before any turn runs (no thread status event fires). */
+      reportDeliveryFailure: (channelId: string, messageTs: string) => void;
     }
   ) {}
 
@@ -240,7 +238,10 @@ export class SlackRoutingService {
     }
 
     deps.setSlackContext(threadId, { channelId: params.channelId, threadTs: params.rootThreadTs });
-    void this.args.addReaction(params.channelId, messageTs, 'eyes');
+    // Bind this inbound message so the thread-status echo (slackBridge.onThreadStatus) knows which
+    // Slack message to react on. Reactions themselves are driven entirely by the status lifecycle —
+    // Slack is a pure echo of the thread view — so nothing is added/removed from here.
+    this.args.workspaceManager.updateBinding(binding.key, { lastInboundTs: messageTs });
     const slackContextNote = `[Reply via post_update(thread_id, message) on the agentos-thread MCP — pass AGENTOS_THREAD_ID as thread_id. Your reply is saved to the thread view and mirrored to Slack.]`;
     try {
       if (autopilotEnabled) {
@@ -251,25 +252,10 @@ export class SlackRoutingService {
         deps.setAutopilot?.(threadId, true, { triggerAfterTurn: false });
       }
       await deps.sendInput(threadId, `${input}\n`, 'user', { systemPromptSuffix: slackContextNote });
-      void this.args.removeReaction(params.channelId, messageTs, 'eyes');
-      if (autopilotEnabled) {
-        // A turn that dispatched a council stops while members run; the autopilot
-        // lifecycle (incl. the synthesis turn) still drives resolution to ✅/❌.
-        // Show a distinct council emoji instead of the autopilot robot so council
-        // runs are visually separate from normal autopilot work.
-        const emoji = this.args.hasPendingCouncilRun(threadId) ? 'classical_building' : 'robot_face';
-        void this.args.addReaction(params.channelId, messageTs, emoji);
-        this.args.onAutopilotPending(threadId, { channelId: params.channelId, messageTs, emoji });
-      } else {
-        void this.args.addReaction(params.channelId, messageTs, 'white_check_mark');
-      }
     } catch (error) {
-      void this.args.removeReaction(params.channelId, messageTs, 'eyes');
+      // Superseded/interrupted turns aren't failures — the newer turn drives its own status echo.
       if (error instanceof Error && error.message === 'Superseded by newer input') return threadId;
-      if (error instanceof Error && error.message === 'Interrupted by user input') {
-        void this.args.addReaction(params.channelId, messageTs, 'white_check_mark');
-        return threadId;
-      }
+      if (error instanceof Error && error.message === 'Interrupted by user input') return threadId;
       const errMessage = getErrorMessage(error);
       eventLogger.error('slack', 'sendInput failed for Slack-triggered thread', {
         channelId: params.channelId,
@@ -292,9 +278,12 @@ export class SlackRoutingService {
         return await this.executeTask(binding, params, task, messageTs, files, true);
       }
 
-      void this.args.addReaction(params.channelId, messageTs, 'x');
-      // Only notify once per ts to keep periodic-catchup retries from spamming the
-      // channel with duplicate '[failed]' posts. void to avoid masking `error`.
+      // A turn that started and then errored already echoes ❌ via its 'error' status broadcast. This
+      // path is reached for failures *before* any turn runs (e.g. the thread vanished), which emit no
+      // status event — so mark ❌ directly. Slack dedups a repeat reaction, so double-marking is safe.
+      this.args.reportDeliveryFailure(params.channelId, messageTs);
+      // Only notify once per ts to keep periodic-catchup retries from spamming the channel.
+      // void to avoid masking `error`.
       if (this.args.catchupService.tryMarkFailureNotified(params.channelId, messageTs)) {
         const userMsg = retriedAfterDangling
           ? 'AgentOS: failed to start a fresh thread for this reply. Check logs for details.'

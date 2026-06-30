@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import type { WebClient } from '@slack/web-api';
-import { getAllProjects, getSlackBinding, saveSlackBinding, getAllSlackBindings } from '../threads/db';
+import { getAllProjects, getSlackBinding, saveSlackBinding, getSlackBindingsByThread } from '../threads/db';
 import { eventLogger } from '../utils/eventLog';
 import { getErrorMessage } from '../../shared/utils/errorMessage';
 import type { Medium, SlackThreadBinding } from '../../shared/types';
@@ -58,16 +58,16 @@ export class SlackWorkspaceManager {
     threadTs?: string;
     lastInboundTs?: string;
   }> {
-    return getAllSlackBindings()
-      .filter((binding) => binding.threadId === threadId)
-      .map((binding) => ({
-        key: binding.key,
-        medium: binding.medium,
-        threadId: binding.threadId as string,
-        channelId: binding.channelId,
-        threadTs: binding.threadTs,
-        lastInboundTs: binding.lastInboundTs,
-      }));
+    // Indexed query (idx_stb_thread_id) — onThreadStatus calls this on every status event, so a full
+    // table scan here would be a hot-path cost.
+    return getSlackBindingsByThread(threadId).map((binding) => ({
+      key: binding.key,
+      medium: binding.medium,
+      threadId: binding.threadId as string,
+      channelId: binding.channelId,
+      threadTs: binding.threadTs,
+      lastInboundTs: binding.lastInboundTs,
+    }));
   }
 
   async resolveChannelWorkspace(

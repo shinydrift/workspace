@@ -1,7 +1,7 @@
 /**
  * Tests for integrations/slackBridge.ts — additional pure logic (inlined).
  *
- * Covers: applySettings gating, onThreadStatus emoji selection,
+ * Covers: applySettings gating, onThreadStatus pure-echo projection,
  * processInboundMessage message guards + commandBody routing,
  * postWorkspaceMenu line building, handleWorkspaceSelection resolution,
  * listDiscoverableChannels filter+sort, resolveRootThreadTs.
@@ -9,6 +9,9 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 // ── applySettings gating logic ────────────────────────────────────────────────
 
@@ -52,56 +55,24 @@ test('applySettings: bot access, app token, channels -> has socket mode', () => 
   assert.equal(computeHasSocketMode(true, 'xapp-token', ['C123']), true);
 });
 
-// ── onThreadStatus emoji selection ────────────────────────────────────────────
+// ── onThreadStatus: pure echo of the shared status lifecycle ───────────────────
+// The emoji decision lives in shared/threadStatusLifecycle.ts (covered by real-import tests in
+// tests/shared/threadStatusLifecycle.test.ts). Here we anchor that onThreadStatus is a thin
+// projection over it and no longer carries its own deferral/emoji logic.
 
-function computeStatusFlags(payload) {
-  const isError = payload.status === 'error';
-  const isTurnComplete = payload.status === 'running' && (payload.queueDepth ?? 0) === 0;
-  return { isError, isTurnComplete };
-}
-
-function computeDoneEmoji(isError) {
-  return isError ? 'x' : 'white_check_mark';
-}
-
-
-test('onThreadStatus: error status -> isError=true', () => {
-  const { isError, isTurnComplete } = computeStatusFlags({ status: 'error' });
-  assert.equal(isError, true);
-  assert.equal(isTurnComplete, false);
+test('onThreadStatus: delegates to the shared lifecycle and diffs reactions on lastInboundTs', () => {
+  const dir = path.dirname(fileURLToPath(import.meta.url));
+  const src = fs.readFileSync(path.resolve(dir, '../../src/main/integrations/slackBridge.ts'), 'utf8');
+  assert.match(src, /deriveThreadReactionEmoji/);
+  assert.match(src, /onThreadStatus\([\s\S]*?deriveThreadReactionEmoji/);
+  assert.match(src, /binding\.lastInboundTs/);
+  // Projection delta + terminal-preserve come from the shared module.
+  assert.match(src, /reconcileReaction/);
+  assert.match(src, /TERMINAL_THREAD_REACTION_EMOJI/);
+  // The bespoke deferral/inline emoji logic must be gone — Slack is a pure echo now.
+  assert.doesNotMatch(src, /pendingAutopilotChecks/);
+  assert.doesNotMatch(src, /white_check_mark/);
 });
-
-test('onThreadStatus: running with queueDepth 0 -> isTurnComplete=true', () => {
-  const { isError, isTurnComplete } = computeStatusFlags({ status: 'running', queueDepth: 0 });
-  assert.equal(isError, false);
-  assert.equal(isTurnComplete, true);
-});
-
-test('onThreadStatus: running with queueDepth 1 -> neither flag', () => {
-  const { isError, isTurnComplete } = computeStatusFlags({ status: 'running', queueDepth: 1 });
-  assert.equal(isError, false);
-  assert.equal(isTurnComplete, false);
-});
-
-test('onThreadStatus: running with no queueDepth defaults to 0 -> isTurnComplete=true', () => {
-  const { isTurnComplete } = computeStatusFlags({ status: 'running' });
-  assert.equal(isTurnComplete, true);
-});
-
-test('onThreadStatus: stopped status -> neither flag', () => {
-  const { isError, isTurnComplete } = computeStatusFlags({ status: 'stopped' });
-  assert.equal(isError, false);
-  assert.equal(isTurnComplete, false);
-});
-
-test('doneEmoji: error -> x', () => {
-  assert.equal(computeDoneEmoji(true), 'x');
-});
-
-test('doneEmoji: success -> white_check_mark', () => {
-  assert.equal(computeDoneEmoji(false), 'white_check_mark');
-});
-
 
 // ── processInboundMessage: message guard logic ────────────────────────────────
 

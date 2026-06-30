@@ -108,6 +108,8 @@ export class ThreadStateService {
       pid: this.getPid(threadId),
       exitCode: overrides?.exitCode,
       queueDepth: this.getQueueDepth(threadId),
+      autopilotEnabled: thread?.autopilotEnabled,
+      autopilotState: thread?.autopilotState,
       sessionStartedAt: this.store.sessionStartedAts.get(threadId),
     });
   }
@@ -125,6 +127,11 @@ export class ThreadStateService {
       pid: extras?.pid ?? this.getPid(threadId),
       exitCode: extras?.exitCode,
       queueDepth: this.getQueueDepth(threadId),
+      // Carry autopilot context on every status event so the lifecycle derivation (terminal badge +
+      // Slack reaction echo) is self-describing — without it an idle/running event can't tell it's
+      // mid-autopilot and resolves to the wrong icon.
+      autopilotEnabled: thread?.autopilotEnabled,
+      autopilotState: thread?.autopilotState,
       sessionStartedAt: this.store.sessionStartedAts.get(threadId),
     });
   }

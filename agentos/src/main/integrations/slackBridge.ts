@@ -9,6 +9,12 @@ import { BaseBridge } from './BaseBridge';
 import { eventLogger } from '../utils/eventLog';
 import { SlackWorkspaceManager } from './slackWorkspaces';
 import { registerMediumPoster, getMediumPoster, type EchoTarget } from './mediumPosters';
+import {
+  deriveThreadReactionEmoji,
+  reconcileReaction,
+  TERMINAL_THREAD_REACTION_EMOJI,
+  THREAD_STATUS_SLACK_EMOJI,
+} from '../../shared/threadStatusLifecycle';
 import { clampSlackText, convertMarkdownToMrkdwn } from './slackFormatting';
 import { DedupCache } from './DedupCache';
 import { SlackFileService } from './slackFileService';
@@ -82,8 +88,10 @@ class SlackBridge extends BaseBridge<SlackBridgeDeps> {
     () => this.webClient,
     async (event) => this.dispatchInboundSlackEvent(event)
   );
-  /** Tracks Slack messages until autopilot reaches a terminal state and Slack can post ✅ or ❌. */
-  private pendingAutopilotChecks = new Map<string, Array<{ channelId: string; messageTs: string; emoji: string }>>();
+  /** The reaction currently shown for each binding (bindingKey → {messageTs, emoji}). Lets a status
+   * change remove the prior reaction before adding the new one, and clear a superseded message's
+   * stale transient. Slack is a pure echo of the thread status; this is just the applied-state cache. */
+  private currentReactions = new Map<string, { messageTs: string; emoji: string }>();
   /** Deduplicates concurrent createThread calls for the same Slack thread binding. */
   private pendingThreadCreations = new Map<string, Promise<{ id: string; workingDirectory: string }>>();
   /** Channels whose auto-mapping has already been persisted this process — guards the
@@ -98,19 +106,10 @@ class SlackBridge extends BaseBridge<SlackBridgeDeps> {
     getDeps: () => this.deps,
     getBotToken: () => this.readSlackSettings().botToken?.trim(),
     postMessage: async (channelId, text, threadTs) => this.postMessage(channelId, text, threadTs),
-    addReaction: async (channelId, messageTs, emoji) => this.addReaction(channelId, messageTs, emoji),
-    removeReaction: async (channelId, messageTs, emoji) => this.removeReaction(channelId, messageTs, emoji),
-    hasPendingCouncilRun: (threadId) => councilService.hasPendingRunForThread(threadId),
-    onAutopilotPending: (threadId, check) => {
-      const existing = this.pendingAutopilotChecks.get(threadId) ?? [];
-      existing.push(check);
-      this.pendingAutopilotChecks.set(threadId, existing);
-      // Evict oldest thread entry when map grows too large.
-      if (this.pendingAutopilotChecks.size > 500) {
-        const firstKey = this.pendingAutopilotChecks.keys().next().value;
-        if (firstKey !== undefined) this.pendingAutopilotChecks.delete(firstKey);
-      }
-    },
+    // A hard delivery failure (e.g. the thread vanished before its turn ran) never produces a thread
+    // status event, so the status echo can't mark it. Surface ❌ directly — best-effort, terminal.
+    reportDeliveryFailure: (channelId, messageTs) =>
+      void this.addReaction(channelId, messageTs, THREAD_STATUS_SLACK_EMOJI.error),
   });
 
   applySettings(settings: AppSettings): void {
@@ -194,41 +193,48 @@ class SlackBridge extends BaseBridge<SlackBridgeDeps> {
     this.periodicCatchupTimer = null;
   }
 
+  /**
+   * Pure echo of the thread-view status lifecycle: every status event re-projects the canonical
+   * status (👀 / 🤖 / 🏛️ / ✅ / ❌, or none) onto the bound inbound message's reaction. The decision
+   * of what icon to show lives entirely in the shared lifecycle module — Slack just mirrors it.
+   */
   onThreadStatus(payload: ThreadStatusEvent): void {
-    const settings = this.readSlackSettings();
-    if (!settings.enabled) return;
+    if (!this.readSlackSettings().enabled) return;
+    const councilPending = councilService.hasPendingRunForThread(payload.threadId);
+    const emoji = deriveThreadReactionEmoji(payload, councilPending);
+    for (const binding of this.workspaceManager.bindingsForThread(payload.threadId)) {
+      if (!binding.lastInboundTs) continue;
+      this.projectReaction(binding.key, binding.channelId, binding.lastInboundTs, emoji);
+    }
+  }
 
-    // Deferred autopilot check: when autopilot reaches a terminal state, post ✅ or ❌.
-    const pendingChecks = this.pendingAutopilotChecks.get(payload.threadId);
-    if (pendingChecks) {
-      const isError = payload.status === 'error';
-      const autopilotDone = payload.autopilotState === 'stopped' || payload.autopilotState === 'blocked';
-      if (isError || autopilotDone) {
-        this.pendingAutopilotChecks.delete(payload.threadId);
-        const doneEmoji = isError ? 'x' : 'white_check_mark';
-        for (const check of pendingChecks) {
-          void this.removeReaction(check.channelId, check.messageTs, check.emoji);
-          void this.addReaction(check.channelId, check.messageTs, doneEmoji);
-        }
+  /** Projects the desired lifecycle reaction onto a binding's current inbound message, diffing against
+   *  what's already shown so only the delta hits Slack. */
+  private projectReaction(bindingKey: string, channelId: string, messageTs: string, emoji: string | null): void {
+    const current = this.currentReactions.get(bindingKey);
+
+    // A newer inbound message superseded the one we last reacted on: clear its stale transient mark
+    // (a settled ✅/❌ stays — that turn really finished), then drop it as the tracked message.
+    if (current && current.messageTs !== messageTs) {
+      if (!TERMINAL_THREAD_REACTION_EMOJI.has(current.emoji)) {
+        void this.removeReaction(channelId, current.messageTs, current.emoji);
       }
-      return;
+      this.currentReactions.delete(bindingKey);
     }
 
-    // Backward-compat only: update reactions for old stored bindings that still carry
-    // a lastInboundTs (written before per-message reaction tracking was introduced).
-    const isError = payload.status === 'error';
-    const isTurnComplete = payload.status === 'running' && (payload.queueDepth ?? 0) === 0;
-    if (!isError && !isTurnComplete) return;
-
-    const bindings = this.workspaceManager.bindingsForThread(payload.threadId);
-    if (bindings.length === 0) return;
-
-    const doneEmoji = isError ? 'x' : 'white_check_mark';
-    for (const binding of bindings) {
-      if (binding.lastInboundTs) {
-        void this.removeReaction(binding.channelId, binding.lastInboundTs, 'eyes');
-        void this.addReaction(binding.channelId, binding.lastInboundTs, doneEmoji);
+    const prev = this.currentReactions.get(bindingKey)?.emoji;
+    const { remove, add } = reconcileReaction(prev, emoji);
+    if (remove) void this.removeReaction(channelId, messageTs, remove);
+    if (add) {
+      void this.addReaction(channelId, messageTs, add);
+      this.currentReactions.set(bindingKey, { messageTs, emoji: add });
+      // Evict the oldest binding entry if the cache grows too large (best-effort projection state).
+      if (this.currentReactions.size > 500) {
+        const firstKey = this.currentReactions.keys().next().value;
+        if (firstKey !== undefined && firstKey !== bindingKey) this.currentReactions.delete(firstKey);
       }
+    } else if (remove) {
+      this.currentReactions.delete(bindingKey);
     }
   }
 
@@ -439,7 +445,7 @@ class SlackBridge extends BaseBridge<SlackBridgeDeps> {
     this.stopSocketMode();
     this.startedBotToken = null;
     this.processedMessageKeys.clear();
-    this.pendingAutopilotChecks.clear();
+    this.currentReactions.clear();
     // catchupService lives across stop()/applySettings cycles — clear its in-memory
     // pending and notification state so a re-enabled bridge doesn't inherit phantom
     // entries that would pin the cursor or suppress error notices forever.
