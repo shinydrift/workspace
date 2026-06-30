@@ -1,6 +1,7 @@
 import * as threadStore from '../threads/threadStore';
 import { eventLogger } from '../utils/eventLog';
 import { emitTurnEnded } from '../events';
+import { threadPostsStore } from './threadPostsStore';
 import type { ThreadInputQueue, QueueSource } from './ThreadInputQueue';
 import type { TurnExecutor } from './turnExecution';
 import type { ThreadLifecycle } from './ThreadLifecycle';
@@ -97,6 +98,10 @@ export class ThreadInputService {
     const history = [...(thread?.promptHistory ?? []), trimmed].slice(-100);
     threadStore.updateThread(threadId, { promptHistory: history, lastActiveAt: Date.now() });
     this.output.appendNormalizedMessage(threadId, 'user', trimmed, input);
+    // Interrupting turns skip persistUserInput (persistExecInput=false below), so append the thread-view
+    // prompt post here too — otherwise an interrupting message never appears in the thread view and any
+    // optimistic placeholder for it would never reconcile.
+    threadPostsStore.append(threadId, 'prompt', 'user', trimmed);
     this.output.clearPendingOutput(threadId);
 
     activeTurn.proc.kill();

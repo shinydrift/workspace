@@ -13,6 +13,11 @@ interface PromptInputProps {
   onStop?: () => void;
   autopilotEnabled?: boolean;
   onToggleAutopilot?: () => void;
+  /**
+   * Fired with the trimmed prompt text the instant a send starts, for optimistic rendering.
+   * Returns a remover invoked if the send fails so the optimistic post doesn't linger.
+   */
+  onSend?: (text: string) => () => void;
 }
 
 export function PromptInput({
@@ -22,6 +27,7 @@ export function PromptInput({
   onStop,
   autopilotEnabled,
   onToggleAutopilot,
+  onSend,
 }: PromptInputProps) {
   const {
     error,
@@ -54,6 +60,7 @@ export function PromptInput({
   async function send() {
     const trimmed = value.trim();
     if (!trimmed && attachedFiles.length === 0) return;
+    const clearOptimistic = trimmed ? onSend?.(trimmed) : undefined;
     setError('');
     setValue('');
     const filesToSend = attachedFiles;
@@ -74,6 +81,7 @@ export function PromptInput({
       }
       await window.electronAPI.terminal.sendInput({ threadId, input: input + '\n' });
     } catch (e: unknown) {
+      clearOptimistic?.();
       setError(e instanceof Error ? e.message : String(e));
       setValue(trimmed);
       setAttachedFiles(filesToSend);

@@ -37,7 +37,7 @@ export function ThreadDetail({ thread, noCard, initialView }: Props) {
     injected: false,
   });
   const { messages, streamingBlocks, isStreaming } = useMessages(thread);
-  const threadPosts = useThreadPosts(thread.id);
+  const { posts: threadPosts, addOptimistic } = useThreadPosts(thread.id);
   const councilRuns = useCouncilRuns(thread.id);
   const councilPending = councilRuns.some((e) => e.run.status === 'pending' || e.run.status === 'running');
   const liveStatus = deriveLiveThreadPostStatus(thread.status, thread.autopilotState, councilPending);
@@ -113,6 +113,7 @@ export function ThreadDetail({ thread, noCard, initialView }: Props) {
           <div className="rounded-xl border border-border/50 overflow-hidden">
             <PromptInput
               threadId={thread.id}
+              onSend={addOptimistic}
               isRunning={
                 (thread.queueDepth ?? 0) > 0 || thread.autopilotState === 'thinking' || thread.autopilotState === 'sent'
               }

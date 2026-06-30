@@ -5,6 +5,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { renderMarkdown } from '../../lib/markdown';
 import { handleCodeCopy } from '../chat/messageUtils';
 import { Sparkle, User, Paperclip } from '@phosphor-icons/react';
+import { OPTIMISTIC_PREFIX } from '../../hooks/useThreadPosts';
 
 const KIND_LABEL: Record<Exclude<ThreadPost['kind'], 'prompt'>, string> = {
   update: 'Update',
@@ -28,6 +29,7 @@ function formatTime(ms: number): string {
 
 const PostRow = memo(function PostRow({ post, live }: { post: ThreadPost; live: LiveThreadPostStatus | null }) {
   const isUser = post.author === 'user';
+  const pending = post.id.startsWith(OPTIMISTIC_PREFIX);
   const html = useMemo(() => renderMarkdown(post.text), [post.text]);
   const badge = post.kind === 'prompt' ? null : KIND_LABEL[post.kind];
   // Persisted terminal outcome wins; otherwise show the live transient badge (current prompt only).
@@ -35,7 +37,7 @@ const PostRow = memo(function PostRow({ post, live }: { post: ThreadPost; live: 
   const status = effectiveStatus ? STATUS_BADGE[effectiveStatus] : null;
 
   return (
-    <div className="flex gap-3">
+    <div className={`flex gap-3${pending ? ' opacity-60' : ''}`}>
       <div
         className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${
           isUser ? 'bg-muted text-foreground/70' : 'bg-primary/10 text-primary'
@@ -51,11 +53,17 @@ const PostRow = memo(function PostRow({ post, live }: { post: ThreadPost; live: 
               {badge}
             </span>
           )}
-          <span className="text-xs text-muted-foreground">{formatTime(post.createdAt)}</span>
-          {status && (
-            <span className="text-xs" title={status.label} aria-label={status.label}>
-              {status.emoji}
-            </span>
+          {pending ? (
+            <span className="text-xs italic text-muted-foreground">Sending…</span>
+          ) : (
+            <>
+              <span className="text-xs text-muted-foreground">{formatTime(post.createdAt)}</span>
+              {status && (
+                <span className="text-xs" title={status.label} aria-label={status.label}>
+                  {status.emoji}
+                </span>
+              )}
+            </>
           )}
         </div>
         <div
