@@ -58,29 +58,41 @@ function resolveAutomationChannel(job: AutomationJob): string | null {
   return notification.slackChannelId ?? resolveSlackChannelForProject(job.projectId);
 }
 
-async function setupNotificationContext(threadId: string, job: AutomationJob, channelId: string | null): Promise<void> {
+// Returns the Slack anchor message ts (when posted) so the failure notice can thread under it too.
+async function setupNotificationContext(
+  threadId: string,
+  job: AutomationJob,
+  channelId: string | null
+): Promise<string | null> {
   const notification = job.notification;
-  if (!notification) return;
+  if (!notification) return null;
 
   if (notification.channel === 'slack') {
     if (channelId) {
-      // Channel-scoped binding (no reply anchor): the agent's start line and summary post through
-      // the thread path and echo to the channel as new top-level messages.
+      // Post one top-level anchor for this run, then bind the thread to its ts so the agent's start
+      // line, summary, and any failure notice thread under it instead of flooding the channel as
+      // separate top-level messages. Mirrors the kanban main-thread flow (slackBridge.openTaskThread).
+      const anchorTs = await slackBridge.sendChannelNotification(channelId, `⚡ *${job.name}*`);
+      // Keep slackCtx.threadTs null regardless: it drives the system-prompt branch (null = autonomous
+      // automation; a non-null ts flips the thread into the inbound, approval-gated prompt). The echo
+      // destination is driven separately by the binding's threadTs set just below.
       threadManager.setSlackContext(threadId, { channelId, threadTs: null });
-      slackBridge.bindThreadToSlackThread(threadId, channelId);
+      slackBridge.bindThreadToSlackThread(threadId, channelId, anchorTs ?? undefined);
       eventLogger.info('automation', 'Slack context set for automation thread', {
         automationId: job.id,
         threadId,
         channelId,
+        anchored: Boolean(anchorTs),
         resolved: !notification.slackChannelId,
       });
-    } else {
-      eventLogger.warn('automation', 'No Slack channel resolved for automation notification', {
-        automationId: job.id,
-        threadId,
-      });
+      return anchorTs;
     }
+    eventLogger.warn('automation', 'No Slack channel resolved for automation notification', {
+      automationId: job.id,
+      threadId,
+    });
   }
+  return null;
 }
 
 // ── Thread management ─────────────────────────────────────────────────────────
@@ -136,7 +148,7 @@ export async function executeRun(
   const thread = threadManager.getThread(threadId);
   if (!thread) throw new Error(`Thread ${threadId} not found after creation`);
 
-  await setupNotificationContext(threadId, job, channelId);
+  const anchorTs = await setupNotificationContext(threadId, job, channelId);
 
   if (thread.status !== 'running') {
     await threadManager.startThread(threadId);
@@ -183,25 +195,23 @@ export async function executeRun(
       status: 'error',
       errorMessage: getErrorMessage(error),
     });
-    if (job.notification?.onFailure) sendFailureNotification(job, threadId);
+    if (job.notification?.onFailure) sendFailureNotification(job, threadId, anchorTs);
     throw error;
   }
 }
 
 // ── Notifications ─────────────────────────────────────────────────────────────
 
-function sendFailureNotification(job: AutomationJob, threadId: string): void {
+function sendFailureNotification(job: AutomationJob, threadId: string, anchorTs: string | null): void {
   const channel = job.notification?.channel;
   if (!channel) return;
 
   if (channel === 'slack') {
     const slackCtx = integrationContextManager.getSlackContext(threadId);
     if (slackCtx) {
-      void slackBridge.sendChannelNotification(
-        slackCtx.channelId,
-        `❌ *${job.name}* failed`,
-        slackCtx.threadTs ?? undefined
-      );
+      // Thread under the run's anchor (slackCtx.threadTs is intentionally null for automation — see
+      // setupNotificationContext) so the failure notice lands with the rest of the run's updates.
+      void slackBridge.sendChannelNotification(slackCtx.channelId, `❌ *${job.name}* failed`, anchorTs ?? undefined);
     }
   }
 

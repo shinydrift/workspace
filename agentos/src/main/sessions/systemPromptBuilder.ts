@@ -206,13 +206,13 @@ export function buildHeadlessSystemPrompt(input: HeadlessPromptInput): HeadlessP
         `\nOnly posts you make via these tools appear in the Thread view and Slack — your stdout is not forwarded.`;
       extraEnv = { ...(extraEnv ?? {}), SLACK_CHANNEL_ID: slackCtx.channelId, SLACK_THREAD_TS: slackCtx.threadTs };
     } else if (slackCtx) {
-      // Automation: channel-scoped binding, no reply anchor. Posts go through the thread path like
-      // everything else — they land in the Thread view and echo to the channel as new top-level
-      // messages. Fully autonomous; no approval gate.
+      // Automation: posts go through the thread path like everything else — they land in the Thread
+      // view and echo to the channel as replies under the run's anchor message (the binding carries
+      // the anchor ts; see automations/runner.ts). Fully autonomous; no approval gate.
       postingPrompt =
         `\nThis is an automated task running in its own thread.\n` +
         `Post to the current thread via the 'agentos-thread' MCP server — posts appear in the in-app ` +
-        `Thread view (the primary surface) and echo to any connected channel as new top-level messages:\n` +
+        `Thread view (the primary surface) and echo to any connected channel as replies under the run's message:\n` +
         `- post_update(thread_id, message): post an update.\n` +
         `Always pass AGENTOS_THREAD_ID as thread_id.\n` +
         `\nPost exactly twice:\n` +
