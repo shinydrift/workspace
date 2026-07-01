@@ -22,6 +22,7 @@ interface UIStore {
   memoryIndexProgress: string | null;
   threadFilter: ThreadFilter;
   devMode: boolean;
+  editor: { label: string; command: string } | null;
   pendingTranscript: PendingTranscript | null;
 
   setSelectedThread: (id: string | null) => void;
@@ -30,6 +31,7 @@ interface UIStore {
   setMemoryIndexProgress: (msg: string | null) => void;
   setThreadFilter: (patch: Partial<ThreadFilter>) => void;
   setDevMode: (value: boolean) => void;
+  setEditor: (value: { label: string; command: string } | null) => void;
   setPendingTranscript: (value: PendingTranscript | null) => void;
 }
 
@@ -40,6 +42,7 @@ export const useUIStore = create<UIStore>((set) => ({
   memoryIndexProgress: null,
   threadFilter: { query: '', status: 'all', sortBy: 'newest' },
   devMode: false,
+  editor: null,
   pendingTranscript: null,
 
   setSelectedThread: (id) => set({ selectedThreadId: id }),
@@ -48,5 +51,6 @@ export const useUIStore = create<UIStore>((set) => ({
   setMemoryIndexProgress: (msg) => set({ memoryIndexProgress: msg }),
   setThreadFilter: (patch) => set((state) => ({ threadFilter: { ...state.threadFilter, ...patch } })),
   setDevMode: (value) => set({ devMode: value }),
+  setEditor: (value) => set({ editor: value }),
   setPendingTranscript: (value) => set({ pendingTranscript: value }),
 }));

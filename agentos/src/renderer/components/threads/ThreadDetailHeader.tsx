@@ -3,6 +3,7 @@ import type { Thread, ThreadInjectionStatus, SlackChannelOption } from '../../..
 import { MODEL_LABEL, PROVIDER_LABEL } from '../../../shared/types/provider';
 import { CheckCircle, HourglassSimple, PaperPlaneTilt } from '@phosphor-icons/react';
 import { Tooltip } from '../ui/tooltip';
+import { useUIStore } from '../../store/uiStore';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import type { DetailView } from './ThreadDetail';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
@@ -28,6 +29,16 @@ export function ThreadDetailHeader({
   onViewChange,
 }: Props) {
   const isTaskMainThread = thread.agentRole === 'task-main' && !!thread.taskId;
+
+  const editor = useUIStore((s) => s.editor);
+  const editorCommand = editor?.command.trim() ?? '';
+  const editorLabel = editor?.label.trim() || editorCommand;
+
+  function openInEditor() {
+    window.electronAPI?.shell.openInEditor(thread.workingDirectory).catch((err) => {
+      console.warn('Failed to open in editor', err);
+    });
+  }
 
   const [shareOpen, setShareOpen] = useState(false);
   const [message, setMessage] = useState('');
@@ -100,6 +111,16 @@ export function ThreadDetailHeader({
                 ? (MODEL_LABEL[thread.model] ?? thread.model)
                 : (PROVIDER_LABEL[thread.provider as keyof typeof PROVIDER_LABEL] ?? thread.provider)}
             </span>
+          ) : null}
+          {editorCommand ? (
+            <Tooltip content={`Open ${thread.workingDirectory} in ${editorLabel}`}>
+              <button
+                onClick={openInEditor}
+                className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-foreground/60 hover:bg-muted hover:text-foreground transition-colors"
+              >
+                {editorLabel}
+              </button>
+            </Tooltip>
           ) : null}
         </div>
       </div>

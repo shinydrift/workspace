@@ -186,6 +186,7 @@ const api = {
 
   shell: {
     openExternal: (url: string) => invoke('shell:openExternal', { url }),
+    openInEditor: (folderPath: string) => invoke('shell:openInEditor', { folderPath }),
   },
 
   env: {

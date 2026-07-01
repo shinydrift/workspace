@@ -16,7 +16,7 @@ export function useAppSync() {
     upsertProject,
     removeProject,
   } = useDomainStore();
-  const { setSandboxBuildProgress, setMemoryIndexProgress, setDevMode } = useUIStore();
+  const { setSandboxBuildProgress, setMemoryIndexProgress, setDevMode, setEditor } = useUIStore();
   const { setLogs, addLogs } = useLogsStore();
 
   const ttsEnabledRef = useRef(false);
@@ -36,6 +36,7 @@ export function useAppSync() {
       .then((s) => {
         ttsEnabledRef.current = Boolean(s.voice?.ttsEnabled);
         setDevMode(Boolean(s.devMode));
+        setEditor(s.editor ?? null);
       })
       .catch((err) => {
         console.warn('Failed to load settings', err);
@@ -106,6 +107,7 @@ export function useAppSync() {
     const unsubSettings = window.electronAPI.on.settingsChanged((settings) => {
       ttsEnabledRef.current = Boolean(settings.voice?.ttsEnabled);
       setDevMode(Boolean(settings.devMode));
+      setEditor(settings.editor ?? null);
     });
 
     const unsubProjectSaved = window.electronAPI.on.projectSaved((project) => {

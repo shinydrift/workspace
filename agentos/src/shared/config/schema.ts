@@ -214,6 +214,7 @@ const appSettingsSchema = baseConfigSchema.extend({
   voiceFlow: voiceFlowSchema.optional(),
   meetingProjectPath: z.string().optional(),
   mcpRequireAuth: z.boolean().optional(),
+  editor: z.object({ label: z.string(), command: z.string(), args: z.string().optional() }).optional(),
 });
 export type AppSettings = z.infer<typeof appSettingsSchema>;
 

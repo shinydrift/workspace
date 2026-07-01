@@ -1,4 +1,4 @@
-import { execFile } from 'child_process';
+import { execFile, spawn } from 'child_process';
 import { promisify } from 'util';
 import { ipcMain, shell, desktopCapturer, dialog, BrowserWindow, app, clipboard } from 'electron';
 import { z } from 'zod';
@@ -8,11 +8,13 @@ import { threadPostsStore } from '../../sessions/threadPostsStore';
 import { getLogHistory } from '../../utils/eventLog';
 import { runHealthChecks } from '../../health/service';
 import { getHostShellEnv } from '../../utils/hostEnv';
+import { getStore } from '../../store';
 import { ThreadIdSchema } from './schemas';
 import { handleIpc } from '../ipcResponse';
 
 const execFileAsync = promisify(execFile);
 const OpenExternalSchema = z.object({ url: z.string().url() });
+const OpenInEditorSchema = z.object({ folderPath: z.string().min(1) });
 
 export function registerMiscHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.MESSAGES_LIST, (_e, raw) =>
@@ -53,6 +55,46 @@ export function registerMiscHandlers(): void {
       if (url.startsWith('http://') || url.startsWith('https://')) {
         await shell.openExternal(url);
       }
+    })
+  );
+
+  ipcMain.handle(IPC_CHANNELS.SHELL_OPEN_IN_EDITOR, (_e, raw) =>
+    handleIpc(async () => {
+      const { folderPath } = OpenInEditorSchema.parse(raw);
+      const editor = getStore().get('settings').editor;
+      const bin = editor?.command?.trim();
+      // No editor configured (or its launch fails) → fall back to the OS file manager so the
+      // action never silently no-ops. shell.openPath resolves to '' on success, an error string
+      // otherwise.
+      const openInFileManager = () => shell.openPath(folderPath);
+      if (!bin) {
+        await openInFileManager();
+        return;
+      }
+      // `command` is the whole executable — kept intact so a full path with spaces (e.g. a macOS
+      // `.app` bundle path) still resolves; extra flags live in the separate `args` field. The
+      // folder is always the final argument. Resolve against the user's interactive shell PATH: a
+      // GUI-launched Electron app inherits a minimal PATH, so `code`/`cursor` would otherwise not
+      // be found. spawn (no shell) keeps the user-supplied strings injection-safe.
+      const extraArgs = editor?.args?.trim() ? editor.args.trim().split(/\s+/) : [];
+      const hostEnv = await getHostShellEnv();
+      // Spawn detached and don't await the child's lifetime: a GUI editor that stays open (or a
+      // `--wait` flag) must not keep the IPC call pending or buffer the child's stdout. Resolve as
+      // soon as it launches; fall back to the file manager only on a launch error (e.g. ENOENT).
+      await new Promise<void>((resolve) => {
+        try {
+          const child = spawn(bin, [...extraArgs, folderPath], {
+            env: { ...process.env, ...hostEnv },
+            detached: true,
+            stdio: 'ignore',
+          });
+          child.once('spawn', () => resolve());
+          child.once('error', () => void openInFileManager().finally(() => resolve()));
+          child.unref();
+        } catch {
+          void openInFileManager().finally(() => resolve());
+        }
+      });
     })
   );
 

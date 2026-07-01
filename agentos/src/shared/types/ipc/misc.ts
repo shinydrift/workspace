@@ -1,5 +1,6 @@
 export const MISC_IPC_CHANNELS = {
   SHELL_OPEN_EXTERNAL: 'shell:openExternal',
+  SHELL_OPEN_IN_EDITOR: 'shell:openInEditor',
   LOG_GET_HISTORY: 'log:getHistory',
   HEALTH_RUN: 'health:run',
   ENV_LIST_SHELL_VARS: 'env:listShellVars',
