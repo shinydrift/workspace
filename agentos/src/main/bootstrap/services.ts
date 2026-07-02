@@ -19,6 +19,7 @@ import { initVoiceFlowHotkey, stopVoiceFlowHotkey } from '../audio/voiceFlowHotk
 import { meetingDetector } from '../meetings/meetingDetector';
 import { kanbanMcpServer } from '../kanban/mcpServer';
 import { recordingsMcpServer } from '../integrations/recordingsMcpServer';
+import { startSegmentRetention, stopSegmentRetention } from '../audio/segmentRetention';
 import { kanbanEventRouter } from '../kanban/eventRouter';
 import { reconcileOrphanedTasks } from '../kanban/taskMain';
 import { startKanbanArchiver } from '../kanban/archiver';
@@ -245,6 +246,7 @@ export function bootServices(
   safeInit('council-mcp', () => councilMcpServer.start());
   safeInit('autopilot-mcp', () => autopilotMcpServer.start());
   safeInit('recordings-mcp', () => recordingsMcpServer.start());
+  safeInit('segment-retention', () => startSegmentRetention());
 
   safeInit('slack', () => {
     slackBridge.init(buildSlackConfig());
@@ -455,6 +457,7 @@ export function bootServices(
     },
   });
   disposables.push(recordingsMcpServer);
+  disposables.push({ dispose: () => stopSegmentRetention() });
   disposables.push(councilMcpServer);
   disposables.push(autopilotMcpServer);
   disposables.push(slackBridge);

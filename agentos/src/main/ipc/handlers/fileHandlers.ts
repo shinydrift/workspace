@@ -12,6 +12,7 @@ import {
   setRecordingTitle,
   deleteRecording,
   listRecordings,
+  listSegmentsInRange,
 } from '../../threads/db';
 import { handleIpc } from '../ipcResponse';
 
@@ -43,6 +44,15 @@ const RecordingSaveSchema = z.object({
   arrayBuffer: z.instanceof(ArrayBuffer).refine((b) => b.byteLength <= MAX_AUDIO_BYTES, 'Audio too large'),
   transcript: z.string().refine((t) => Buffer.byteLength(t, 'utf8') <= MAX_TRANSCRIPT_BYTES, 'Transcript too large'),
   title: z.string().max(MAX_TITLE_LENGTH).optional(),
+  // Continuous capture saves rolling clips with kind='segment' and an explicit
+  // wall-clock start; manual meetings omit both (default kind, createdAt = now).
+  kind: z.literal('segment').optional(),
+  startedAt: z.number().finite().nonnegative().optional(),
+});
+
+const RecordingSegmentsSchema = z.object({
+  from: z.number().finite().nonnegative(),
+  to: z.number().finite().nonnegative(),
 });
 
 const recordingIdSchema = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
@@ -99,7 +109,7 @@ export function registerFileHandlers(): void {
 
   ipcMain.handle(IPC_CHANNELS.RECORDING_SAVE, (_e, raw: unknown) =>
     handleIpc(async () => {
-      const { duration, arrayBuffer, transcript, title } = RecordingSaveSchema.parse(raw);
+      const { duration, arrayBuffer, transcript, title, kind, startedAt } = RecordingSaveSchema.parse(raw);
       const recordingId = nanoid();
       const root = recordingsRoot();
       const dir = path.join(root, recordingId);
@@ -115,7 +125,9 @@ export function registerFileHandlers(): void {
           audioPath: path.join(dir, 'audio.wav'),
           transcriptPath: path.join(dir, 'transcript.txt'),
           durationSeconds: duration,
-          createdAt: Date.now(),
+          // Segments record their wall-clock start so time-slot ranges line up; manual meetings stamp now.
+          createdAt: kind === 'segment' && startedAt !== undefined ? startedAt : Date.now(),
+          kind: kind ?? null,
         });
       } catch (err) {
         try {
@@ -178,6 +190,13 @@ export function registerFileHandlers(): void {
       const limit = Math.min(raw?.limit ?? 50, 200);
       const offset = raw?.offset ?? 0;
       return listRecordings(limit, offset);
+    })
+  );
+
+  ipcMain.handle(IPC_CHANNELS.RECORDING_SEGMENTS, (_e, raw: unknown) =>
+    handleIpc(async () => {
+      const { from, to } = RecordingSegmentsSchema.parse(raw);
+      return listSegmentsInRange(from, to);
     })
   );
 }

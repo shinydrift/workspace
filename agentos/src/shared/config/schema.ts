@@ -213,6 +213,8 @@ const appSettingsSchema = baseConfigSchema.extend({
   voice: voiceSchema.optional(),
   voiceFlow: voiceFlowSchema.optional(),
   meetingProjectPath: z.string().optional(),
+  // Continuous capture: always-on rolling 5-minute segments. Off by default (privacy).
+  continuousCaptureEnabled: z.boolean().optional(),
   mcpRequireAuth: z.boolean().optional(),
   editor: z.object({ label: z.string(), command: z.string(), args: z.string().optional() }).optional(),
 });

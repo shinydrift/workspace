@@ -17,6 +17,7 @@ import { MainContentRouter } from './MainContentRouter';
 import { useVoiceFlow } from '../../hooks/useVoiceFlow';
 import { RecordingPill } from '../voice-flow/RecordingPill';
 import { useMeetingRecorder } from '../../hooks/useMeetingRecorder';
+import { useContinuousCapture } from '../../hooks/useContinuousCapture';
 import type { DetailView } from '../threads/ThreadDetail';
 
 function VoiceFlowController() {
@@ -81,6 +82,8 @@ export function AppShell() {
   const [meetingWorkingDir, setMeetingWorkingDir] = useState('');
   const [meetingProjectName, setMeetingProjectName] = useState<string | undefined>(undefined);
   const meetingRecorder = useMeetingRecorder(meetingWorkingDir, meetingProjectName);
+  // Always-on capture lives here (app root) so 5-min segments keep rolling across navigation.
+  const continuousCapture = useContinuousCapture();
   const handleMeetingDirChange = useCallback((dir: string, projectName?: string) => {
     setMeetingWorkingDir(dir);
     setMeetingProjectName(projectName);
@@ -240,6 +243,7 @@ export function AppShell() {
             onProjectDeleted={() => setSelectedProject(null)}
             onProjectRenamed={(newName) => setSelectedProject((p) => (p ? { ...p, name: newName } : p))}
             meetingRecorder={meetingRecorder}
+            continuousCapture={continuousCapture}
             onMeetingDirChange={handleMeetingDirChange}
             onSelectProject={(path, name) => {
               setSelectedThread(null);

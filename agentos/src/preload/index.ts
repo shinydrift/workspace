@@ -203,6 +203,7 @@ const api = {
     saveRecording: (req: IPCInput<'recording:save'>) => invoke('recording:save', req),
     setRecordingThread: (req: IPCInput<'recording:setThread'>) => invoke('recording:setThread', req),
     listRecordings: () => invoke('recording:list'),
+    listSegments: (req: IPCInput<'recording:segments'>) => invoke('recording:segments', req),
   },
 
   desktopCapturer: {

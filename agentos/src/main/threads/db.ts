@@ -3,7 +3,7 @@ import fs from 'fs';
 // eslint-disable-next-line import/no-named-as-default
 import type Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
-import { eq, desc, inArray, and, lt } from 'drizzle-orm';
+import { eq, desc, inArray, and, lt, or, ne, isNull, asc, sql } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import type { SavedProject, SlackThreadBinding, RecordingRecord } from '../../shared/types';
 import type { AutomationJob } from '../../shared/types/automation';
@@ -332,6 +332,7 @@ function rowToRecording(row: RecordingRow): RecordingRecord {
     transcriptPath: row.transcriptPath,
     durationSeconds: row.durationSeconds,
     createdAt: row.createdAt,
+    kind: row.kind ?? null,
   };
 }
 
@@ -346,6 +347,7 @@ export function saveRecording(recording: Omit<RecordingRecord, 'threadId'>): voi
       transcriptPath: recording.transcriptPath,
       durationSeconds: recording.durationSeconds,
       createdAt: recording.createdAt,
+      kind: recording.kind ?? null,
     })
     .run();
 }
@@ -384,14 +386,54 @@ export function deleteRecording(recordingId: string): string[] {
 }
 
 export function listRecordings(limit = 50, offset = 0): RecordingRecord[] {
+  // Manual meetings only — continuous-capture segments are excluded from the list.
   return getDb()
     .select()
     .from(recordings)
+    .where(or(isNull(recordings.kind), ne(recordings.kind, 'segment')))
     .orderBy(desc(recordings.createdAt))
     .limit(limit)
     .offset(offset)
     .all()
     .map(rowToRecording);
+}
+
+/**
+ * Continuous-capture segments whose [createdAt, createdAt + duration) window overlaps
+ * the [from, to] range, oldest first. createdAt holds each segment's wall-clock start.
+ */
+export function listSegmentsInRange(from: number, to: number): RecordingRecord[] {
+  return getDb()
+    .select()
+    .from(recordings)
+    .where(
+      and(
+        eq(recordings.kind, 'segment'),
+        lt(recordings.createdAt, to),
+        sql`${recordings.createdAt} + ${recordings.durationSeconds} * 1000 > ${from}`
+      )
+    )
+    .orderBy(asc(recordings.createdAt))
+    .all()
+    .map(rowToRecording);
+}
+
+/**
+ * Atomically read-and-delete all segment rows older than the cutoff, returning their
+ * audio + transcript paths so the caller can remove the on-disk files. Manual meeting
+ * recordings (kind IS NULL) are never touched.
+ */
+export function pruneSegmentsOlderThan(cutoffMs: number): string[] {
+  const raw = getThreadsDb();
+  const select = raw.prepare(
+    `SELECT audio_path, transcript_path FROM recordings WHERE kind = 'segment' AND created_at < ?`
+  );
+  const del = raw.prepare(`DELETE FROM recordings WHERE kind = 'segment' AND created_at < ?`);
+  return raw.transaction(() => {
+    const rows = select.all(cutoffMs) as { audio_path: string; transcript_path: string }[];
+    del.run(cutoffMs);
+    return rows.flatMap((r) => [r.audio_path, r.transcript_path]);
+  })();
 }
 
 // ---------------------------------------------------------------------------

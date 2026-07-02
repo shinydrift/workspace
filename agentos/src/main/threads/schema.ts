@@ -134,10 +134,15 @@ export const recordings = sqliteTable(
     transcriptPath: text('transcript_path').notNull(),
     durationSeconds: real('duration_seconds').notNull(),
     createdAt: integer('created_at').notNull(),
+    // null → a manual meeting recording (default). 'segment' → a rolling 5-minute
+    // clip from continuous capture: excluded from the recordings list, time-slot
+    // queryable, and auto-pruned after the retention window.
+    kind: text('kind'),
   },
   (table) => [
     index('idx_recordings_thread_id').on(table.threadId),
     index('idx_recordings_created_at').on(table.createdAt),
+    index('idx_recordings_kind_created').on(table.kind, table.createdAt),
   ]
 );
 

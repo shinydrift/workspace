@@ -232,7 +232,14 @@ export type IPCMap = {
     output: { path: string };
   };
   'recording:save': {
-    input: { duration: number; arrayBuffer: ArrayBuffer; transcript: string };
+    input: {
+      duration: number;
+      arrayBuffer: ArrayBuffer;
+      transcript: string;
+      title?: string;
+      kind?: 'segment';
+      startedAt?: number;
+    };
     output: { recordingId: string };
   };
   'recording:setThread': {
@@ -249,6 +256,10 @@ export type IPCMap = {
   };
   'recording:list': {
     input: undefined;
+    output: RecordingRecord[];
+  };
+  'recording:segments': {
+    input: { from: number; to: number };
     output: RecordingRecord[];
   };
 
@@ -464,6 +475,7 @@ export const TYPED_CHANNEL_SET: ReadonlySet<string> = new Set<IPCChannel>([
   'recording:setTitle',
   'recording:delete',
   'recording:list',
+  'recording:segments',
   'desktop:getSources',
   'kanban:list',
   'kanban:get',

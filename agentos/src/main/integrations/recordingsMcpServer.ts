@@ -4,7 +4,7 @@ import { app } from 'electron';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { BaseMcpServer } from '../mcp/BaseMcpServer';
-import { getRecording, listRecordings } from '../threads/db';
+import { getRecording, listRecordings, listSegmentsInRange } from '../threads/db';
 
 const MAX_TRANSCRIPT_BYTES = 5 * 1024 * 1024; // 5 MB
 
@@ -100,6 +100,63 @@ class RecordingsMcpServer extends BaseMcpServer {
             null,
             2
           );
+        })
+    );
+
+    server.tool(
+      'list_segments',
+      'List continuous-capture 5-minute segments whose time window overlaps [from, to] (unix ms), oldest first.',
+      {
+        from: z.number().int().nonnegative().describe('Start of the window, unix ms.'),
+        to: z.number().int().nonnegative().describe('End of the window, unix ms.'),
+      },
+      ({ from, to }) =>
+        this.runTool(() => {
+          const rows = listSegmentsInRange(from, to);
+          return JSON.stringify(
+            rows.map((r) => ({
+              id: r.id,
+              started_at: r.createdAt,
+              duration_seconds: r.durationSeconds,
+            })),
+            null,
+            2
+          );
+        })
+    );
+
+    server.tool(
+      'get_window_transcript',
+      'Return the merged transcript of all continuous-capture segments overlapping [from, to] (unix ms), ' +
+        'in chronological order with a timestamped header per segment (capped at 5 MB).',
+      {
+        from: z.number().int().nonnegative().describe('Start of the window, unix ms.'),
+        to: z.number().int().nonnegative().describe('End of the window, unix ms.'),
+      },
+      ({ from, to }) =>
+        this.runTool(async () => {
+          const rows = listSegmentsInRange(from, to);
+          if (rows.length === 0) return 'No recorded segments in the selected time window.';
+          const parts: string[] = [];
+          let total = 0;
+          for (const row of rows) {
+            const header = `\n[${new Date(row.createdAt).toISOString()}]\n`;
+            let body: string;
+            try {
+              const resolved = assertTranscriptPath(row.transcriptPath);
+              body = await fs.readFile(resolved, 'utf8');
+            } catch {
+              body = '(transcript unavailable)';
+            }
+            const piece = header + body;
+            if (total + Buffer.byteLength(piece, 'utf8') > MAX_TRANSCRIPT_BYTES) {
+              parts.push('\n[truncated: window transcript exceeds 5 MB]');
+              break;
+            }
+            parts.push(piece);
+            total += Buffer.byteLength(piece, 'utf8');
+          }
+          return parts.join('').trim();
         })
     );
   }

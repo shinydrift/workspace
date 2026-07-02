@@ -7,6 +7,7 @@ import { ProjectDetail } from '../project/ProjectDetail';
 import { GlobalInsightsPanel } from '../insights/GlobalInsightsPanel';
 import { MeetingPanel } from '../meetings/MeetingPanel';
 import type { UseMeetingRecorderResult } from '../../hooks/useMeetingRecorder';
+import type { UseContinuousCaptureResult } from '../../hooks/useContinuousCapture';
 
 interface Props {
   activePanel: 'new-thread' | 'automations' | 'usage' | 'meetings' | null;
@@ -19,6 +20,7 @@ interface Props {
   onProjectDeleted: () => void;
   onProjectRenamed: (newName: string) => void;
   meetingRecorder: UseMeetingRecorderResult;
+  continuousCapture: UseContinuousCaptureResult;
   onMeetingDirChange: (dir: string, projectName?: string) => void;
   onSelectProject: (path: string, name: string) => void;
   threadInitialView: DetailView | null;
@@ -35,6 +37,7 @@ export function MainContentRouter({
   onProjectDeleted,
   onProjectRenamed,
   meetingRecorder,
+  continuousCapture,
   onMeetingDirChange,
   onSelectProject,
   threadInitialView,
@@ -46,7 +49,13 @@ export function MainContentRouter({
     return <GlobalInsightsPanel onSelectProject={onSelectProject} />;
   }
   if (activePanel === 'meetings' && meetingEnabled && !selected) {
-    return <MeetingPanel recorder={meetingRecorder} onWorkingDirChange={onMeetingDirChange} />;
+    return (
+      <MeetingPanel
+        recorder={meetingRecorder}
+        continuousCapture={continuousCapture}
+        onWorkingDirChange={onMeetingDirChange}
+      />
+    );
   }
   return (
     <div className="min-h-0 flex-1 flex flex-col">

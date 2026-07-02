@@ -449,6 +449,19 @@ CREATE INDEX idx_stb_channel   ON slack_thread_bindings(channel_id);
 CREATE INDEX idx_stb_thread_id ON slack_thread_bindings(thread_id);
 `,
   },
+  {
+    // Continuous capture: rolling 5-minute segments live in the recordings table
+    // alongside manual meetings, discriminated by `kind` ('segment' vs NULL). The
+    // (kind, created_at) index backs time-slot range scans and retention pruning.
+    name: '0009_add_recording_kind',
+    run: (db) => {
+      const cols = db.prepare(`PRAGMA table_info(recordings)`).all() as { name: string }[];
+      if (!cols.some((c) => c.name === 'kind')) {
+        db.exec(`ALTER TABLE recordings ADD COLUMN kind TEXT`);
+      }
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_recordings_kind_created ON recordings(kind, created_at)`);
+    },
+  },
 ];
 
 // Derived from THREADS_MIGRATIONS so the seeding branch never goes stale.

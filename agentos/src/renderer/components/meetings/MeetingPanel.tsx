@@ -6,9 +6,12 @@ import { ScrollFade } from '@/components/ui/scroll-fade';
 import { Button } from '@/components/ui/button';
 import { MeetingRecorder } from './MeetingRecorder';
 import { MeetingsPanelHeader } from './MeetingsPanelHeader';
+import { ContinuousCaptureBar } from './ContinuousCaptureBar';
+import { SegmentTimeline } from './SegmentTimeline';
 import { cn, formatSeconds, getBaseName } from '@/lib/utils';
 import type { RecordingRecord, SavedProject, Thread } from '../../../shared/types';
 import type { ProcessingEntry, UseMeetingRecorderResult } from '../../hooks/useMeetingRecorder';
+import type { UseContinuousCaptureResult } from '../../hooks/useContinuousCapture';
 import { useDomainStore } from '../../store/domainStore';
 import { useUIStore } from '../../store/uiStore';
 
@@ -18,6 +21,7 @@ export function isMeetingThread(t: Thread) {
 
 interface MeetingPanelProps {
   recorder: UseMeetingRecorderResult;
+  continuousCapture: UseContinuousCaptureResult;
   onWorkingDirChange: (dir: string, projectName?: string) => void;
 }
 
@@ -141,7 +145,7 @@ function RecordingRow({
   );
 }
 
-export function MeetingPanel({ recorder, onWorkingDirChange }: MeetingPanelProps) {
+export function MeetingPanel({ recorder, continuousCapture, onWorkingDirChange }: MeetingPanelProps) {
   const { threads } = useDomainStore();
   const [projects, setProjects] = useState<SavedProject[]>([]);
   const [defaultProject, setDefaultProject] = useState<SavedProject | null>(null);
@@ -207,6 +211,9 @@ export function MeetingPanel({ recorder, onWorkingDirChange }: MeetingPanelProps
         <ScrollArea className="h-full">
           <div className="flex flex-col max-w-[1200px] w-full mx-auto">
             <MeetingRecorder recorder={recorder} />
+
+            <ContinuousCaptureBar capture={continuousCapture} />
+            <SegmentTimeline defaultProject={defaultProject} active={continuousCapture.enabled} />
 
             {!defaultProject && (
               <div

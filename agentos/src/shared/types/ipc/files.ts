@@ -6,6 +6,7 @@ export const FILES_IPC_CHANNELS = {
   RECORDING_SET_TITLE: 'recording:setTitle',
   RECORDING_DELETE: 'recording:delete',
   RECORDING_LIST: 'recording:list',
+  RECORDING_SEGMENTS: 'recording:segments',
 } as const;
 
 export interface RecordingRecord {
@@ -16,6 +17,8 @@ export interface RecordingRecord {
   transcriptPath: string;
   durationSeconds: number;
   createdAt: number;
+  // null → manual meeting recording; 'segment' → continuous-capture 5-min clip.
+  kind: string | null;
 }
 
 export interface FileUploadRequest {
