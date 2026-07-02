@@ -44,24 +44,23 @@ export const DEFAULT_BACKEND: Record<Provider, ProviderBackend> = {
 // Hardcoded model lists per provider, surfaced in the Provider Priority UI.
 // First entry is treated as the provider's default when no model is selected.
 export const PROVIDER_MODELS: Record<Provider, string[]> = {
-  claude: [
-    'claude-fable-5',
-    'claude-opus-4-8',
-    'claude-opus-4-7',
-    'claude-opus-4-7-1m',
-    'claude-sonnet-4-6',
-    'claude-haiku-4-5-20251001',
-  ],
+  claude: ['claude-fable-5', 'claude-opus-4-8', 'claude-opus-4-7', 'claude-sonnet-4-6', 'claude-haiku-4-5'],
   'claude-interactive': [
     'claude-fable-5',
     'claude-opus-4-8',
     'claude-opus-4-7',
-    'claude-opus-4-7-1m',
     'claude-sonnet-4-6',
-    'claude-haiku-4-5-20251001',
+    'claude-haiku-4-5',
   ],
-  codex: ['gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.3-codex'],
-  gemini: ['gemini-3.5-flash', 'gemini-3-pro-preview', 'gemini-3-flash-preview', 'gemini-2.5-pro', 'gemini-2.5-flash'],
+  codex: ['gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini'],
+  gemini: [
+    'gemini-3.5-flash',
+    'gemini-3.1-pro-preview',
+    'gemini-3-pro',
+    'gemini-3-flash',
+    'gemini-2.5-pro',
+    'gemini-2.5-flash',
+  ],
   // Pi is model-agnostic and accepts any model string — free-text input is used in the UI.
   pi: [],
 };
@@ -71,16 +70,15 @@ export const MODEL_LABEL: Record<string, string> = {
   'claude-fable-5': 'Fable 5',
   'claude-opus-4-8': 'Opus 4.8',
   'claude-opus-4-7': 'Opus 4.7',
-  'claude-opus-4-7-1m': 'Opus 4.7 1M',
   'claude-sonnet-4-6': 'Sonnet 4.6',
-  'claude-haiku-4-5-20251001': 'Haiku 4.5',
+  'claude-haiku-4-5': 'Haiku 4.5',
   'gpt-5.5': 'GPT-5.5',
   'gpt-5.4': 'GPT-5.4',
   'gpt-5.4-mini': 'GPT-5.4 mini',
-  'gpt-5.3-codex': 'GPT-5.3 Codex',
   'gemini-3.5-flash': 'Gemini 3.5 Flash',
-  'gemini-3-pro-preview': 'Gemini 3 Pro Preview',
-  'gemini-3-flash-preview': 'Gemini 3 Flash Preview',
+  'gemini-3.1-pro-preview': 'Gemini 3.1 Pro Preview',
+  'gemini-3-pro': 'Gemini 3 Pro',
+  'gemini-3-flash': 'Gemini 3 Flash',
   'gemini-2.5-pro': 'Gemini 2.5 Pro',
   'gemini-2.5-flash': 'Gemini 2.5 Flash',
 };
