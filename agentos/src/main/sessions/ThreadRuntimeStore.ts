@@ -20,6 +20,8 @@ export class ThreadRuntimeStore {
   readonly personalityOverrides = new Map<string, Partial<PersonalitySettings>>();
   /** In-flight teardown (stop + container cleanup) per thread; awaited by input dispatch so a turn doesn't race a tear-down. */
   readonly teardownInFlight = new Map<string, Promise<void>>();
+  /** Threads with a (re)start in progress; checked by the exit-handler auto-prune so it never removes a worktree out from under a container that's starting up. */
+  readonly startInFlight = new Set<string>();
 
   getInjectionStatus(threadId: string): ThreadInjectionStatus {
     return this.injectionStatuses.get(threadId) ?? { hasBoot: false, hasMemory: false, injected: false };
@@ -34,5 +36,6 @@ export class ThreadRuntimeStore {
     this.sessionStartedAts.delete(threadId);
     this.personalityOverrides.delete(threadId);
     this.teardownInFlight.delete(threadId);
+    this.startInFlight.delete(threadId);
   }
 }

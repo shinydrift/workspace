@@ -45,33 +45,51 @@ export class ThreadRuntime {
     threadId: string,
     options?: { forceClaudePlainText?: boolean; fallbackTried?: boolean }
   ): Promise<void> {
-    const store = getStore();
     let stored = threadStore.getThread(threadId);
     if (!stored) throw new Error(`Thread ${threadId} not found`);
     if (this.store.ptys.has(threadId)) return;
 
-    // Recreate the worktree before (re)starting if its mount source is gone OR git no longer
-    // tracks it as a worktree — e.g. the 30-min idle stop auto-pruned the clean+synced worktree
-    // (dir + branch removed) while this thread was idle. Without this the container would bind a
-    // missing /workspace and the thread would "have no mounted path" on the next message.
-    if (stored.usingWorktree && stored.projectPath && !isWorktreeRegistered(stored.workingDirectory)) {
-      const recreated = await createSessionWorktree(stored.projectPath, stored.name, threadId);
-      if (recreated) {
-        threadStore.updateThread(threadId, { workingDirectory: recreated });
-        stored = { ...stored, workingDirectory: recreated };
-      } else {
-        // Recreation failed (transient git state). Fall back to the project path for THIS start
-        // only — do NOT persist usingWorktree=false, so the next message retries the worktree
-        // instead of stranding the thread on the main repo permanently. Drop usingWorktree in the
-        // local snapshot so the exit-handler auto-prune below never acts on the main repo.
-        eventLogger.warn('thread', 'Worktree recreate failed; using project path for this start only', {
-          threadId,
-          workingDirectory: stored.workingDirectory,
-        });
-        stored = { ...stored, workingDirectory: stored.projectPath, usingWorktree: false };
+    // Mark a (re)start in flight for the whole duration below. The exit-handler auto-prune checks
+    // this so it can't remove this thread's worktree while a container is coming up — otherwise a
+    // stop→start (ensureHealthy) leaves the pending PTY 'exit' event firing mid-startup and deleting
+    // the worktree out from under the new container, giving it an empty /workspace. Cleared in the
+    // finally once start completes or fails.
+    this.store.startInFlight.add(threadId);
+    try {
+      // Recreate the worktree before (re)starting if its mount source is gone OR git no longer
+      // tracks it as a worktree — e.g. the 30-min idle stop auto-pruned the clean+synced worktree
+      // (dir + branch removed) while this thread was idle. Without this the container would bind a
+      // missing /workspace and the thread would "have no mounted path" on the next message.
+      if (stored.usingWorktree && stored.projectPath && !isWorktreeRegistered(stored.workingDirectory)) {
+        const recreated = await createSessionWorktree(stored.projectPath, stored.name, threadId);
+        if (recreated) {
+          threadStore.updateThread(threadId, { workingDirectory: recreated });
+          stored = { ...stored, workingDirectory: recreated };
+        } else {
+          // Recreation failed (transient git state). Fall back to the project path for THIS start
+          // only — do NOT persist usingWorktree=false, so the next message retries the worktree
+          // instead of stranding the thread on the main repo permanently. Drop usingWorktree in the
+          // local snapshot so the exit-handler auto-prune below never acts on the main repo.
+          eventLogger.warn('thread', 'Worktree recreate failed; using project path for this start only', {
+            threadId,
+            workingDirectory: stored.workingDirectory,
+          });
+          stored = { ...stored, workingDirectory: stored.projectPath, usingWorktree: false };
+        }
       }
-    }
 
+      await this.launchThread(threadId, stored, options);
+    } finally {
+      this.store.startInFlight.delete(threadId);
+    }
+  }
+
+  private async launchThread(
+    threadId: string,
+    stored: Omit<Thread, 'logBuffer'>,
+    options?: { forceClaudePlainText?: boolean; fallbackTried?: boolean }
+  ): Promise<void> {
+    const store = getStore();
     // claude-interactive shares container, binary, auth, and config dir with claude —
     // only the turn-execution path differs (dispatched in turnExecution.ts). Normalize
     // here so threadStartup/Runtime use the headless provisioning path unchanged.
@@ -262,12 +280,16 @@ export class ThreadRuntime {
       // Auto-prune clean worktrees so they don't accumulate; recreated on next start.
       // Skip if the thread already has a new PTY — it restarted (a turn raced the teardown) and is
       // using its worktree again, so pruning here would kill the fresh container and remove its mount.
+      // Also skip while a (re)start is in flight: stopThread's proc.kill() fires this exit event
+      // without awaiting it, so it can land mid-startup (after the recreation guard checked, before
+      // the new PTY is registered) and delete the worktree out from under the container coming up.
       const settings = getStore().get('settings');
       const projectConfig = stored.projectPath ? loadProjectConfigSync(stored.projectPath) : null;
       const pruneOnStop = getEffectiveWorktreeSettings(settings, projectConfig).pruneOnStop;
       if (
         pruneOnStop &&
         !this.store.ptys.has(threadId) &&
+        !this.store.startInFlight.has(threadId) &&
         stored.usingWorktree &&
         stored.workingDirectory &&
         isWorktreeClean(stored.workingDirectory) &&
