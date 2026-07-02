@@ -40,7 +40,12 @@ export function ThreadDetail({ thread, noCard, initialView }: Props) {
   const { posts: threadPosts, addOptimistic } = useThreadPosts(thread.id);
   const councilRuns = useCouncilRuns(thread.id);
   const councilPending = councilRuns.some((e) => e.run.status === 'pending' || e.run.status === 'running');
-  const liveStatus = deriveLiveThreadPostStatus(thread.status, thread.autopilotState, councilPending);
+  const liveStatus = deriveLiveThreadPostStatus(
+    thread.status,
+    thread.autopilotEnabled,
+    thread.autopilotState,
+    councilPending
+  );
 
   useEffect(() => {
     let cancelled = false;

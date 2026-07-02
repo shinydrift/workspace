@@ -60,22 +60,27 @@ test('terminal: autopilot settled (stopped/blocked) → done', () => {
 // ── Live (transient 👀/🤖/🏛️) ─────────────────────────────────────────────────
 
 test('live: running with no autopilot → working', () => {
-  assert.equal(deriveLiveThreadPostStatus('running', undefined, false), 'working');
+  assert.equal(deriveLiveThreadPostStatus('running', false, undefined, false), 'working');
 });
 
-test('live: idle → null', () => {
-  assert.equal(deriveLiveThreadPostStatus('idle', undefined, false), null);
+test('live: idle with no autopilot → null', () => {
+  assert.equal(deriveLiveThreadPostStatus('idle', false, undefined, false), null);
 });
 
 test('live: autopilot thinking/sent → autopilot, or council when pending', () => {
-  assert.equal(deriveLiveThreadPostStatus('running', 'thinking', false), 'autopilot');
-  assert.equal(deriveLiveThreadPostStatus('idle', 'sent', false), 'autopilot');
-  assert.equal(deriveLiveThreadPostStatus('running', 'thinking', true), 'council');
+  assert.equal(deriveLiveThreadPostStatus('running', true, 'thinking', false), 'autopilot');
+  assert.equal(deriveLiveThreadPostStatus('idle', true, 'sent', false), 'autopilot');
+  assert.equal(deriveLiveThreadPostStatus('running', true, 'thinking', true), 'council');
 });
 
-test('live: council flag ignored when autopilot is not actively planning/sending', () => {
-  assert.equal(deriveLiveThreadPostStatus('running', 'idle', true), 'working');
-  assert.equal(deriveLiveThreadPostStatus('idle', undefined, true), null);
+test('live: autopilot enabled but resting between turns → holds 🤖 (defer), not 👀/null', () => {
+  assert.equal(deriveLiveThreadPostStatus('running', true, 'idle', false), 'autopilot');
+  assert.equal(deriveLiveThreadPostStatus('idle', true, 'idle', false), 'autopilot');
+});
+
+test('live: council flag ignored when autopilot is not enabled', () => {
+  assert.equal(deriveLiveThreadPostStatus('running', false, undefined, true), 'working');
+  assert.equal(deriveLiveThreadPostStatus('idle', false, undefined, true), null);
 });
 
 // ── Slack reaction projection (the echo) ──────────────────────────────────────
@@ -103,10 +108,15 @@ test('echo: autopilot planning → robot_face, or classical_building when counci
   );
 });
 
-test('echo: autopilot idle between turns → no reaction (null)', () => {
+test('echo: autopilot idle between turns → holds robot_face (deferred, not cleared to 👀 or nothing)', () => {
   assert.equal(
     deriveThreadReactionEmoji(event({ status: 'idle', autopilotEnabled: true, autopilotState: 'idle' }), false),
-    null
+    'robot_face'
+  );
+  // A resting autopilot thread's DB status stays 'running' — must still hold 🤖, never revert to 👀.
+  assert.equal(
+    deriveThreadReactionEmoji(event({ status: 'running', autopilotEnabled: true, autopilotState: 'idle' }), false),
+    'robot_face'
   );
 });
 

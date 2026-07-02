@@ -40,13 +40,20 @@ export function deriveTerminalThreadPostStatus(payload: ThreadStatusEvent): Thre
  * the persisted terminal status. Returns `null` when the thread isn't actively processing, so the
  * persisted ✅/❌ (or nothing) shows instead. Because it's recomputed from live state, it self-corrects
  * and never sticks across a restart or interrupt.
+ *
+ * While autopilot is enabled it holds 🤖 (the "defer" state) rather than flashing 👀 or clearing:
+ * a thread's DB status stays `running` between turns, so without this a resting autopilot thread would
+ * keep resolving to 👀 and never move on. The turn-complete ✅ takes over once autopilot settles
+ * (stopped/blocked) — that path is terminal (see deriveTerminalThreadPostStatus) and wins in display.
  */
 export function deriveLiveThreadPostStatus(
   status: ThreadStatus,
+  autopilotEnabled: boolean | undefined,
   autopilotState: AutopilotThreadState | undefined,
   councilPending: boolean
 ): LiveThreadPostStatus | null {
   if (autopilotState === 'thinking' || autopilotState === 'sent') return councilPending ? 'council' : 'autopilot';
+  if (autopilotEnabled) return 'autopilot';
   if (status === 'running') return 'working';
   return null;
 }
@@ -61,7 +68,7 @@ export function deriveThreadDisplayStatus(
 ): ThreadPostStatus | null {
   return (
     deriveTerminalThreadPostStatus(payload) ??
-    deriveLiveThreadPostStatus(payload.status, payload.autopilotState, councilPending)
+    deriveLiveThreadPostStatus(payload.status, payload.autopilotEnabled, payload.autopilotState, councilPending)
   );
 }
 
