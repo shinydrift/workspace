@@ -183,7 +183,7 @@ const config: ForgeConfig = {
   ],
   publishers: [
     new PublisherGithub({
-      repository: { owner: 'godarapradeep', name: 'workspace' },
+      repository: { owner: 'shinydrift', name: 'workspace' },
       draft: true,
     }),
   ],

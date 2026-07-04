@@ -150,4 +150,4 @@ cd "$(git rev-parse --show-toplevel)"
 git push origin "$TAG"
 
 echo ""
-echo "Done — draft release $TAG at https://github.com/godarapradeep/workspace/releases"
+echo "Done — draft release $TAG at https://github.com/shinydrift/workspace/releases"
