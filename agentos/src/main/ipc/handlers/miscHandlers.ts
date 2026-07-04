@@ -75,18 +75,29 @@ export function registerMiscHandlers(): void {
       // `.app` bundle path) still resolves; extra flags live in the separate `args` field. The
       // folder is always the final argument. Resolve against the user's interactive shell PATH: a
       // GUI-launched Electron app inherits a minimal PATH, so `code`/`cursor` would otherwise not
-      // be found. spawn (no shell) keeps the user-supplied strings injection-safe.
+      // be found.
       const extraArgs = editor?.args?.trim() ? editor.args.trim().split(/\s+/) : [];
       const hostEnv = await getHostShellEnv();
+      // On Windows the common editor CLIs are batch shims (VS Code ships `code.cmd`), and
+      // CreateProcess cannot launch a `.cmd` directly — so spawn must go through the shell there.
+      // With `shell` on, Node no longer quotes args, so wrap the executable and every argument in
+      // double quotes ourselves (doubling embedded quotes) so paths with spaces survive cmd.exe.
+      // On macOS/Linux keep `shell` off: spawn hands the user-supplied strings straight to execve,
+      // which stays injection-safe.
+      const useShell = process.platform === 'win32';
+      const quoteForShell = (value: string) => `"${value.replace(/"/g, '""')}"`;
+      const launchBin = useShell ? quoteForShell(bin) : bin;
+      const launchArgs = [...extraArgs, folderPath].map((arg) => (useShell ? quoteForShell(arg) : arg));
       // Spawn detached and don't await the child's lifetime: a GUI editor that stays open (or a
       // `--wait` flag) must not keep the IPC call pending or buffer the child's stdout. Resolve as
       // soon as it launches; fall back to the file manager only on a launch error (e.g. ENOENT).
       await new Promise<void>((resolve) => {
         try {
-          const child = spawn(bin, [...extraArgs, folderPath], {
+          const child = spawn(launchBin, launchArgs, {
             env: { ...process.env, ...hostEnv },
             detached: true,
             stdio: 'ignore',
+            shell: useShell,
           });
           child.once('spawn', () => resolve());
           child.once('error', () => void openInFileManager().finally(() => resolve()));

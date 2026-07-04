@@ -17,6 +17,7 @@ interface StoreSchema {
     sandboxImageBuiltAt?: number;
     apiKeysEncrypted?: boolean; // legacy flag — superseded by secretsEncryptedV2
     secretsEncryptedV2?: boolean; // covers apiKeys (incl. github) + tailscale.authKey + slack tokens
+    editorDefaultSeeded?: boolean; // one-time seed of the VS Code editor default onto existing installs
   };
 }
 
@@ -36,6 +37,7 @@ const defaults: StoreSchema = {
     devMode: false,
     theme: 'dark',
     fontSize: 14,
+    editor: { label: 'VS Code', command: 'code' },
     apiKeys: {},
     memory: { rootPath: null, embeddingProvider: 'local' },
     slack: { ...DEFAULT_SLACK_SETTINGS },
@@ -179,6 +181,16 @@ export function getStore(): Store<StoreSchema> {
       settingsChanged = true;
     }
 
+    // Migration: seed the default editor (VS Code) exactly once. The `defaults` above only reach
+    // fresh installs — an existing store already has a `settings` object without an `editor` key
+    // (electron-store does not deep-merge nested defaults). Seed it here so the header badge works
+    // out of the box everywhere. Guarded by a meta flag so a user who later clears the editor to
+    // hide the badge does not get VS Code re-added on the next launch.
+    if (!meta.editorDefaultSeeded && !settings.editor) {
+      settings = { ...settings, editor: { label: 'VS Code', command: 'code' } };
+      settingsChanged = true;
+    }
+
     // Encryption migration: force a serialize pass so all secret fields get encrypted.
     // secretsEncryptedV2 covers more fields than the legacy apiKeysEncrypted flag.
     if (isEncryptionAvailable() && !meta.secretsEncryptedV2) {
@@ -189,8 +201,11 @@ export function getStore(): Store<StoreSchema> {
       store.set('settings', settings);
     }
 
-    if (isEncryptionAvailable() && !meta.secretsEncryptedV2) {
-      store.set('meta', { ...meta, secretsEncryptedV2: true });
+    const metaPatch: Partial<StoreSchema['meta']> = {};
+    if (isEncryptionAvailable() && !meta.secretsEncryptedV2) metaPatch.secretsEncryptedV2 = true;
+    if (!meta.editorDefaultSeeded) metaPatch.editorDefaultSeeded = true;
+    if (Object.keys(metaPatch).length > 0) {
+      store.set('meta', { ...meta, ...metaPatch });
     }
   }
   return store;

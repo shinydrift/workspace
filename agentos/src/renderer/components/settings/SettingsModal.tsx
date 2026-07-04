@@ -11,6 +11,7 @@ import {
   Info,
   Key,
   Microphone,
+  NotePencil,
   Palette,
   Robot,
   Scroll,
@@ -37,6 +38,7 @@ import { EnvTab } from './EnvTab';
 import { LogsTab } from './LogsTab';
 import { SettingsProvider, useSettings } from '../../contexts/SettingsContext';
 import { AppearanceTab } from './AppearanceTab';
+import { EditorTab } from './EditorTab';
 import { RecordingTab } from './RecordingTab';
 import { CouncilTab } from './CouncilTab';
 import { AboutTab } from './AboutTab';
@@ -62,7 +64,10 @@ const SECTIONS: SettingsSection[] = [
   },
   {
     label: 'Integrations',
-    tabs: [{ id: 'slack', label: 'Slack', Icon: SlackLogo }],
+    tabs: [
+      { id: 'slack', label: 'Slack', Icon: SlackLogo },
+      { id: 'editor', label: 'Editor', Icon: NotePencil },
+    ],
   },
   {
     label: 'Storage',
@@ -141,6 +146,7 @@ function SettingsModalContent({ onClose }: Props) {
                   {tab === 'agents' && <AgentsTab />}
                   {tab === 'autopilot' && <AutopilotTab />}
                   {tab === 'slack' && <SlackTab />}
+                  {tab === 'editor' && <EditorTab />}
                   {tab === 'sandbox' && <SandboxSettings />}
                   {tab === 'memory' && <MemoryTab />}
                   {tab === 'code' && <CodeTab />}

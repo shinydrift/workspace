@@ -113,3 +113,38 @@ test('providerOrder migration: legacy string array resets to default', () => {
     rmSync(tmpDir2, { recursive: true, force: true });
   }
 });
+
+test('editor defaults to VS Code on a fresh install', () => {
+  const store = getStore();
+  assert.deepStrictEqual(store.get('settings').editor, { label: 'VS Code', command: 'code' });
+  assert.strictEqual(store.get('meta').editorDefaultSeeded, true, 'records the one-time seed');
+});
+
+test('editor default: seeds an existing install once, then respects a later clear', () => {
+  // Simulate a pre-feature install: a settings object with no editor key and no seeded flag.
+  const store = getStore();
+  const noEditor = { ...store.get('settings') };
+  delete (noEditor as { editor?: unknown }).editor;
+  store.set('settings', noEditor);
+  store.set('meta', {});
+
+  resetStoreForTests();
+  process.env.AGENTOS_STORE_DIR = tmpDir;
+  const store2 = getStore();
+  assert.deepStrictEqual(
+    store2.get('settings').editor,
+    { label: 'VS Code', command: 'code' },
+    'seeds VS Code onto an existing install'
+  );
+  assert.strictEqual(store2.get('meta').editorDefaultSeeded, true, 'records the one-time seed');
+
+  // User clears the editor to hide the header badge — the seed must not come back.
+  const cleared = { ...store2.get('settings') };
+  delete (cleared as { editor?: unknown }).editor;
+  store2.set('settings', cleared);
+
+  resetStoreForTests();
+  process.env.AGENTOS_STORE_DIR = tmpDir;
+  const store3 = getStore();
+  assert.strictEqual(store3.get('settings').editor, undefined, 'does not re-add VS Code after the user clears it');
+});

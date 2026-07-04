@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React from 'react';
 import { Sun, Moon, Desktop } from '@phosphor-icons/react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -8,8 +8,6 @@ import { useSettings } from '../../contexts/SettingsContext';
 import { useUIStore } from '../../store/uiStore';
 import { ToggleRow } from '@/components/ui/toggle-row';
 import { SettingSection } from '@/components/ui/setting-section';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 
 const THEME_OPTIONS = [
   { value: 'light', label: 'Light', Icon: Sun },
@@ -41,41 +39,6 @@ export function AppearanceTab() {
     window.electronAPI?.settings.set({ devMode: value }).catch((err) => {
       console.warn('Failed to persist dev mode', err);
     });
-  }
-
-  const editorPersistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  function persistEditor(label: string, command: string, args: string) {
-    const trimmedCommand = command.trim();
-    const trimmedArgs = args.trim();
-    // Drop the setting entirely when no command is set so the header badge stays hidden; the label
-    // alone has nothing to launch.
-    const editor = trimmedCommand
-      ? { label: label.trim(), command: trimmedCommand, ...(trimmedArgs ? { args: trimmedArgs } : {}) }
-      : undefined;
-    // Debounce: these come from text inputs, so persist once typing settles rather than on every
-    // keystroke (each set is a disk write + a settingsChanged broadcast to every window).
-    if (editorPersistTimer.current) clearTimeout(editorPersistTimer.current);
-    editorPersistTimer.current = setTimeout(() => {
-      window.electronAPI?.settings.set({ editor }).catch((err) => {
-        console.warn('Failed to persist editor', err);
-      });
-    }, 400);
-  }
-
-  function handleEditorLabelChange(value: string) {
-    appearance.setEditorLabel(value);
-    persistEditor(value, appearance.editorCommand, appearance.editorArgs);
-  }
-
-  function handleEditorCommandChange(value: string) {
-    appearance.setEditorCommand(value);
-    persistEditor(appearance.editorLabel, value, appearance.editorArgs);
-  }
-
-  function handleEditorArgsChange(value: string) {
-    appearance.setEditorArgs(value);
-    persistEditor(appearance.editorLabel, appearance.editorCommand, value);
   }
 
   return (
@@ -138,50 +101,6 @@ export function AppearanceTab() {
               )}
             />
           ))}
-        </div>
-      </SettingSection>
-
-      <SettingSection
-        title="Editor"
-        description="Open a thread's worktree in your editor from the thread header. Command is the executable (resolved against your shell PATH, or a full path); put any flags in Arguments."
-      >
-        <div className="flex flex-col gap-3 max-w-md">
-          <div className="space-y-1.5">
-            <Label htmlFor="editor-label" className="text-xs text-muted-foreground">
-              Label
-            </Label>
-            <Input
-              id="editor-label"
-              value={appearance.editorLabel}
-              onChange={(e) => handleEditorLabelChange(e.target.value)}
-              placeholder="VS Code"
-              className="h-8 text-sm"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="editor-command" className="text-xs text-muted-foreground">
-              Command
-            </Label>
-            <Input
-              id="editor-command"
-              value={appearance.editorCommand}
-              onChange={(e) => handleEditorCommandChange(e.target.value)}
-              placeholder="code"
-              className="h-8 text-sm font-mono"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="editor-args" className="text-xs text-muted-foreground">
-              Arguments <span className="text-muted-foreground/60">(optional)</span>
-            </Label>
-            <Input
-              id="editor-args"
-              value={appearance.editorArgs}
-              onChange={(e) => handleEditorArgsChange(e.target.value)}
-              placeholder="-n"
-              className="h-8 text-sm font-mono"
-            />
-          </div>
         </div>
       </SettingSection>
 

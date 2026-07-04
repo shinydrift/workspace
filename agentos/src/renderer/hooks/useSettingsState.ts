@@ -6,6 +6,7 @@ import { useKeysSettings } from './settings/useKeysSettings';
 import { useMemorySettings } from './settings/useMemorySettings';
 import { useAgentSettings } from './settings/useAgentSettings';
 import { useAppearanceSettings } from './settings/useAppearanceSettings';
+import { useEditorSettings } from './settings/useEditorSettings';
 import { useSlackSettings } from './settings/useSlackSettings';
 import { useSandboxSettings } from './settings/useSandboxSettings';
 import { useEnvSettings } from './settings/useEnvSettings';
@@ -19,6 +20,7 @@ export function useSettingsState() {
 
   const keys = useKeysSettings(loadedSettings);
   const appearance = useAppearanceSettings(loadedSettings);
+  const editor = useEditorSettings(loadedSettings);
   const memory = useMemorySettings(loadedSettings);
   const agents = useAgentSettings(loadedSettings);
   const slack = useSlackSettings(loadedSettings);
@@ -243,6 +245,7 @@ export function useSettingsState() {
   return {
     keys,
     appearance,
+    editor,
     memory,
     agents,
     slack,

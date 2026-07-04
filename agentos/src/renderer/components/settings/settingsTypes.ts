@@ -7,6 +7,7 @@ export type Tab =
   | 'agents'
   | 'autopilot'
   | 'slack'
+  | 'editor'
   | 'sandbox'
   | 'memory'
   | 'code'
