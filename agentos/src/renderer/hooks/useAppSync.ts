@@ -16,7 +16,7 @@ export function useAppSync() {
     upsertProject,
     removeProject,
   } = useDomainStore();
-  const { setSandboxBuildProgress, setMemoryIndexProgress, setDevMode, setEditor } = useUIStore();
+  const { setSandboxBuildProgress, setMemoryIndexProgress, setDevMode, setEditor, setUpdateReady } = useUIStore();
   const { setLogs, addLogs } = useLogsStore();
 
   const ttsEnabledRef = useRef(false);
@@ -60,6 +60,19 @@ export function useAppSync() {
       updateThreadStatus(event.threadId, event.status, {
         ...extra,
       });
+    });
+
+    // An update may have finished downloading before this window (re)loaded —
+    // the updateReady event fires only once, so re-query the pending state.
+    window.electronAPI.app
+      .getUpdateStatus()
+      .then(setUpdateReady)
+      .catch((err) => {
+        console.warn('Failed to load update status', err);
+      });
+
+    const unsubUpdateReady = window.electronAPI.on.updateReady((event) => {
+      setUpdateReady(event);
     });
 
     let sandboxProgressTimer: ReturnType<typeof setTimeout> | null = null;
@@ -145,6 +158,7 @@ export function useAppSync() {
         flushLogs();
       }
       unsubStatus();
+      unsubUpdateReady();
       unsubSandbox();
       unsubMemoryIndex();
       unsubLogs();

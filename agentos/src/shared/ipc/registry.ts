@@ -75,6 +75,7 @@ import type {
   CouncilMember,
   PersonalitySettings,
   RecordingRecord,
+  UpdateReadyEvent,
   IPC_CHANNELS,
 } from '../types';
 import type { GraphQueryResult } from '../../main/memory/graph';
@@ -222,6 +223,8 @@ export type IPCMap = {
 
   // App
   'app:getInfo': { input: undefined; output: { version: string } };
+  'app:getUpdateStatus': { input: undefined; output: UpdateReadyEvent | null };
+  'app:quitAndInstall': { input: undefined; output: void };
 
   // File
   'file:upload': { input: FileUploadRequest; output: { path: string } };
@@ -468,6 +471,8 @@ export const TYPED_CHANNEL_SET: ReadonlySet<string> = new Set<IPCChannel>([
   'analytics:getProviderRateLimits',
   'env:listShellVars',
   'app:getInfo',
+  'app:getUpdateStatus',
+  'app:quitAndInstall',
   'file:upload',
   'transcript:save',
   'recording:save',

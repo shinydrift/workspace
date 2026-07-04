@@ -35,6 +35,7 @@ export const IPC_EVENTS = {
   PROJECT_SAVED: 'event:project:saved',
   PROJECT_DELETED: 'event:project:deleted',
   PROJECT_CONFIG_UPDATED: 'event:project:configUpdated',
+  UPDATE_READY: 'event:app:updateReady',
 } as const;
 
 export const TRAY_CHANNELS = {

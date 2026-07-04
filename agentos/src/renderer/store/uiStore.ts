@@ -24,6 +24,7 @@ interface UIStore {
   devMode: boolean;
   editor: { label: string; command: string } | null;
   pendingTranscript: PendingTranscript | null;
+  updateReady: { releaseName: string } | null;
 
   setSelectedThread: (id: string | null) => void;
   setThreadView: (view: 'thread' | 'chat' | 'terminal') => void;
@@ -33,6 +34,7 @@ interface UIStore {
   setDevMode: (value: boolean) => void;
   setEditor: (value: { label: string; command: string } | null) => void;
   setPendingTranscript: (value: PendingTranscript | null) => void;
+  setUpdateReady: (value: { releaseName: string } | null) => void;
 }
 
 export const useUIStore = create<UIStore>((set) => ({
@@ -44,6 +46,7 @@ export const useUIStore = create<UIStore>((set) => ({
   devMode: false,
   editor: null,
   pendingTranscript: null,
+  updateReady: null,
 
   setSelectedThread: (id) => set({ selectedThreadId: id }),
   setThreadView: (view) => set({ threadView: view }),
@@ -53,4 +56,5 @@ export const useUIStore = create<UIStore>((set) => ({
   setDevMode: (value) => set({ devMode: value }),
   setEditor: (value) => set({ editor: value }),
   setPendingTranscript: (value) => set({ pendingTranscript: value }),
+  setUpdateReady: (value) => set({ updateReady: value }),
 }));

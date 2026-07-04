@@ -9,6 +9,7 @@ import { getLogHistory } from '../../utils/eventLog';
 import { runHealthChecks } from '../../health/service';
 import { getHostShellEnv } from '../../utils/hostEnv';
 import { getStore } from '../../store';
+import { getPendingUpdate, requestQuitAndInstall } from '../../bootstrap/updates';
 import { ThreadIdSchema } from './schemas';
 import { handleIpc } from '../ipcResponse';
 
@@ -128,6 +129,14 @@ export function registerMiscHandlers(): void {
     handleIpc(() => ({
       version: app.getVersion(),
     }))
+  );
+
+  ipcMain.handle(IPC_CHANNELS.APP_GET_UPDATE_STATUS, () => handleIpc(() => getPendingUpdate()));
+
+  ipcMain.handle(IPC_CHANNELS.APP_QUIT_AND_INSTALL, () =>
+    handleIpc(() => {
+      requestQuitAndInstall();
+    })
   );
 
   ipcMain.handle(IPC_CHANNELS.DIALOG_OPEN_DIR, (e) =>

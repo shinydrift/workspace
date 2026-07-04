@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { ArrowClockwise } from '@phosphor-icons/react';
 import { useDragResize } from '../../hooks/useDragResize';
 import { useDomainStore } from '../../store/domainStore';
 import { useUIStore } from '../../store/uiStore';
@@ -30,6 +31,29 @@ function VoiceFlowController() {
       analyserNode={analyserNode}
       onCancel={cancel}
     />
+  );
+}
+
+function UpdateReadyBadge({ releaseName }: { releaseName: string }) {
+  const [restarting, setRestarting] = useState(false);
+  const restart = () => {
+    setRestarting(true);
+    window.electronAPI?.app.quitAndInstall().catch((err) => {
+      console.warn('Failed to restart for update', err);
+      setRestarting(false);
+    });
+  };
+  return (
+    <button
+      type="button"
+      onClick={restart}
+      disabled={restarting}
+      title={releaseName ? `${releaseName} downloaded — restart to apply` : 'Update downloaded — restart to apply'}
+      className="flex items-center gap-1.5 h-6 px-2.5 rounded-full text-xs bg-primary/10 text-primary hover:bg-primary/20 transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-default"
+    >
+      <ArrowClockwise size={13} className={restarting ? 'animate-spin' : ''} />
+      <span>{restarting ? 'Restarting…' : 'Restart to update'}</span>
+    </button>
   );
 }
 
@@ -70,7 +94,8 @@ function MeetingRecordingPill({
 
 export function AppShell() {
   const { threads, automations, setAutomations } = useDomainStore();
-  const { selectedThreadId, sandboxBuildProgress, memoryIndexProgress, threadFilter, setSelectedThread } = useUIStore();
+  const { selectedThreadId, sandboxBuildProgress, memoryIndexProgress, threadFilter, updateReady, setSelectedThread } =
+    useUIStore();
   const [showSettings, setShowSettings] = useState(false);
   const [sidebarHidden, setSidebarHidden] = useState(false);
   const [showThreadFilters, setShowThreadFilters] = useState(false);
@@ -176,7 +201,10 @@ export function AppShell() {
   );
 
   const titleBarRight = (
-    <SettingsMenuDropdown onOpenSettings={() => setShowSettings(true)} healthStatus={healthStatus} />
+    <div className="flex items-center gap-1">
+      {updateReady && <UpdateReadyBadge releaseName={updateReady.releaseName} />}
+      <SettingsMenuDropdown onOpenSettings={() => setShowSettings(true)} healthStatus={healthStatus} />
+    </div>
   );
 
   return (

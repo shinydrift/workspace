@@ -193,6 +193,8 @@ const api = {
 
   app: {
     getInfo: () => invoke('app:getInfo'),
+    getUpdateStatus: () => invoke('app:getUpdateStatus'),
+    quitAndInstall: () => invoke('app:quitAndInstall'),
   },
 
   files: {
@@ -327,6 +329,12 @@ const api = {
       const handler = (_: Electron.IpcRendererEvent, payload: { progress: string }) => cb(payload);
       ipcRenderer.on(IPC_EVENTS.SANDBOX_IMAGE_BUILDING, handler);
       return () => ipcRenderer.off(IPC_EVENTS.SANDBOX_IMAGE_BUILDING, handler);
+    },
+
+    updateReady: (cb: (e: { releaseName: string }) => void): (() => void) => {
+      const handler = (_: Electron.IpcRendererEvent, payload: { releaseName: string }) => cb(payload);
+      ipcRenderer.on(IPC_EVENTS.UPDATE_READY, handler);
+      return () => ipcRenderer.off(IPC_EVENTS.UPDATE_READY, handler);
     },
 
     logEntry: (cb: (entry: AppLogEntry) => void): (() => void) => {

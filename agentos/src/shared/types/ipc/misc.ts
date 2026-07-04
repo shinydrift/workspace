@@ -5,7 +5,13 @@ export const MISC_IPC_CHANNELS = {
   HEALTH_RUN: 'health:run',
   ENV_LIST_SHELL_VARS: 'env:listShellVars',
   APP_GET_INFO: 'app:getInfo',
+  APP_GET_UPDATE_STATUS: 'app:getUpdateStatus',
+  APP_QUIT_AND_INSTALL: 'app:quitAndInstall',
 } as const;
+
+export interface UpdateReadyEvent {
+  releaseName: string;
+}
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 

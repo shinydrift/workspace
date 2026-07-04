@@ -1,5 +1,6 @@
-import { app, BrowserWindow } from 'electron';
+import { app, autoUpdater, BrowserWindow } from 'electron';
 import { createWindow } from './windows';
+import { isUpdateInstallRequested } from './updates';
 import { IPC_EVENTS } from '../../shared/types/ipc';
 import type { ShutdownOverlayPayload } from '../../shared/types/ipc';
 import { eventLogger } from '../utils/eventLog';
@@ -78,7 +79,13 @@ export function setupLifecycle(services: Services, preloadPath: string, renderer
     });
   }
 
+  // Set once the shutdown drain has finished. The update-install path re-enters
+  // quit via autoUpdater.quitAndInstall(); that second quit must pass through
+  // untouched or the updater's restart would be cancelled.
+  let shutdownComplete = false;
+
   app.on('before-quit', (e) => {
+    if (shutdownComplete) return;
     e.preventDefault();
     void (async () => {
       // Hide main window immediately so the app feels responsive
@@ -100,7 +107,16 @@ export function setupLifecycle(services: Services, preloadPath: string, renderer
       // after all cleanup (or the timeout) has resolved.
       await new Promise<void>((resolve) => setTimeout(resolve, 400));
 
-      app.exit(0);
+      shutdownComplete = true;
+      if (isUpdateInstallRequested()) {
+        // quitAndInstall closes all windows before restarting into the new
+        // version; drop the darwin hide-on-close interceptor so the close is
+        // not swallowed. Cleanup already ran above.
+        if (!services.mainWindow.isDestroyed()) services.mainWindow.removeAllListeners('close');
+        autoUpdater.quitAndInstall();
+      } else {
+        app.exit(0);
+      }
     })();
   });
 }

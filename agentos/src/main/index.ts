@@ -33,7 +33,7 @@ if (process.platform === 'darwin') {
   });
 }
 import started from 'electron-squirrel-startup';
-import { updateElectronApp } from 'update-electron-app';
+import { setupAutoUpdates } from './bootstrap/updates';
 import { eventLogger } from './utils/eventLog';
 import { registerIpcHandlers } from './ipc/sessionHandlers';
 import { createWindow } from './bootstrap/windows';
@@ -80,7 +80,7 @@ if (!gotTheLock) {
 }
 
 if (app.isPackaged) {
-  updateElectronApp({ repo: 'godarapradeep/workspace' });
+  setupAutoUpdates();
 }
 
 app.on('ready', () => {
