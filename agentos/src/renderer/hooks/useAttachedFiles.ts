@@ -5,15 +5,6 @@ import type { AttachedFile } from '../components/prompt/AttachedFileList';
 const MAX_DIMENSION = 1568;
 const MAX_BYTES = 5 * 1024 * 1024;
 
-function loadImage(src: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = reject;
-    img.src = src;
-  });
-}
-
 function canvasToBuffer(canvas: HTMLCanvasElement, mimeType: string, quality: number): Promise<ArrayBuffer> {
   return new Promise((resolve, reject) => {
     canvas.toBlob(
@@ -24,11 +15,18 @@ function canvasToBuffer(canvas: HTMLCanvasElement, mimeType: string, quality: nu
   });
 }
 
-async function resizeImageFile(file: File): Promise<{ data: ArrayBuffer; mimeType: string }> {
-  const url = URL.createObjectURL(file);
+async function resizeImageFile(file: File): Promise<{ data: ArrayBuffer; mimeType: string } | null> {
+  // createImageBitmap decodes the File directly — no blob URL, so the packaged-app CSP
+  // (img-src without blob:) can't block it the way an <img src="blob:…"> load can.
+  // Null means the image can't be decoded (SVG, HEIC, corrupt data, …) — attach it as-is.
+  let bitmap: ImageBitmap;
   try {
-    const img = await loadImage(url);
-    const { naturalWidth: w, naturalHeight: h } = img;
+    bitmap = await createImageBitmap(file);
+  } catch {
+    return null;
+  }
+  try {
+    const { width: w, height: h } = bitmap;
 
     if (w <= MAX_DIMENSION && h <= MAX_DIMENSION && file.size <= MAX_BYTES) {
       return { data: await file.arrayBuffer(), mimeType: file.type };
@@ -40,7 +38,7 @@ async function resizeImageFile(file: File): Promise<{ data: ArrayBuffer; mimeTyp
     canvas.height = Math.round(h * scale);
     const ctx = canvas.getContext('2d');
     if (!ctx) throw new Error('Could not get canvas context');
-    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
 
     // Preserve PNG format when only resizing dimensions (no lossy compression needed).
     // Use JPEG only when file size still exceeds the limit after resize.
@@ -58,7 +56,7 @@ async function resizeImageFile(file: File): Promise<{ data: ArrayBuffer; mimeTyp
     // Last resort: return at lowest quality.
     return { data: await canvasToBuffer(canvas, 'image/jpeg', 0.6), mimeType: 'image/jpeg' };
   } finally {
-    URL.revokeObjectURL(url);
+    bitmap.close();
   }
 }
 
@@ -66,7 +64,11 @@ async function processFile(file: File): Promise<AttachedFile> {
   if (!file.type.startsWith('image/')) {
     return { name: file.name, data: await file.arrayBuffer() };
   }
-  const { data, mimeType } = await resizeImageFile(file);
+  const resized = await resizeImageFile(file);
+  if (!resized) {
+    return { name: file.name, data: await file.arrayBuffer() };
+  }
+  const { data, mimeType } = resized;
   const name =
     mimeType === 'image/jpeg' && file.type !== 'image/jpeg' ? file.name.replace(/\.[^.]+$/, '.jpg') : file.name;
   return { name, data };

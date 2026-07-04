@@ -1,17 +1,7 @@
-/**
- * AudioWorkletProcessor source bundled as a string so it can be loaded via
- * a Blob URL without requiring a separate file or Vite worklet config.
- */
-const PCM_WORKLET_CODE = `
-class PcmProcessor extends AudioWorkletProcessor {
-  process(inputs) {
-    const channel = inputs[0]?.[0];
-    if (channel) this.port.postMessage(new Float32Array(channel));
-    return true;
-  }
-}
-registerProcessor('pcm-processor', PcmProcessor);
-`;
+// Static file (not an inline blob) so the packaged-app CSP can keep script-src 'self'.
+// Vite emits pcmWorklet.js as an asset and rewrites this URL at build time; ?no-inline
+// prevents it from becoming a data: URL, which script-src 'self' would also block.
+const pcmWorkletUrl = new URL('./pcmWorklet.js?no-inline', import.meta.url).href;
 
 /** Abstraction over ScriptProcessorNode (fallback) and AudioWorkletNode. */
 export interface AudioCapture {
@@ -29,10 +19,7 @@ export async function attachAudioCapture(
   onChunk: (chunk: Float32Array) => void
 ): Promise<AudioCapture> {
   try {
-    const blob = new Blob([PCM_WORKLET_CODE], { type: 'application/javascript' });
-    const url = URL.createObjectURL(blob);
-    await audioCtx.audioWorklet.addModule(url);
-    URL.revokeObjectURL(url);
+    await audioCtx.audioWorklet.addModule(pcmWorkletUrl);
 
     const worklet = new AudioWorkletNode(audioCtx, 'pcm-processor');
     worklet.port.onmessage = (e: MessageEvent<Float32Array>) => onChunk(e.data);
@@ -48,8 +35,9 @@ export async function attachAudioCapture(
         silencer.disconnect();
       },
     };
-  } catch {
+  } catch (err) {
     // Fallback: ScriptProcessorNode (deprecated but works in all Chromium versions)
+    console.warn('[audio] AudioWorklet module load failed, falling back to ScriptProcessorNode', err);
     return attachScriptProcessorFallback(audioCtx, source, onChunk);
   }
 }

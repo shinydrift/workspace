@@ -32,8 +32,6 @@ test('attachAudioCapture: uses AudioWorkletNode when module loads', async () => 
     createGain: vi.fn(() => silencer),
     destination: {},
   } as unknown as AudioContext;
-  const createObjectURL = vi.fn(() => 'blob:pcm-worklet');
-  const revokeObjectURL = vi.fn();
 
   class FakeAudioWorkletNode {
     static instances: FakeAudioWorkletNode[] = [];
@@ -50,15 +48,12 @@ test('attachAudioCapture: uses AudioWorkletNode when module loads', async () => 
   }
 
   vi.stubGlobal('AudioWorkletNode', FakeAudioWorkletNode);
-  vi.stubGlobal('URL', { ...URL, createObjectURL, revokeObjectURL });
 
   const capture = await attachAudioCapture(audioCtx, source as unknown as AudioNode, (chunk) => chunks.push(chunk));
   const worklet = FakeAudioWorkletNode.instances[0];
   const chunk = new Float32Array([0.25, -0.5]);
 
-  expect(createObjectURL).toHaveBeenCalledOnce();
-  expect(addModule).toHaveBeenCalledWith('blob:pcm-worklet');
-  expect(revokeObjectURL).toHaveBeenCalledWith('blob:pcm-worklet');
+  expect(addModule).toHaveBeenCalledWith(expect.stringMatching(/pcmWorklet\.js(\?no-inline)?$/));
   expect(worklet.name).toBe('pcm-processor');
   expect(source.connect).toHaveBeenCalledWith(worklet);
 
@@ -74,7 +69,11 @@ test('attachAudioCapture: falls back to ScriptProcessorNode when worklet loading
   const input = new Float32Array([0.1, -0.2, 0.3]);
   const chunks: Float32Array[] = [];
   const source = { connect: vi.fn() };
-  const processor = { onaudioprocess: null as ScriptProcessorNode['onaudioprocess'], connect: vi.fn(), disconnect: vi.fn() };
+  const processor = {
+    onaudioprocess: null as ScriptProcessorNode['onaudioprocess'],
+    connect: vi.fn(),
+    disconnect: vi.fn(),
+  };
   const gain = { gain: { value: 1 }, connect: vi.fn() };
   const destination = {};
   const audioCtx = {
@@ -83,11 +82,11 @@ test('attachAudioCapture: falls back to ScriptProcessorNode when worklet loading
     createGain: vi.fn(() => gain),
     destination,
   } as unknown as AudioContext;
-
-  vi.stubGlobal('URL', { ...URL, createObjectURL: vi.fn(() => 'blob:pcm-worklet'), revokeObjectURL: vi.fn() });
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
   const capture = await attachAudioCapture(audioCtx, source as unknown as AudioNode, (chunk) => chunks.push(chunk));
 
+  expect(warn).toHaveBeenCalledOnce();
   expect(audioCtx.createScriptProcessor).toHaveBeenCalledWith(4096, 1, 1);
   expect(source.connect).toHaveBeenCalledWith(processor);
   expect(gain.gain.value).toBe(0);
@@ -104,6 +103,7 @@ test('attachAudioCapture: falls back to ScriptProcessorNode when worklet loading
   capture.stop();
   expect(processor.onaudioprocess).toBeNull();
   expect(processor.disconnect).toHaveBeenCalledOnce();
+  warn.mockRestore();
 });
 
 // ── WAV header ────────────────────────────────────────────────────────────────
