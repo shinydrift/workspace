@@ -166,8 +166,6 @@ export type IPCMap = {
   'dialog:openDirectory': { input: undefined; output: string | null };
 
   // Sandbox
-  'sandbox:checkDocker': { input: undefined; output: { available: boolean; imageBuilt: boolean } };
-  'sandbox:openDocker': { input: undefined; output: void };
   'sandbox:listContainers': { input: undefined; output: ContainerSummary[] };
   'sandbox:pruneContainers': { input: undefined; output: { pruned: string[]; errors: string[] } };
   'sandbox:removeContainer': { input: { containerName: string }; output: void };
@@ -427,8 +425,6 @@ export const TYPED_CHANNEL_SET: ReadonlySet<string> = new Set<IPCChannel>([
   'automation:run',
   'automation:toggle',
   'dialog:openDirectory',
-  'sandbox:checkDocker',
-  'sandbox:openDocker',
   'sandbox:listContainers',
   'sandbox:pruneContainers',
   'sandbox:removeContainer',

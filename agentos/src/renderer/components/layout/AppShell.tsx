@@ -10,7 +10,6 @@ import { TitleBar } from './TitleBar';
 import { SettingsMenuDropdown } from './SettingsMenuDropdown';
 import { SidebarToggle } from './SidebarToggle';
 import { AgentOSLogo } from '../ui/agentos-logo';
-import { DockerDesktopPrompt } from './DockerDesktopPrompt';
 import { useDockerHealth } from '../../hooks/useDockerHealth';
 import { AppSidebar } from './AppSidebar';
 import { MainContentRouter } from './MainContentRouter';
@@ -100,15 +99,7 @@ export function AppShell() {
     maxWidth: 520,
     storageKey: 'agentos:sidebarWidth',
   });
-  const {
-    showDockerPrompt,
-    dockerChecking,
-    dockerActionBusy,
-    dockerError,
-    healthStatus,
-    handleDockerRecheck,
-    handleOpenDocker,
-  } = useDockerHealth();
+  const { healthStatus } = useDockerHealth();
 
   const threadList = Object.values(threads);
   const selected = selectedThreadId ? threads[selectedThreadId] : null;
@@ -267,14 +258,6 @@ export function AppShell() {
             onStop={() => void meetingRecorder.stopAndProcess()}
           />
         )}
-      <DockerDesktopPrompt
-        open={showDockerPrompt}
-        checking={dockerChecking}
-        actionBusy={dockerActionBusy}
-        error={dockerError}
-        onOpenDocker={handleOpenDocker}
-        onRecheck={handleDockerRecheck}
-      />
     </div>
   );
 }

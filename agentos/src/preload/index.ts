@@ -142,8 +142,6 @@ const api = {
   },
 
   sandbox: {
-    checkDocker: () => invoke('sandbox:checkDocker'),
-    openDocker: () => invoke('sandbox:openDocker'),
     listContainers: () => invoke('sandbox:listContainers'),
     pruneContainers: () => invoke('sandbox:pruneContainers'),
     removeContainer: (containerName: string) => invoke('sandbox:removeContainer', { containerName }),

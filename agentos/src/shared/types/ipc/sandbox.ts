@@ -1,6 +1,4 @@
 export const SANDBOX_IPC_CHANNELS = {
-  SANDBOX_CHECK_DOCKER: 'sandbox:checkDocker',
-  SANDBOX_OPEN_DOCKER: 'sandbox:openDocker',
   SANDBOX_LIST_CONTAINERS: 'sandbox:listContainers',
   SANDBOX_PRUNE_CONTAINERS: 'sandbox:pruneContainers',
   SANDBOX_REMOVE_CONTAINER: 'sandbox:removeContainer',
@@ -19,9 +17,4 @@ export interface ContainerSummary {
   expectedConfigHash: string | null;
   drift: boolean;
   orphaned: boolean;
-}
-
-export interface DockerCheckResult {
-  available: boolean;
-  imageBuilt: boolean;
 }
