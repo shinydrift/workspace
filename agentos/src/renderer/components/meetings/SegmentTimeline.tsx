@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { CircleNotch, WaveTriangle } from '@phosphor-icons/react';
+import { CircleNotch, WaveTriangle, X } from '@phosphor-icons/react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type { RecordingRecord, SavedProject } from '../../../shared/types';
 import { useDomainStore } from '../../store/domainStore';
 import { useUIStore } from '../../store/uiStore';
+import { RecordingPlayer } from './RecordingPlayer';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const WINDOW_MS = 7 * DAY_MS; // retention window — the full pickable span
@@ -38,6 +39,7 @@ export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps
   const [endFrac, setEndFrac] = useState(1);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [playing, setPlaying] = useState<RecordingRecord | null>(null);
   const dragging = useRef<'start' | 'end' | null>(null);
 
   const from = now - WINDOW_MS;
@@ -130,16 +132,21 @@ export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps
           />
         ))}
 
-        {/* segment blocks */}
+        {/* segment blocks — click to play */}
         {segments.map((s) => {
           const left = ((s.createdAt - from) / WINDOW_MS) * 100;
           const width = Math.max(0.4, ((s.durationSeconds * 1000) / WINDOW_MS) * 100);
           return (
-            <div
+            <button
               key={s.id}
-              className="absolute top-2 bottom-2 rounded-sm bg-blue-500/60"
+              type="button"
+              onClick={() => setPlaying(s)}
+              className={cn(
+                'absolute top-2 bottom-2 rounded-sm bg-blue-500/60 hover:bg-blue-400 transition-colors cursor-pointer',
+                playing?.id === s.id && 'ring-1 ring-blue-300 bg-blue-400'
+              )}
               style={{ left: `${left}%`, width: `${width}%` }}
-              title={new Date(s.createdAt).toLocaleString()}
+              title={`${new Date(s.createdAt).toLocaleString()} — click to play`}
             />
           );
         })}
@@ -190,6 +197,29 @@ export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps
           </Button>
         </div>
       </div>
+
+      {playing && (
+        <div className="mt-3 flex items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2">
+          <span className="shrink-0 text-xs text-muted-foreground">
+            {new Date(playing.createdAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+          </span>
+          <RecordingPlayer
+            key={playing.id}
+            recordingId={playing.id}
+            durationSeconds={playing.durationSeconds}
+            autoPlay
+            className="flex-1"
+          />
+          <button
+            type="button"
+            onClick={() => setPlaying(null)}
+            aria-label="Close player"
+            className="shrink-0 p-1 text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
     </div>
   );
 }

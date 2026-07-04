@@ -252,6 +252,10 @@ export type IPCMap = {
     input: { recordingId: string };
     output: void;
   };
+  'recording:read': {
+    input: { recordingId: string };
+    output: { data: ArrayBuffer };
+  };
   'recording:list': {
     input: undefined;
     output: RecordingRecord[];
@@ -470,6 +474,7 @@ export const TYPED_CHANNEL_SET: ReadonlySet<string> = new Set<IPCChannel>([
   'recording:setThread',
   'recording:setTitle',
   'recording:delete',
+  'recording:read',
   'recording:list',
   'recording:segments',
   'desktop:getSources',

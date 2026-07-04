@@ -185,6 +185,19 @@ export function registerFileHandlers(): void {
     })
   );
 
+  ipcMain.handle(IPC_CHANNELS.RECORDING_READ, (_e, raw: unknown) =>
+    handleIpc(async () => {
+      const { recordingId } = RecordingDeleteSchema.parse(raw);
+      const root = recordingsRoot();
+      const audioPath = path.join(root, recordingId, 'audio.wav');
+      assertContained(audioPath, root);
+      const buf = await fs.readFile(audioPath);
+      // Return a standalone ArrayBuffer (readFile may hand back a pooled Buffer with an offset).
+      const data = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+      return { data };
+    })
+  );
+
   ipcMain.handle(IPC_CHANNELS.RECORDING_LIST, (_e, raw?: { limit?: number; offset?: number }) =>
     handleIpc(async () => {
       const limit = Math.min(raw?.limit ?? 50, 200);

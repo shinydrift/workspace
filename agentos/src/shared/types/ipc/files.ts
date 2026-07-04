@@ -5,6 +5,7 @@ export const FILES_IPC_CHANNELS = {
   RECORDING_SET_THREAD: 'recording:setThread',
   RECORDING_SET_TITLE: 'recording:setTitle',
   RECORDING_DELETE: 'recording:delete',
+  RECORDING_READ: 'recording:read',
   RECORDING_LIST: 'recording:list',
   RECORDING_SEGMENTS: 'recording:segments',
 } as const;
