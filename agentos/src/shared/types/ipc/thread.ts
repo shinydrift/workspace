@@ -80,6 +80,8 @@ export interface ThreadStatusEvent {
   autopilotLastReason?: string;
   autopilotConsecutiveTurns?: number;
   sessionStartedAt?: number;
+  /** Canonical lifecycle indicator (👀/🤖/🏛️/✅/❌) derived once in main — surfaces render it as-is. */
+  reaction?: import('../thread-post').ThreadPostStatus | null;
 }
 
 export interface ThreadRenamedEvent {

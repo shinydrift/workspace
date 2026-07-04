@@ -462,6 +462,17 @@ CREATE INDEX idx_stb_thread_id ON slack_thread_bindings(thread_id);
       db.exec(`CREATE INDEX IF NOT EXISTS idx_recordings_kind_created ON recordings(kind, created_at)`);
     },
   },
+  {
+    // The thread's current lifecycle indicator (👀/🤖/🏛️/✅/❌), written on every status broadcast so
+    // the reaction survives an app restart instead of living only in in-memory projection state.
+    name: '0010_add_thread_current_reaction',
+    run: (db) => {
+      const cols = db.prepare(`PRAGMA table_info(threads)`).all() as { name: string }[];
+      if (!cols.some((c) => c.name === 'current_reaction')) {
+        db.exec(`ALTER TABLE threads ADD COLUMN current_reaction TEXT`);
+      }
+    },
+  },
 ];
 
 // Derived from THREADS_MIGRATIONS so the seeding branch never goes stale.

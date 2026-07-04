@@ -17,6 +17,9 @@ export function registerCouncilHandlers(): void {
   // Forward service events out to renderer windows
   councilEvents.on('run:updated', (run) => {
     broadcastToWindows(IPC_EVENTS.COUNCIL_RUN_UPDATED, run);
+    // Re-project the parent's status so the 🏛️ indicator appears on dispatch and resolves on
+    // completion, instead of waiting for the next turn event.
+    threadManager.rebroadcastStatus(run.parentThreadId);
     if (run.status === 'done') {
       threadManager.triggerAutopilotForCouncilDone(run.parentThreadId, run.id);
     }

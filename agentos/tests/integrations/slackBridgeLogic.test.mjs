@@ -56,20 +56,23 @@ test('applySettings: bot access, app token, channels -> has socket mode', () => 
 });
 
 // ── onThreadStatus: pure echo of the shared status lifecycle ───────────────────
-// The emoji decision lives in shared/threadStatusLifecycle.ts (covered by real-import tests in
+// The status decision is made once in broadcastStatus (payload.reaction, derived in
+// shared/threadStatusLifecycle.ts and covered by real-import tests in
 // tests/shared/threadStatusLifecycle.test.ts). Here we anchor that onThreadStatus is a thin
-// projection over it and no longer carries its own deferral/emoji logic.
+// projection over it and carries no lifecycle derivation of its own.
 
-test('onThreadStatus: delegates to the shared lifecycle and diffs reactions on lastInboundTs', () => {
+test('onThreadStatus: echoes payload.reaction and diffs reactions on lastInboundTs', () => {
   const dir = path.dirname(fileURLToPath(import.meta.url));
   const src = fs.readFileSync(path.resolve(dir, '../../src/main/integrations/slackBridge.ts'), 'utf8');
-  assert.match(src, /deriveThreadReactionEmoji/);
-  assert.match(src, /onThreadStatus\([\s\S]*?deriveThreadReactionEmoji/);
+  assert.match(src, /onThreadStatus\([\s\S]*?payload\.reaction/);
+  assert.match(src, /THREAD_STATUS_SLACK_EMOJI\[payload\.reaction\]/);
   assert.match(src, /binding\.lastInboundTs/);
   // Projection delta + terminal-preserve come from the shared module.
   assert.match(src, /reconcileReaction/);
   assert.match(src, /TERMINAL_THREAD_REACTION_EMOJI/);
-  // The bespoke deferral/inline emoji logic must be gone — Slack is a pure echo now.
+  // The bespoke derivation/inline emoji logic must be gone — Slack is a pure echo now.
+  assert.doesNotMatch(src, /deriveThreadReactionEmoji/);
+  assert.doesNotMatch(src, /councilService/);
   assert.doesNotMatch(src, /pendingAutopilotChecks/);
   assert.doesNotMatch(src, /white_check_mark/);
 });

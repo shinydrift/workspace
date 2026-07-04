@@ -83,6 +83,9 @@ class ThreadPostsStore {
   applyThreadStatus(payload: ThreadStatusEvent): void {
     const postId = this.currentPromptId.get(payload.threadId);
     if (!postId) return;
+    // A pending council keeps the turn unsettled (🏛️) — the parent idles right after dispatch, so
+    // don't let that idle persist ✅ yet; the post-council broadcast resolves the outcome instead.
+    if (payload.reaction === 'council') return;
     const status = deriveThreadPostStatus(payload);
     if (!status) return;
     this.currentPromptId.delete(payload.threadId);

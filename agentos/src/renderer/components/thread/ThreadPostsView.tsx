@@ -1,6 +1,5 @@
 import React, { memo, useEffect, useMemo, useRef } from 'react';
 import type { ThreadPost, ThreadPostStatus } from '../../../shared/types';
-import type { LiveThreadPostStatus } from '../../lib/threadPostStatus';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { renderMarkdown } from '../../lib/markdown';
 import { handleCodeCopy } from '../chat/messageUtils';
@@ -27,7 +26,7 @@ function formatTime(ms: number): string {
   return new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 }
 
-const PostRow = memo(function PostRow({ post, live }: { post: ThreadPost; live: LiveThreadPostStatus | null }) {
+const PostRow = memo(function PostRow({ post, live }: { post: ThreadPost; live: ThreadPostStatus | null }) {
   const isUser = post.author === 'user';
   const pending = post.id.startsWith(OPTIMISTIC_PREFIX);
   const html = useMemo(() => renderMarkdown(post.text), [post.text]);
@@ -82,13 +81,7 @@ const PostRow = memo(function PostRow({ post, live }: { post: ThreadPost; live: 
   );
 });
 
-export function ThreadPostsView({
-  posts,
-  liveStatus,
-}: {
-  posts: ThreadPost[];
-  liveStatus: LiveThreadPostStatus | null;
-}) {
+export function ThreadPostsView({ posts, liveStatus }: { posts: ThreadPost[]; liveStatus: ThreadPostStatus | null }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 

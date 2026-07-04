@@ -10,7 +10,6 @@ import { eventLogger } from '../utils/eventLog';
 import { SlackWorkspaceManager } from './slackWorkspaces';
 import { registerMediumPoster, getMediumPoster, type EchoTarget } from './mediumPosters';
 import {
-  deriveThreadReactionEmoji,
   reconcileReaction,
   TERMINAL_THREAD_REACTION_EMOJI,
   THREAD_STATUS_SLACK_EMOJI,
@@ -23,7 +22,6 @@ import { SlackRoutingService } from './slackRoutingService';
 import { SlackThreadResolver } from './slackThreadResolver';
 import { getProject } from '../threads/db';
 import { getThread } from '../threads/threadStore';
-import { councilService } from '../council/service';
 
 /** Sanitizes user-provided strings for safe inclusion in Slack mrkdwn. */
 function escapeMrkdwn(text: string): string {
@@ -196,12 +194,11 @@ class SlackBridge extends BaseBridge<SlackBridgeDeps> {
   /**
    * Pure echo of the thread-view status lifecycle: every status event re-projects the canonical
    * status (👀 / 🤖 / 🏛️ / ✅ / ❌, or none) onto the bound inbound message's reaction. The decision
-   * of what icon to show lives entirely in the shared lifecycle module — Slack just mirrors it.
+   * of what icon to show is made once in broadcastStatus (payload.reaction) — Slack just mirrors it.
    */
   onThreadStatus(payload: ThreadStatusEvent): void {
     if (!this.readSlackSettings().enabled) return;
-    const councilPending = councilService.hasPendingRunForThread(payload.threadId);
-    const emoji = deriveThreadReactionEmoji(payload, councilPending);
+    const emoji = payload.reaction ? THREAD_STATUS_SLACK_EMOJI[payload.reaction] : null;
     for (const binding of this.workspaceManager.bindingsForThread(payload.threadId)) {
       if (!binding.lastInboundTs) continue;
       this.projectReaction(binding.key, binding.channelId, binding.lastInboundTs, emoji);

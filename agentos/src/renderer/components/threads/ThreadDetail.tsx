@@ -10,8 +10,6 @@ import { ThreadPostsView } from '../thread/ThreadPostsView';
 import { ThreadInsightsPanel } from '../insights/ThreadInsightsPanel';
 import { useMessages } from '../../hooks/useMessages';
 import { useThreadPosts } from '../../hooks/useThreadPosts';
-import { useCouncilRuns } from '../../hooks/useCouncilRuns';
-import { deriveLiveThreadPostStatus } from '../../lib/threadPostStatus';
 import { ThreadDetailHeader } from './ThreadDetailHeader';
 import { CouncilRunPanel } from '../chat/CouncilRunPanel';
 import { TaskSheetPanel } from '../board/TaskSheetPanel';
@@ -38,14 +36,8 @@ export function ThreadDetail({ thread, noCard, initialView }: Props) {
   });
   const { messages, streamingBlocks, isStreaming } = useMessages(thread);
   const { posts: threadPosts, addOptimistic } = useThreadPosts(thread.id);
-  const councilRuns = useCouncilRuns(thread.id);
-  const councilPending = councilRuns.some((e) => e.run.status === 'pending' || e.run.status === 'running');
-  const liveStatus = deriveLiveThreadPostStatus(
-    thread.status,
-    thread.autopilotEnabled,
-    thread.autopilotState,
-    councilPending
-  );
+  // Pure echo of the indicator derived (and persisted) in main's broadcastStatus.
+  const liveStatus = thread.currentReaction ?? null;
 
   useEffect(() => {
     let cancelled = false;

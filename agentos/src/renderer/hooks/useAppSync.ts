@@ -54,6 +54,7 @@ export function useAppSync() {
         ...(event.autopilotConsecutiveTurns !== undefined
           ? { autopilotConsecutiveTurns: event.autopilotConsecutiveTurns }
           : {}),
+        ...(event.reaction !== undefined ? { currentReaction: event.reaction } : {}),
         sessionStartedAt: event.sessionStartedAt,
       };
       updateThreadStatus(event.threadId, event.status, {

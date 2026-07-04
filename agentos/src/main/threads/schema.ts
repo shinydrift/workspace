@@ -40,6 +40,7 @@ export const threads = sqliteTable(
     autopilotState: text('autopilot_state'),
     autopilotLastReason: text('autopilot_last_reason'),
     autopilotConsecutiveTurns: integer('autopilot_consecutive_turns'),
+    currentReaction: text('current_reaction'),
     claudeSessionId: text('claude_session_id'),
     codexSessionId: text('codex_session_id'),
     geminiSessionId: text('gemini_session_id'),

@@ -305,6 +305,10 @@ class ThreadManager implements Disposable {
     this.councilManager.maybeTriggerSynthesis(threadId, runId);
   }
 
+  rebroadcastStatus(threadId: string): void {
+    this.stateService.broadcastCurrentStatus(threadId);
+  }
+
   resizeTerminal(threadId: string, cols: number, rows: number): void {
     this.store.ptys.get(threadId)?.resize(cols, rows);
   }
@@ -397,6 +401,18 @@ class ThreadManager implements Disposable {
     source: QueueSource = 'user',
     options?: { timeoutMs?: number; systemPromptSuffix?: string }
   ): Promise<void> {
+    // A new inbound message re-arms a settled autopilot loop (maybeRunAfterTurn will plan again with
+    // a fresh turn budget). Clear the stale stopped/blocked state up front so the turn's indicator
+    // shows 👀 and its trailing idle isn't misread as terminal ✅ while autopilot re-engages.
+    if (source === 'user') {
+      const thread = threadStore.getThread(threadId);
+      if (thread?.autopilotEnabled && (thread.autopilotState === 'stopped' || thread.autopilotState === 'blocked')) {
+        this.autopilotState.setState(threadId, {
+          autopilotState: 'idle',
+          autopilotLastReason: 'New message received.',
+        });
+      }
+    }
     return this.inputService.sendInput(threadId, input, source, options);
   }
 

@@ -41,10 +41,11 @@ export function deriveTerminalThreadPostStatus(payload: ThreadStatusEvent): Thre
  * persisted ✅/❌ (or nothing) shows instead. Because it's recomputed from live state, it self-corrects
  * and never sticks across a restart or interrupt.
  *
- * While autopilot is enabled it holds 🤖 (the "defer" state) rather than flashing 👀 or clearing:
- * a thread's DB status stays `running` between turns, so without this a resting autopilot thread would
- * keep resolving to 👀 and never move on. The turn-complete ✅ takes over once autopilot settles
+ * A running turn shows 👀 unless autopilot queued it (thinking/sent) — 🤖 marks autopilot's own
+ * activity, not merely that the toggle is on. Between turns, an enabled autopilot holds 🤖 rather
+ * than resolving to ✅: the loop may run many turns, and ✅ only lands once it settles
  * (stopped/blocked) — that path is terminal (see deriveTerminalThreadPostStatus) and wins in display.
+ * A pending council run overrides everything: 🏛️ is the working indicator while members deliberate.
  */
 export function deriveLiveThreadPostStatus(
   status: ThreadStatus,
@@ -52,20 +53,26 @@ export function deriveLiveThreadPostStatus(
   autopilotState: AutopilotThreadState | undefined,
   councilPending: boolean
 ): LiveThreadPostStatus | null {
-  if (autopilotState === 'thinking' || autopilotState === 'sent') return councilPending ? 'council' : 'autopilot';
-  if (autopilotEnabled) return 'autopilot';
-  if (status === 'running') return 'working';
+  if (councilPending) return 'council';
+  if (status === 'running') {
+    return autopilotState === 'thinking' || autopilotState === 'sent' ? 'autopilot' : 'working';
+  }
+  if (autopilotEnabled && autopilotState !== 'stopped' && autopilotState !== 'blocked') return 'autopilot';
   return null;
 }
 
 /**
  * The full display status for a status event — terminal wins, else the live transient status, else
  * null when the thread isn't doing anything resolvable. This is what every surface renders.
+ * Exception: a pending council keeps 🏛️ up even when the parent thread idles (its turn ends right
+ * after dispatch), resolving to the regular lifecycle once the run completes. ❌ still wins — an
+ * errored thread can't service a council.
  */
 export function deriveThreadDisplayStatus(
   payload: ThreadStatusEvent,
   councilPending: boolean
 ): ThreadPostStatus | null {
+  if (councilPending && payload.status !== 'error') return 'council';
   return (
     deriveTerminalThreadPostStatus(payload) ??
     deriveLiveThreadPostStatus(payload.status, payload.autopilotEnabled, payload.autopilotState, councilPending)

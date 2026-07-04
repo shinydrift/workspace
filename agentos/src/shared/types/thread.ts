@@ -47,6 +47,7 @@ export interface Thread {
   autopilotState?: AutopilotThreadState;
   autopilotLastReason?: string;
   autopilotConsecutiveTurns?: number;
+  currentReaction?: import('./thread-post').ThreadPostStatus | null; // persisted lifecycle indicator (👀/🤖/🏛️/✅/❌)
   claudeSessionId?: string; // persisted session ID for headless --resume
   codexSessionId?: string; // persisted thread ID for codex exec resume
   geminiSessionId?: string; // persisted session ID for gemini --resume

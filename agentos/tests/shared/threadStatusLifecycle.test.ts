@@ -2,8 +2,9 @@
  * Real-import tests for the single source of truth: shared/threadStatusLifecycle.ts.
  *
  * This module owns the whole agent-status lifecycle (👀 working → 🤖 autopilot / 🏛️ council →
- * ✅ done / ❌ error). The renderer badge, the persisted terminal status, and the Slack reaction echo
- * all derive from here, so these tests pin the behavior every surface inherits. Pure functions, no mocks.
+ * ✅ done / ❌ error). broadcastStatus derives the indicator once from here; the renderer badge and
+ * the Slack reaction echo render it as-is, so these tests pin the behavior every surface inherits.
+ * Pure functions, no mocks.
  */
 
 import test from 'node:test';
@@ -11,6 +12,7 @@ import assert from 'node:assert/strict';
 import {
   deriveTerminalThreadPostStatus,
   deriveLiveThreadPostStatus,
+  deriveThreadDisplayStatus,
   deriveThreadReactionEmoji,
   reconcileReaction,
 } from '../../src/shared/threadStatusLifecycle';
@@ -67,20 +69,42 @@ test('live: idle with no autopilot → null', () => {
   assert.equal(deriveLiveThreadPostStatus('idle', false, undefined, false), null);
 });
 
-test('live: autopilot thinking/sent → autopilot, or council when pending', () => {
+test('live: user turn running with autopilot enabled → working (👀, not 🤖)', () => {
+  // 🤖 marks autopilot's own activity; a user-initiated turn shows 👀 even while the toggle is on.
+  assert.equal(deriveLiveThreadPostStatus('running', true, 'idle', false), 'working');
+  assert.equal(deriveLiveThreadPostStatus('running', true, 'stopped', false), 'working');
+});
+
+test('live: autopilot-queued turn (thinking/sent) → autopilot', () => {
   assert.equal(deriveLiveThreadPostStatus('running', true, 'thinking', false), 'autopilot');
-  assert.equal(deriveLiveThreadPostStatus('idle', true, 'sent', false), 'autopilot');
-  assert.equal(deriveLiveThreadPostStatus('running', true, 'thinking', true), 'council');
+  assert.equal(deriveLiveThreadPostStatus('running', true, 'sent', false), 'autopilot');
 });
 
-test('live: autopilot enabled but resting between turns → holds 🤖 (defer), not 👀/null', () => {
-  assert.equal(deriveLiveThreadPostStatus('running', true, 'idle', false), 'autopilot');
-  assert.equal(deriveLiveThreadPostStatus('idle', true, 'idle', false), 'autopilot');
+test('live: turn finished with autopilot enabled → holds 🤖 (skip ✅, loop may run more turns)', () => {
+  for (const autopilotState of ['idle', 'thinking', 'sent'] as const) {
+    assert.equal(deriveLiveThreadPostStatus('idle', true, autopilotState, false), 'autopilot');
+  }
 });
 
-test('live: council flag ignored when autopilot is not enabled', () => {
-  assert.equal(deriveLiveThreadPostStatus('running', false, undefined, true), 'working');
-  assert.equal(deriveLiveThreadPostStatus('idle', false, undefined, true), null);
+test('live: autopilot settled (stopped/blocked) → null (terminal ✅ takes over)', () => {
+  assert.equal(deriveLiveThreadPostStatus('idle', true, 'stopped', false), null);
+  assert.equal(deriveLiveThreadPostStatus('idle', true, 'blocked', false), null);
+});
+
+test('live: council pending → council, with or without autopilot', () => {
+  assert.equal(deriveLiveThreadPostStatus('running', false, undefined, true), 'council');
+  assert.equal(deriveLiveThreadPostStatus('idle', false, undefined, true), 'council');
+  assert.equal(deriveLiveThreadPostStatus('idle', true, 'sent', true), 'council');
+});
+
+// ── Display (what every surface renders) ─────────────────────────────────────
+
+test('display: council pending overrides an idle terminal — 🏛️ stays up while members deliberate', () => {
+  assert.equal(deriveThreadDisplayStatus(event({ status: 'idle' }), true), 'council');
+});
+
+test('display: error wins over council pending', () => {
+  assert.equal(deriveThreadDisplayStatus(event({ status: 'error' }), true), 'error');
 });
 
 // ── Slack reaction projection (the echo) ──────────────────────────────────────
@@ -97,26 +121,33 @@ test('echo: error → x', () => {
   assert.equal(deriveThreadReactionEmoji(event({ status: 'error' }), false), 'x');
 });
 
-test('echo: autopilot planning → robot_face, or classical_building when council pending', () => {
+test('echo: user turn with autopilot enabled → eyes; autopilot takes over after the turn', () => {
   assert.equal(
-    deriveThreadReactionEmoji(event({ status: 'running', autopilotEnabled: true, autopilotState: 'thinking' }), false),
-    'robot_face'
+    deriveThreadReactionEmoji(event({ status: 'running', autopilotEnabled: true, autopilotState: 'idle' }), false),
+    'eyes'
   );
-  assert.equal(
-    deriveThreadReactionEmoji(event({ status: 'running', autopilotEnabled: true, autopilotState: 'sent' }), true),
-    'classical_building'
-  );
-});
-
-test('echo: autopilot idle between turns → holds robot_face (deferred, not cleared to 👀 or nothing)', () => {
   assert.equal(
     deriveThreadReactionEmoji(event({ status: 'idle', autopilotEnabled: true, autopilotState: 'idle' }), false),
     'robot_face'
   );
-  // A resting autopilot thread's DB status stays 'running' — must still hold 🤖, never revert to 👀.
+});
+
+test('echo: autopilot planning/driving turns → robot_face', () => {
   assert.equal(
-    deriveThreadReactionEmoji(event({ status: 'running', autopilotEnabled: true, autopilotState: 'idle' }), false),
+    deriveThreadReactionEmoji(event({ status: 'idle', autopilotEnabled: true, autopilotState: 'thinking' }), false),
     'robot_face'
+  );
+  assert.equal(
+    deriveThreadReactionEmoji(event({ status: 'running', autopilotEnabled: true, autopilotState: 'sent' }), false),
+    'robot_face'
+  );
+});
+
+test('echo: council submitted → classical_building, even while the parent idles', () => {
+  assert.equal(deriveThreadReactionEmoji(event({ status: 'idle' }), true), 'classical_building');
+  assert.equal(
+    deriveThreadReactionEmoji(event({ status: 'running', autopilotEnabled: true, autopilotState: 'sent' }), true),
+    'classical_building'
   );
 });
 
@@ -137,7 +168,7 @@ test('reconcile: same reaction already shown → no-op', () => {
   assert.deepEqual(reconcileReaction('eyes', 'eyes'), {});
 });
 
-test('reconcile: transition between transients → swap', () => {
+test('reconcile: transition between transients → swap (only one reaction at a time)', () => {
   assert.deepEqual(reconcileReaction('eyes', 'robot_face'), { remove: 'eyes', add: 'robot_face' });
 });
 

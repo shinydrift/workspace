@@ -15,6 +15,9 @@ import { IPC_EVENTS } from '../../shared/types';
 import { slackBridge } from '../integrations/slackBridge';
 import { emitMessageAppended, emitThreadIdle } from '../events';
 import { threadPostsStore } from './threadPostsStore';
+import { deriveThreadDisplayStatus } from '../../shared/threadStatusLifecycle';
+import { councilService } from '../council/service';
+import * as threadStore from '../threads/threadStore';
 
 let trayUpdateHook: (() => void) | null = null;
 
@@ -35,11 +38,18 @@ export function broadcastTerminalData(payload: TerminalDataEvent): void {
 }
 
 export function broadcastStatus(payload: ThreadStatusEvent): void {
-  slackBridge.onThreadStatus(payload);
-  threadPostsStore.applyThreadStatus(payload);
-  broadcastToWindows(IPC_EVENTS.THREAD_STATUS, payload);
-  if (payload.status === 'idle') {
-    emitThreadIdle({ threadId: payload.threadId });
+  // Derive the lifecycle indicator (👀/🤖/🏛️/✅/❌) once here — renderer badge and Slack reaction
+  // render it as-is — and persist it on the thread so it survives an app restart.
+  const councilPending = councilService.hasPendingRunForThread(payload.threadId);
+  const event: ThreadStatusEvent = { ...payload, reaction: deriveThreadDisplayStatus(payload, councilPending) };
+  if (threadStore.getThread(event.threadId)) {
+    threadStore.updateThread(event.threadId, { currentReaction: event.reaction });
+  }
+  slackBridge.onThreadStatus(event);
+  threadPostsStore.applyThreadStatus(event);
+  broadcastToWindows(IPC_EVENTS.THREAD_STATUS, event);
+  if (event.status === 'idle') {
+    emitThreadIdle({ threadId: event.threadId });
   }
   trayUpdateHook?.();
 }
