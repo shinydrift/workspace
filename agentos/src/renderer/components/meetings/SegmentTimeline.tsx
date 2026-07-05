@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarBlank, CaretDown, CaretUp, CircleNotch, Pause, Play, Warning, X } from '@phosphor-icons/react';
+import { CalendarBlank, CircleNotch, Pause, Play, Warning, X } from '@phosphor-icons/react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
@@ -15,7 +15,7 @@ const WINDOW_MS = 7 * DAY_MS;
 const DEFAULT_SELECTION_MS = HOUR_MS;
 const TIMELINE_HEIGHT = 3024; // 18px/hour across the retention window.
 const MERGE_GAP_MS = 90 * 1000; // Bridge tiny gaps so captured audio reads as one continuous stretch.
-const TIMELINE_LANE_CLASS = 'left-24 right-6';
+const TIMELINE_LANE_CLASS = 'inset-x-2';
 
 type DragTarget = 'start' | 'end' | null;
 
@@ -84,14 +84,13 @@ function SelectionPlayer({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [current, setCurrent] = useState(0);
-  const [duration, setDuration] = useState(segments[0]?.durationSeconds ?? 0);
 
-  const currentSegment = segments[index] ?? null;
   const totalDuration = useMemo(() => segments.reduce((sum, s) => sum + s.durationSeconds, 0), [segments]);
   const elapsedBefore = useMemo(
     () => segments.slice(0, index).reduce((sum, s) => sum + s.durationSeconds, 0),
     [index, segments]
   );
+  const windowCurrent = elapsedBefore + current;
 
   const cleanupAudio = useCallback((invalidateLoad = false) => {
     if (invalidateLoad) loadTokenRef.current += 1;
@@ -105,15 +104,16 @@ function SelectionPlayer({
     urlRef.current = null;
   }, []);
 
+  // Play the clip at nextIndex, optionally starting partway in. The underlying clips are stitched
+  // into one continuous stream — callers address time by window position, never by clip.
   const playIndex = useCallback(
-    async (nextIndex: number, shouldPlay = true) => {
+    async (nextIndex: number, shouldPlay = true, startAt = 0) => {
       const segment = segments[nextIndex];
       if (!segment) return;
       const token = ++loadTokenRef.current;
       cleanupAudio();
       setIndex(nextIndex);
-      setCurrent(0);
-      setDuration(segment.durationSeconds);
+      setCurrent(startAt);
       setLoading(true);
       setError('');
       onFocusSegment(segment);
@@ -123,15 +123,18 @@ function SelectionPlayer({
         const url = URL.createObjectURL(new Blob([data], { type: 'audio/wav' }));
         urlRef.current = url;
         const audio = new Audio(url);
+        if (startAt > 0) audio.currentTime = startAt;
         audio.addEventListener('timeupdate', () => setCurrent(audio.currentTime));
         audio.addEventListener('loadedmetadata', () => {
-          if (Number.isFinite(audio.duration) && audio.duration > 0) setDuration(audio.duration);
+          if (startAt > 0) audio.currentTime = startAt;
         });
         audio.addEventListener('ended', () => {
           if (nextIndex + 1 < segments.length) {
             void playIndex(nextIndex + 1, true);
           } else {
+            cleanupAudio();
             setPlaying(false);
+            setIndex(0);
             setCurrent(0);
           }
         });
@@ -150,17 +153,16 @@ function SelectionPlayer({
   );
 
   useEffect(() => {
-    if (index >= segments.length) setIndex(0);
-    setDuration(segments[0]?.durationSeconds ?? 0);
+    setIndex(0);
     setCurrent(0);
     setPlaying(false);
     cleanupAudio(true);
-  }, [cleanupAudio, index, segments]);
+  }, [cleanupAudio, segments]);
 
   useEffect(() => () => cleanupAudio(true), [cleanupAudio]);
 
   function toggle() {
-    if (!currentSegment) return;
+    if (!segments.length) return;
     if (!audioRef.current) {
       void playIndex(index, true);
       return;
@@ -169,13 +171,24 @@ function SelectionPlayer({
     else audioRef.current.pause();
   }
 
+  // Map a window-relative position back to the clip that holds it, then seek there transparently.
   function seek(e: React.ChangeEvent<HTMLInputElement>) {
-    const t = Number(e.target.value);
-    setCurrent(t);
-    if (audioRef.current) audioRef.current.currentTime = t;
+    const target = Number(e.target.value);
+    let acc = 0;
+    let j = 0;
+    for (; j < segments.length - 1; j++) {
+      if (target < acc + segments[j].durationSeconds) break;
+      acc += segments[j].durationSeconds;
+    }
+    const offset = Math.max(0, target - acc);
+    if (j === index && audioRef.current) {
+      audioRef.current.currentTime = offset;
+      setCurrent(offset);
+    } else {
+      void playIndex(j, playing, offset);
+    }
   }
 
-  const windowCurrent = elapsedBefore + current;
   const progressLabel = `${formatSeconds(Math.floor(windowCurrent))} / ${formatSeconds(Math.floor(totalDuration))}`;
 
   return (
@@ -183,65 +196,34 @@ function SelectionPlayer({
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
           <p className="text-xs font-medium text-muted-foreground">Preview</p>
-          <p className="text-[11px] text-muted-foreground truncate">
-            {currentSegment
-              ? `Playing from ${new Date(currentSegment.createdAt).toLocaleTimeString('en-US', {
-                  hour: 'numeric',
-                  minute: '2-digit',
-                })}`
-              : 'No audio in this window'}
-          </p>
+          {!segments.length && <p className="text-[11px] text-muted-foreground truncate">No audio in this window</p>}
         </div>
-        <div className="flex items-center gap-0.5 shrink-0">
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="h-6 w-6"
-            disabled={index <= 0 || loading}
-            onClick={() => void playIndex(index - 1, playing)}
-            aria-label="Skip back"
-          >
-            <CaretUp className="h-3.5 w-3.5" />
-          </Button>
-          <Button
-            type="button"
-            size="icon"
-            className="h-7 w-7"
-            disabled={!currentSegment || loading}
-            onClick={toggle}
-            aria-label={playing ? 'Pause preview' : 'Play preview'}
-          >
-            {loading ? (
-              <CircleNotch className="h-3.5 w-3.5 animate-spin" />
-            ) : playing ? (
-              <Pause weight="fill" className="h-3.5 w-3.5" />
-            ) : (
-              <Play weight="fill" className="h-3.5 w-3.5" />
-            )}
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="h-6 w-6"
-            disabled={index >= segments.length - 1 || loading}
-            onClick={() => void playIndex(index + 1, playing)}
-            aria-label="Skip forward"
-          >
-            <CaretDown className="h-3.5 w-3.5" />
-          </Button>
-        </div>
+        <Button
+          type="button"
+          size="icon"
+          className="h-7 w-7 shrink-0"
+          disabled={!segments.length || loading}
+          onClick={toggle}
+          aria-label={playing ? 'Pause preview' : 'Play preview'}
+        >
+          {loading ? (
+            <CircleNotch className="h-3.5 w-3.5 animate-spin" />
+          ) : playing ? (
+            <Pause weight="fill" className="h-3.5 w-3.5" />
+          ) : (
+            <Play weight="fill" className="h-3.5 w-3.5" />
+          )}
+        </Button>
       </div>
       <div className="mt-2 flex items-center gap-2">
         <input
           type="range"
           min={0}
-          max={duration || 1}
+          max={totalDuration || 1}
           step={0.1}
-          value={Math.min(current, duration || current)}
+          value={Math.min(windowCurrent, totalDuration || windowCurrent)}
           onChange={seek}
-          disabled={!audioRef.current}
+          disabled={!segments.length}
           aria-label="Seek preview"
           className="h-1 flex-1 cursor-pointer accent-blue-500 disabled:cursor-default"
         />
@@ -421,68 +403,76 @@ export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps
           <div className="grid min-h-0 flex-1 grid-cols-[minmax(360px,1fr)_320px] overflow-hidden">
             <ScrollArea className="min-h-0 border-r border-border">
               <div className="p-5">
-                <div
-                  ref={trackRef}
-                  className="relative rounded-md border border-border bg-muted/20"
-                  style={{ height: TIMELINE_HEIGHT }}
-                  onDoubleClick={(e) => {
-                    const frac = timeFracFromEvent(e.clientY);
-                    const distanceToStart = Math.abs(frac - startFrac);
-                    const distanceToEnd = Math.abs(frac - endFrac);
-                    if (distanceToEnd < distanceToStart) setEndFrac(Math.max(frac, startFrac + 0.002));
-                    else setStartFrac(Math.min(frac, endFrac - 0.002));
-                  }}
-                >
-                  {dayLines.map((ts, i) => (
-                    <div
-                      key={ts}
-                      className="absolute left-0 right-0 border-t border-border/50"
-                      style={{ top: `${posFromFrac(i / 7)}%` }}
-                    >
-                      {i >= 1 && (
-                        <span className="absolute left-3 top-1 text-[11px] font-medium text-muted-foreground/80">
+                <div className="flex gap-2" style={{ height: TIMELINE_HEIGHT }}>
+                  <div className="relative w-20 shrink-0">
+                    {dayLines.map((ts, i) =>
+                      i >= 1 ? (
+                        <span
+                          key={ts}
+                          className="absolute right-1.5 translate-y-0.5 whitespace-nowrap text-[11px] font-medium text-muted-foreground/80"
+                          style={{ top: `${posFromFrac(i / 7)}%` }}
+                        >
                           {i === 7 ? 'Today' : fmtDay(ts)}
                         </span>
-                      )}
-                    </div>
-                  ))}
-
-                  {availability.map((range) => {
-                    const topFrac = clampFrac((range.to - from) / WINDOW_MS);
-                    const botFrac = clampFrac((range.from - from) / WINDOW_MS);
-                    const top = posFromFrac(topFrac);
-                    const height = Math.max(6, (topFrac - botFrac) * TIMELINE_HEIGHT);
-                    return (
-                      <div
-                        key={range.from}
-                        className={`absolute ${TIMELINE_LANE_CLASS} rounded-sm border border-blue-400/15 bg-blue-400/10 pointer-events-none`}
-                        style={{ top: `${top}%`, height }}
-                      />
-                    );
-                  })}
-
+                      ) : null
+                    )}
+                  </div>
                   <div
-                    className={`absolute ${TIMELINE_LANE_CLASS} rounded-md border border-blue-400/70 bg-blue-400/15 pointer-events-none`}
-                    style={{ top: `${posFromFrac(endFrac)}%`, height: `${(endFrac - startFrac) * 100}%` }}
-                  />
+                    ref={trackRef}
+                    className="relative flex-1 rounded-md border border-border bg-muted/20"
+                    onDoubleClick={(e) => {
+                      const frac = timeFracFromEvent(e.clientY);
+                      const distanceToStart = Math.abs(frac - startFrac);
+                      const distanceToEnd = Math.abs(frac - endFrac);
+                      if (distanceToEnd < distanceToStart) setEndFrac(Math.max(frac, startFrac + 0.002));
+                      else setStartFrac(Math.min(frac, endFrac - 0.002));
+                    }}
+                  >
+                    {dayLines.map((ts, i) => (
+                      <div
+                        key={ts}
+                        className="absolute inset-x-0 border-t border-border/50"
+                        style={{ top: `${posFromFrac(i / 7)}%` }}
+                      />
+                    ))}
 
-                  {(['start', 'end'] as const).map((which) => (
+                    {availability.map((range) => {
+                      const topFrac = clampFrac((range.to - from) / WINDOW_MS);
+                      const botFrac = clampFrac((range.from - from) / WINDOW_MS);
+                      const top = posFromFrac(topFrac);
+                      const height = Math.max(6, (topFrac - botFrac) * TIMELINE_HEIGHT);
+                      return (
+                        <div
+                          key={range.from}
+                          className={`absolute ${TIMELINE_LANE_CLASS} rounded-sm border border-blue-400/15 bg-blue-400/10 pointer-events-none`}
+                          style={{ top: `${top}%`, height }}
+                        />
+                      );
+                    })}
+
                     <div
-                      key={which}
-                      role="slider"
-                      aria-label={which === 'end' ? 'Meeting end' : 'Meeting start'}
-                      aria-valuenow={Math.round((which === 'start' ? startFrac : endFrac) * 100)}
-                      tabIndex={0}
-                      onPointerDown={(e) => {
-                        e.preventDefault();
-                        dragging.current = which;
-                      }}
-                      className={`absolute ${TIMELINE_LANE_CLASS} z-10 -mt-2 h-4 cursor-ns-resize`}
-                      style={{ top: `${posFromFrac(which === 'start' ? startFrac : endFrac)}%` }}
-                    >
-                      <div className="h-1 rounded-full bg-blue-400 shadow-sm" />
-                    </div>
-                  ))}
+                      className={`absolute ${TIMELINE_LANE_CLASS} rounded-md border border-blue-400/70 bg-blue-400/15 pointer-events-none`}
+                      style={{ top: `${posFromFrac(endFrac)}%`, height: `${(endFrac - startFrac) * 100}%` }}
+                    />
+
+                    {(['start', 'end'] as const).map((which) => (
+                      <div
+                        key={which}
+                        role="slider"
+                        aria-label={which === 'end' ? 'Meeting end' : 'Meeting start'}
+                        aria-valuenow={Math.round((which === 'start' ? startFrac : endFrac) * 100)}
+                        tabIndex={0}
+                        onPointerDown={(e) => {
+                          e.preventDefault();
+                          dragging.current = which;
+                        }}
+                        className={`absolute ${TIMELINE_LANE_CLASS} z-10 -mt-2 h-4 cursor-ns-resize`}
+                        style={{ top: `${posFromFrac(which === 'start' ? startFrac : endFrac)}%` }}
+                      >
+                        <div className="h-1 rounded-full bg-blue-400 shadow-sm" />
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
             </ScrollArea>
