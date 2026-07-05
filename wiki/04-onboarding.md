@@ -184,9 +184,9 @@ describe('my feature', () => {
 - `memory:doctor` IPC call (accessible from the Memory panel in the UI) reports: memory directory presence, embedding provider availability, chunk count, and sqlite-vec availability.
 - SQLite DBs live in `~/.agentos/memory/projects/<projectId>.sqlite`; open with any SQLite browser.
 
-### Provider failover
+### Provider fallback
 
-- Failover is logged with `eventLogger.warn('thread', 'Claude stream-json unsupported...')`.
+- Startup fallback is logged with `eventLogger.warn('thread', 'Claude stream-json unsupported...')`.
 - Disable stream-json globally: Settings → Agents → uncheck "Stream JSON output".
 
 ### Common gotchas

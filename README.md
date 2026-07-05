@@ -4,6 +4,8 @@
 
 AgentOS does not replace Claude Code, OpenAI Codex, or Google Gemini CLI. It orchestrates them: adding persistent memory, scheduled automations, multi-agent coordination, Slack integration, and an autopilot mode that lets agents drive themselves to completion.
 
+*Last updated: 2026-07-05*
+
 ---
 
 ## Why AgentOS
@@ -35,7 +37,7 @@ A secondary Claude planner reads the conversation transcript after each assistan
 Define **cron**, **interval**, or **one-shot** jobs that send instructions to a thread on a schedule. Results are logged to a searchable execution log. Notifications can be sent via Slack on completion.
 
 ### Slack Integration
-Inbound Slack messages create threads. The agent posts progress updates and asks clarification back into the Slack thread via an MCP tool. File attachments are forwarded into the container. Agent output is automatically converted from Markdown to Slack's mrkdwn format. An optional **requireMention** toggle drops new root-thread messages that do not @mention the bot — replies in existing threads always pass through.
+Inbound Slack messages create or resume AgentOS threads. The primary conversation surface is the in-app Thread view; Slack is an echo medium bound to the same thread via `slack_thread_bindings`. Agents post progress updates, ask clarification, and upload files through `agentos-thread` MCP tools; connected Slack threads receive mirrored updates. File attachments are forwarded into `/workspace/.agentos/uploads/`. Agent output is automatically converted from Markdown to Slack's mrkdwn format. An optional **requireMention** toggle drops new root-thread messages that do not @mention the bot — replies in existing threads always pass through.
 
 ### Kanban Multi-Agent Board
 A project-level Kanban board (enabled via `kanban.enabled` in project config) with a 6-stage pipeline (`Backlog → Researching → Planning → Implementing → Reviewing → Done`). Specialist AI agents are coordinated via a dedicated thread backed by the `agentos-kanban` MCP server. Board UI features: redesigned task cards with inline priority/due-date/agent pickers, live agent execution indicator, subtask progress badge, configurable card display fields, list view with archived-task section, batch multi-select operations, and Blocked as a first-class column. Tasks auto-archive 5 days after reaching Done. A **stage approval gate** lets a stage worker pause and require human sign-off before advancing. Inter-task dependency graph, class-of-service swimlanes (expedite/standard/intangible), SLA badges, and overdue task listing are also supported.
@@ -54,6 +56,9 @@ Per-thread and project-level analytics: token usage, cost, tool call breakdown, 
 
 ### Built-in Skills
 Bundled Claude Code skills (`git`, `github`, `docker`, `tailscale`, `diagnose`, `save-session-chunk`, `memory-search`, `agentos-settings`, `kanban-orchestrator`, `council-review`, `meeting-notes`, `personality-refresh`, `test-webhook`, `youtube-summary`) are automatically installed into every container at startup.
+
+### Meeting Recording & Continuous Capture
+Meeting recording, Voice Flow, and Kanban are enabled by compile-time feature flags. Recordings are saved to the threads SQLite database and exposed to agents through `agentos-recordings`. Continuous capture stores rolling 5-minute segments that can be summarized by selecting a time window.
 
 ### Project Wiki
 Lightweight per-project wiki pages stored as Markdown files in a `wiki/` directory, editable from the UI.
@@ -134,11 +139,12 @@ agentos/
 │   ├── Dockerfile.sandbox    # Sandbox image with all AI CLIs
 │   └── bundled-skills/       # Skills auto-installed into containers
 ├── tests/             # Node --test + Vitest test suites
-├── wiki/              # Project documentation (7 Markdown files)
 └── scripts/           # Setup, build, and smoke-test scripts
+wiki/
+└── *.md               # Project documentation
 ```
 
-See [`agentos/wiki/02-architecture.md`](agentos/wiki/02-architecture.md) for the full system diagram and component catalog.
+See [`wiki/02-architecture.md`](wiki/02-architecture.md) for the full system diagram and component catalog.
 
 ---
 
@@ -149,11 +155,11 @@ AgentOS exposes in-process MCP servers that containerized agents can call at run
 | Server | Port | Purpose |
 |---|---|---|
 | `agentos-memory` | dynamic | Hybrid memory search and write |
-| `agentos-slack` | dynamic | Post updates, ask clarification via Slack |
-| `agentos-thread` | dynamic | Read/update thread and project settings |
+| `agentos-thread` | dynamic | Post updates, ask clarification, upload files, and read/update thread/project settings |
 | `agentos-council` | dynamic | Dispatch to and read from council runs |
 | `agentos-kanban` | dynamic | Kanban board task management |
 | `agentos-recordings` | dynamic | Access meeting recording transcripts |
+| `agentos-autopilot` | dynamic | Private planner-only transcript and decision tools |
 | `execution-log` | dynamic | Log automation run events |
 
 All MCP servers bind to OS-assigned ports at startup (no fixed port numbers).
@@ -175,11 +181,14 @@ npm run test:coverage       # Full coverage report via c8
 
 Projects are configured via a `.agentos/config.json` file in the project root. A JSON schema is provided at `resources/project-config.schema.json`. Key options:
 
-- `provider` / `providerOrder` — which AI CLI to use and failover order
-- `sandbox` — Docker security settings, allowed domains, Tailscale config
-- `autopilot` — enable/disable, max consecutive turns
-- `memory` — embedding provider (local or API), chunk settings
-
+- `agents.providerOrder` — ordered harness/backend/model entries
+- `agents.autopilot` — per-project autopilot turn limits and transcript length
+- `sandbox` / `runOnHost` — Docker security settings or host execution
+- `worktree` — per-thread worktree creation and pruning
+- `memory` — project memory/search tuning overrides
+- `kanban` — board enablement and stage prompt overrides
+- `recording` — meeting-notes templates and active template
+- `env`, `apiKeys`, `tailscale`, `containers`, `personality` — scoped runtime settings
 
 ---
 
