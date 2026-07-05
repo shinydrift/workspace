@@ -337,8 +337,11 @@ body,
   margin-bottom: 0.1rem;
 }
 
-/* Reset hljs background so light mode uses page bg (github.css has a dark @media query) */
-.hljs {
+/* Reset hljs background so the theme-aware .code-block pre bg shows through.
+   Scoped high enough to beat github.css's `pre code.hljs { background: #fff }`,
+   which is imported after globals and would otherwise make dark-mode code blocks
+   white with barely-visible light text. */
+.code-block pre code.hljs {
   background: transparent;
 }
 
