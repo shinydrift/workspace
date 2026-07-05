@@ -116,11 +116,20 @@ export function useContinuousCapture(): UseContinuousCaptureResult {
     const audioCtx = audioCtxRef.current;
     const mixer = mixerRef.current;
     if (!audioCtx || !mixer || sysStreamRef.current) return;
+    // Capture now, before getDisplayMedia consumes it: a failure with a gesture in hand is a
+    // real problem (permission denied), while one without is just the no-gesture launch case.
+    const hadGesture = navigator.userActivation?.isActive ?? false;
     try {
       const displayStream = await navigator.mediaDevices.getDisplayMedia({
         audio: true,
         video: { width: 1, height: 1 },
       });
+      // Capture may have been torn down (or restarted) while the request resolved — don't leave
+      // a live loopback stream running or touch a closed context.
+      if (audioCtxRef.current !== audioCtx) {
+        stopStreamTracks(displayStream);
+        return;
+      }
       displayStream.getVideoTracks().forEach((t) => t.stop());
       const audioTracks = displayStream.getAudioTracks();
       if (audioTracks.length === 0) {
@@ -138,7 +147,13 @@ export function useContinuousCapture(): UseContinuousCaptureResult {
         sysStreamRef.current = null;
         setUsingSystemAudio(false);
       });
-    } catch {
+    } catch (err) {
+      if (hadGesture) {
+        // A gesture-backed attempt failed — surface it and stop. Retrying on every interaction
+        // would just re-hit the same denial and nag the OS permission prompt.
+        setError(`System audio unavailable: ${getErrorMessage(err)}`);
+        return;
+      }
       // No user gesture yet (auto-restore at launch) — arm on the next interaction.
       if (gestureCleanupRef.current) return;
       const retry = () => {

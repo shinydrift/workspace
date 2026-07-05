@@ -31,7 +31,7 @@ export function ContinuousCaptureBar({ capture }: { capture: UseContinuousCaptur
               {micActive ? 'Mic on' : 'Mic off'}
             </span>
             <span className={usingSystemAudio ? 'text-green-400' : ''}>
-              {usingSystemAudio ? '+ system audio' : 'system audio…'}
+              {usingSystemAudio ? '+ system audio' : 'mic only'}
             </span>
           </div>
         </div>
