@@ -1,4 +1,6 @@
 import { execFile, spawn } from 'child_process';
+import { writeFile, mkdir } from 'fs/promises';
+import { basename, join } from 'path';
 import { promisify } from 'util';
 import { ipcMain, shell, desktopCapturer, dialog, BrowserWindow, app, clipboard } from 'electron';
 import { z } from 'zod';
@@ -19,6 +21,10 @@ const OpenInEditorSchema = z.object({ folderPath: z.string().min(1) });
 const OpenFolderTargetSchema = z.object({
   folderPath: z.string().min(1),
   target: z.enum(['vscode', 'finder', 'terminal', 'xcode']),
+});
+const OpenAttachmentSchema = z.object({
+  name: z.string().min(1),
+  data: z.union([z.instanceof(ArrayBuffer), z.instanceof(Uint8Array)]),
 });
 
 function splitArgs(raw?: string): string[] {
@@ -173,6 +179,19 @@ export function registerMiscHandlers(): void {
       else if (target === 'finder') await openInFileManager(folderPath);
       else if (target === 'terminal') await openTerminalAtFolder(folderPath);
       else await openInXcode(folderPath);
+    })
+  );
+
+  ipcMain.handle(IPC_CHANNELS.SHELL_OPEN_ATTACHMENT, (_e, raw) =>
+    handleIpc(async () => {
+      const { name, data } = OpenAttachmentSchema.parse(raw);
+      // Attachments live only in memory before send, so write the buffer to a temp file and
+      // hand its path to the OS. basename() strips any path segments from the display name.
+      const dir = join(app.getPath('temp'), 'agentos-attachments');
+      await mkdir(dir, { recursive: true });
+      const filePath = join(dir, basename(name));
+      await writeFile(filePath, data instanceof Uint8Array ? data : new Uint8Array(data));
+      await shell.openPath(filePath);
     })
   );
 
