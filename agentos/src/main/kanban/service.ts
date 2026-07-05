@@ -4,7 +4,7 @@ import { TERMINAL_STATUSES } from './db';
 import * as threadStore from '../threads/threadStore';
 import { eventLogger } from '../utils/eventLog';
 import { getErrorMessage } from '../../shared/utils/errorMessage';
-import { removeSessionWorktree } from '../utils/worktree';
+import { worktreeWorkerClient } from '../utils/worktreeWorkerClientDefaults';
 import type {
   KanbanStage,
   KanbanTask,
@@ -225,7 +225,8 @@ class KanbanService {
   delete(projectId: string, taskId: string): void {
     const task = kanbanDb.getTask(projectId, taskId);
     if (task?.worktreePath) {
-      removeSessionWorktree(task.worktreePath);
+      // Fire-and-forget best-effort cleanup; the DB delete below is the source of truth.
+      void worktreeWorkerClient.removeSessionWorktree(task.worktreePath).catch(() => {});
     }
     kanbanDb.deleteTask(projectId, taskId);
   }

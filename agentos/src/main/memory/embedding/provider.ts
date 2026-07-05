@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import os from 'os';
 import type { AppSettings } from '../../../shared/types';
 
 export type EmbeddingProviderId = 'openai' | 'google' | 'voyage' | 'mistral' | 'local';
@@ -186,7 +187,13 @@ async function createLocalProvider(modelPath?: string | null): Promise<Embedding
       // Lazy import — node-llama-cpp is a heavy native module
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const llamaCpp = (await import('node-llama-cpp')) as any;
-      const llama = await llamaCpp.getLlama({ logLevel: 'error' });
+      // Cap CPU threads so a background embed run can't peg every core. At full
+      // CPU load the main process's global-hotkey CGEventTap thread misses its
+      // ~1s deadline and macOS disables the tap ("CGEventTap timeout!"), which
+      // reads as the whole app freezing. Use half the cores so the main process +
+      // UI keep real headroom (no-op when embedding runs on the GPU).
+      const maxThreads = Math.max(1, Math.floor(os.cpus().length / 2));
+      const llama = await llamaCpp.getLlama({ logLevel: 'error', maxThreads });
       const hfPath =
         modelPath?.trim() || 'hf:ggml-org/embeddinggemma-300m-qat-q8_0-GGUF/embeddinggemma-300m-qat-Q8_0.gguf';
       // resolveModelFile handles hf: URLs (downloads if needed) and returns an absolute path.
@@ -194,7 +201,7 @@ async function createLocalProvider(modelPath?: string | null): Promise<Embedding
       const resolvedModelPath: string = await llamaCpp.resolveModelFile(hfPath);
       const model = await llama.loadModel({ modelPath: resolvedModelPath });
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const ctx: any = await model.createEmbeddingContext();
+      const ctx: any = await model.createEmbeddingContext({ threads: maxThreads });
       const dims = (typeof ctx.embeddingDimensions === 'number' ? ctx.embeddingDimensions : null) ?? 768;
 
       localProvider = {

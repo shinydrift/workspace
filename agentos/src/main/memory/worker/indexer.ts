@@ -5,6 +5,7 @@
 // in ./ipc.ts. Heavy work that used to stall the Electron main loop (sqlite
 // transactions, tree-sitter parsing, local llama inference) runs here.
 
+import os from 'os';
 import { createRequire } from 'module';
 import { installMemoryRuntime } from '../runtime';
 import { createWorkerMemoryRuntime, type WorkerMemoryRuntime } from '../runtime/workerImpl';
@@ -15,6 +16,16 @@ import type { WorkerMessage, WorkerOutbound, WorkerRequest, WorkerEvent, WorkerR
 interface ParentPortLike {
   postMessage: (msg: WorkerOutbound) => void;
   on: (event: 'message', listener: (event: { data: WorkerMessage }) => void) => void;
+}
+
+// Run the indexer below the main process's priority so its CPU-heavy work
+// (tree-sitter parsing, local llama embedding) can't starve the main process
+// under load — in particular the global-hotkey CGEventTap thread, which macOS
+// disables ("CGEventTap timeout!") if it's not scheduled within ~1s.
+try {
+  os.setPriority(0, 10);
+} catch {
+  /* best-effort — setpriority may be unavailable or disallowed on some platforms */
 }
 
 const parentPort = (process as unknown as { parentPort?: ParentPortLike }).parentPort;

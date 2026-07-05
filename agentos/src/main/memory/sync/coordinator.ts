@@ -57,6 +57,16 @@ export class MemorySyncCoordinator {
   private lastExtraMemoryPaths: string[] = [];
   private lastProviderKey = '';
   private maintenanceInterval: ReturnType<typeof setInterval> | null = null;
+  // Background warmup queue. Startup fans out over every known project; running
+  // them all at once (one repo walk + tree-sitter parse + embed each) stampedes
+  // the CPU and starves the main process — its global-hotkey CGEventTap thread
+  // then misses its ~1s deadline ("CGEventTap timeout!") and the app hangs.
+  // Index one project at a time, most-recently-used first (see warmup()), so the
+  // project behind the user's latest thread is ready first and the machine is
+  // never hit with more than a single repo index at once.
+  private warmupQueue: SyncScope[] = [];
+  private warmupActive = 0;
+  private readonly warmupConcurrency = 1;
 
   configure(homeDir: string): void {
     if (this.homeDir) return;
@@ -82,13 +92,16 @@ export class MemorySyncCoordinator {
 
     const settings = runtimeSettings();
     const memoryRootPath = settings.memory?.rootPath ?? path.join(homeDir, '.agentos', 'memory', 'projects');
-    await Promise.all(
-      runtimeProjects().map(async ({ id: projectId }) => {
-        await fs.promises.mkdir(path.join(memoryRootPath, projectId), { recursive: true });
-        const scope = resolveSyncScope(projectId, null, homeDir);
-        this.scheduleMemorySync(scope);
-      })
-    );
+    // Enqueue projects most-recently-used first (lastUsedAt is bumped whenever a
+    // thread runs in a project) so the project behind the user's latest thread
+    // indexes before older ones. The bounded queue then drains in the background.
+    // warmup() itself returns promptly — callers (bootstrap Phase 3, worker spawn)
+    // must not block on the full index, which for many projects takes minutes.
+    const orderedProjects = [...runtimeProjects()].sort((a, b) => (b.lastUsedAt ?? 0) - (a.lastUsedAt ?? 0));
+    for (const { id: projectId } of orderedProjects) {
+      this.warmupQueue.push(resolveSyncScope(projectId, null, homeDir));
+    }
+    this.drainWarmupQueue(memoryRootPath);
     // Resolve provider in the background — local-model setups can spend 5-30s in
     // resolveModelFile + llama.loadModel; awaiting here would block every subsequent
     // getProvider caller on cold start (search, save, status) until init completes.
@@ -112,6 +125,34 @@ export class MemorySyncCoordinator {
       this.maintenanceInterval = setInterval(() => this.runMaintenance(), 3_600_000);
       this.maintenanceInterval.unref?.();
     }
+  }
+
+  // Pull from the warmup queue up to the concurrency cap, indexing each project's
+  // memory then code fully before that slot picks up the next project. On-demand
+  // search paths still schedule their own project immediately (deduped against any
+  // in-flight run), so the queue never blocks an interactive lookup.
+  private drainWarmupQueue(memoryRootPath: string): void {
+    while (this.warmupActive < this.warmupConcurrency && this.warmupQueue.length > 0) {
+      const scope = this.warmupQueue.shift()!;
+      this.warmupActive += 1;
+      void this.warmupProject(scope, memoryRootPath).finally(() => {
+        this.warmupActive -= 1;
+        this.drainWarmupQueue(memoryRootPath);
+      });
+    }
+  }
+
+  private async warmupProject(scope: SyncScope, memoryRootPath: string): Promise<void> {
+    try {
+      await fs.promises.mkdir(path.join(memoryRootPath, scope.projectId), { recursive: true });
+    } catch (err) {
+      eventLogger.warn('memory', 'Warmup mkdir failed', { projectId: scope.projectId, err });
+    }
+    // Await memory sync, then the code index it chains in its finally(), so this
+    // slot stays occupied until the project is fully indexed — that's what bounds
+    // total concurrency. Both schedule* methods swallow their own errors.
+    await this.scheduleMemorySync(scope);
+    await (this.codeIndexingPromises.get(scope.projectId) ?? Promise.resolve());
   }
 
   resolveScope(projectId?: string | null, threadId?: string | null): SyncScope {

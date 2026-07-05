@@ -4,13 +4,7 @@ import type { Provider, Thread } from '../../shared/types';
 import { getEffectiveWorktreeSettings } from '../../shared/effectiveProjectSettings';
 import { getStore } from '../store/index';
 import * as threadStore from '../threads/threadStore';
-import {
-  createSessionWorktree,
-  removeSessionWorktree,
-  isWorktreeClean,
-  isWorktreeRegistered,
-  isBranchSyncedWithRemote,
-} from '../utils/worktree';
+import { worktreeWorkerClient } from '../utils/worktreeWorkerClientDefaults';
 import { eventLogger } from '../utils/eventLog';
 import { removeContainerRegistryEntriesForThread, upsertContainerRegistryEntry } from '../utils/containerRegistry';
 import { removeContainer as removeDockerContainer } from '../utils/dockerCleanup';
@@ -60,8 +54,12 @@ export class ThreadRuntime {
       // tracks it as a worktree — e.g. the 30-min idle stop auto-pruned the clean+synced worktree
       // (dir + branch removed) while this thread was idle. Without this the container would bind a
       // missing /workspace and the thread would "have no mounted path" on the next message.
-      if (stored.usingWorktree && stored.projectPath && !isWorktreeRegistered(stored.workingDirectory)) {
-        const recreated = await createSessionWorktree(stored.projectPath, stored.name, threadId);
+      if (
+        stored.usingWorktree &&
+        stored.projectPath &&
+        !(await worktreeWorkerClient.isWorktreeRegistered(stored.workingDirectory))
+      ) {
+        const recreated = await worktreeWorkerClient.createSessionWorktree(stored.projectPath, stored.name, threadId);
         if (recreated) {
           threadStore.updateThread(threadId, { workingDirectory: recreated });
           stored = { ...stored, workingDirectory: recreated };
@@ -291,12 +289,23 @@ export class ThreadRuntime {
         !this.store.ptys.has(threadId) &&
         !this.store.startInFlight.has(threadId) &&
         stored.usingWorktree &&
-        stored.workingDirectory &&
-        isWorktreeClean(stored.workingDirectory) &&
-        isBranchSyncedWithRemote(stored.workingDirectory)
+        stored.workingDirectory
       ) {
-        removeSessionWorktree(stored.workingDirectory);
-        eventLogger.info('thread', `Auto-pruned clean worktree: ${stored.workingDirectory}`, { threadId });
+        const worktreePath = stored.workingDirectory;
+        void (async () => {
+          if (
+            (await worktreeWorkerClient.isWorktreeClean(worktreePath)) &&
+            (await worktreeWorkerClient.isBranchSyncedWithRemote(worktreePath))
+          ) {
+            // Re-check after the async worktree queries: a turn may have restarted meanwhile, so
+            // pruning now would delete the worktree out from under the fresh container.
+            if (this.store.ptys.has(threadId) || this.store.startInFlight.has(threadId)) return;
+            await worktreeWorkerClient.removeSessionWorktree(worktreePath);
+            eventLogger.info('thread', `Auto-pruned clean worktree: ${worktreePath}`, { threadId });
+          }
+        })().catch((err) => {
+          eventLogger.warn('thread', 'Auto-prune worktree failed', { threadId, error: getErrorMessage(err) });
+        });
       }
     };
   }

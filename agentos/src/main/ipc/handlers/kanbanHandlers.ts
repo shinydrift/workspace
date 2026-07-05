@@ -6,7 +6,7 @@ import { getProject } from '../../threads/db';
 import { defineHandler } from '../ipcResponse';
 import { shortId, threadId, ProjectIdSchema } from './schemas';
 import { broadcastToWindows } from '../../sessions/broadcaster';
-import { getTaskGitSummary } from '../../utils/worktree';
+import { worktreeWorkerClient } from '../../utils/worktreeWorkerClientDefaults';
 import { slackBridge } from '../../integrations/slackBridge';
 
 const statusEnum = z.string().min(1).max(64);
@@ -155,7 +155,10 @@ export function registerKanbanHandlers(): void {
     const task = kanbanService.get(projectId, taskId);
     const projectPath = getProject(projectId)?.path;
     if (!task || !projectPath) return null;
-    return getTaskGitSummary(projectPath, { branch: task.branch, worktreePath: task.worktreePath });
+    return worktreeWorkerClient.getTaskGitSummary(projectPath, {
+      branch: task.branch,
+      worktreePath: task.worktreePath,
+    });
   });
 
   defineHandler(IPC_CHANNELS.KANBAN_GET_WIP_LIMITS, ProjectIdSchema, ({ projectId }) =>

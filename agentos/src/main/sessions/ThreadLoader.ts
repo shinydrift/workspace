@@ -1,7 +1,7 @@
 import { app } from 'electron';
 import type { Thread } from '../../shared/types';
 import * as threadStore from '../threads/threadStore';
-import { pruneOrphanWorktrees, isWorktreeCleanAsync } from '../utils/worktree';
+import { worktreeWorkerClient } from '../utils/worktreeWorkerClientDefaults';
 import { eventLogger } from '../utils/eventLog';
 import { pruneOrphanProjects as pruneOrphanProjectsFn } from './containerProjectManager';
 import { ensureDataDirs } from './messagePersistence';
@@ -89,12 +89,12 @@ export class ThreadLoader {
 
     const activeWorktreePaths = new Set<string>();
     await withConcurrency(worktreeThreads, 4, async (t) => {
-      if (!(await isWorktreeCleanAsync(t.workingDirectory))) {
+      if (!(await worktreeWorkerClient.isWorktreeClean(t.workingDirectory))) {
         activeWorktreePaths.add(t.workingDirectory);
       }
     });
 
-    pruneOrphanWorktrees(activeWorktreePaths, projectPaths);
+    await worktreeWorkerClient.pruneOrphanWorktrees(activeWorktreePaths, projectPaths);
 
     const stoppedIds = [...sanitizedSet].filter((id) => threadStore.getThread(id)?.status === 'stopped');
     await this.output.preloadFromDiskAsync(stoppedIds);

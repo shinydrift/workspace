@@ -27,6 +27,7 @@ import { isTerminalStatus } from '../kanban/db';
 import { kanbanService } from '../kanban/service';
 import { agentOSMemoryService } from '../memory/service';
 import { whisperWorkerClient } from '../audio/whisperWorkerClient';
+import { worktreeWorkerClient } from '../utils/worktreeWorkerClientDefaults';
 import { analyticsService } from '../analytics/service';
 import { initAnalyticsDbDir } from '../analytics/db';
 import { initCouncilDbDir } from '../council/councilDb';
@@ -51,6 +52,26 @@ export interface Services {
   shutdownOverlay: BrowserWindow;
   trayManager: TrayManager;
   disposables: Disposable[];
+}
+
+// Diagnostic: flag main-process event-loop stalls. Whether from synchronous
+// main-thread work or CPU starvation by another process, a stall here is what
+// trips the global-hotkey CGEventTap timeout and makes the app feel hung. The
+// setInterval fires late under both conditions, so the reported stallMs is the
+// real gap. Timestamps let us correlate a stall with what else logged around it.
+function startEventLoopStallMonitor(): void {
+  const INTERVAL_MS = 200;
+  const REPORT_MS = 250;
+  let last = Date.now();
+  const timer = setInterval(() => {
+    const now = Date.now();
+    const stallMs = now - last - INTERVAL_MS;
+    if (stallMs >= REPORT_MS) {
+      eventLogger.warn('perf', 'Main event loop stalled', { stallMs });
+    }
+    last = now;
+  }, INTERVAL_MS);
+  timer.unref?.();
 }
 
 function safeInit(name: string, fn: () => void | Promise<void>): void {
@@ -216,6 +237,7 @@ export function bootServices(
 
   // ── Phase 0: infrastructure (sync) ───────────────────────────────────────
   initEventLog(app.getPath('userData'));
+  startEventLoopStallMonitor();
   installPerfTraceInstrumentation();
   initProjectsDbDir(homeDir);
   initAnalyticsDbDir(homeDir);
@@ -464,6 +486,7 @@ export function bootServices(
   disposables.push(recordingsMcpServer);
   disposables.push({ dispose: () => stopSegmentRetention() });
   disposables.push({ dispose: () => whisperWorkerClient.shutdown() });
+  disposables.push({ dispose: () => worktreeWorkerClient.shutdown() });
   disposables.push(councilMcpServer);
   disposables.push(autopilotMcpServer);
   disposables.push(slackBridge);

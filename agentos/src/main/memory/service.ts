@@ -53,16 +53,24 @@ export class AgentOSMemoryService {
     // migrations check and the two processes don't race the __drizzle_migrations
     // table create on first launch.
     initDbDir(homeDir);
-    for (const project of runtimeProjects()) {
-      try {
-        getProjectDb(project.id);
-      } catch (err) {
-        runtimeLogger.warn('memory', 'pre-warm project DB failed', {
-          projectId: project.id,
-          error: err instanceof Error ? err.message : String(err),
-        });
+    // Defer the per-project open+migrate loop off the synchronous boot path —
+    // opening N sqlite DBs (each running migrations + the chunks backfill) would
+    // otherwise block the main thread during startup. setImmediate still runs it
+    // well before the worker's first project-DB open, which waits on the worker
+    // process spawning and its native-module probes, so the main-runs-migrations-
+    // first ordering above is preserved.
+    setImmediate(() => {
+      for (const project of runtimeProjects()) {
+        try {
+          getProjectDb(project.id);
+        } catch (err) {
+          runtimeLogger.warn('memory', 'pre-warm project DB failed', {
+            projectId: project.id,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
       }
-    }
+    });
     // Surface boot failures loudly — silent rejection here hides a missing
     // indexer.js bundle or a native-module load crash.
     this.client.ensureStarted(homeDir).catch((err) => {

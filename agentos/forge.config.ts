@@ -206,6 +206,11 @@ const config: ForgeConfig = {
           target: 'main',
         },
         {
+          entry: 'src/main/utils/worktreeWorker.ts',
+          config: 'vite.worktree.config.ts',
+          target: 'main',
+        },
+        {
           entry: 'src/preload/index.ts',
           config: 'vite.preload.config.ts',
           target: 'preload',

@@ -1,11 +1,26 @@
+// Worktree git/docker engine. Runs inside the worktree utilityProcess
+// (worktreeWorker.ts) so the many blocking `git`/`docker` subprocess spawns
+// never run on the Electron main thread — at startup the sync prune fired dozens
+// of them back-to-back and froze the app for seconds (tripping the global-hotkey
+// CGEventTap timeout). The main process talks to this via worktreeWorkerClient.ts.
+//
+// This module is electron-free by design (utilityProcess has no BrowserWindow),
+// so logging is injected: the worker wires setWorktreeEngineLogger() to forward
+// log lines back to the main process's eventLogger.
+
 import fs from 'fs';
 import path from 'path';
 import { execFile, execFileSync } from 'child_process';
 import { promisify } from 'util';
 import type { KanbanTaskGitSummary } from '../../shared/types/kanban';
-import { eventLogger } from './eventLog';
 
 const execFileAsync = promisify(execFile);
+
+type WorktreeLogFn = (level: 'info' | 'warn' | 'error', message: string, meta?: Record<string, unknown>) => void;
+let engineLog: WorktreeLogFn = () => {};
+export function setWorktreeEngineLogger(fn: WorktreeLogFn): void {
+  engineLog = fn;
+}
 
 function runGit(args: string[]): string {
   return execFileSync('git', args, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
@@ -42,7 +57,7 @@ function canonicalPath(p: string): string {
  * `agentos-session-*` container. Lets worktree removal find and stop the container still bound
  * to a worktree before deleting it, so a live container is never left on a removed /workspace.
  * Best-effort: empty if docker is unavailable (then no container can be running anyway). Runs at
- * most two docker calls (one `ps`, one batched `inspect`) to stay cheap on the main thread.
+ * most two docker calls (one `ps`, one batched `inspect`).
  */
 function liveWorktreeContainers(): Map<string, string> {
   const map = new Map<string, string>();
@@ -203,15 +218,6 @@ export function isWorktreeRegistered(worktreePath: string): boolean {
   if (!fs.existsSync(worktreePath)) return false;
   try {
     return runGit(['-C', worktreePath, 'rev-parse', '--is-inside-work-tree']) === 'true';
-  } catch {
-    return false;
-  }
-}
-
-export async function isWorktreeCleanAsync(worktreePath: string): Promise<boolean> {
-  try {
-    const output = await runGitAsync(['-C', worktreePath, 'status', '--porcelain']);
-    return output === '';
   } catch {
     return false;
   }
@@ -412,7 +418,7 @@ export async function createSessionWorktree(
     // path into a docker container — a missing source becomes a phantom mount that
     // breaks every subsequent `docker exec`.
     if (!fs.existsSync(worktreePath)) {
-      eventLogger.warn('worktree', 'createSessionWorktree: path missing after git worktree add', {
+      engineLog('warn', 'createSessionWorktree: path missing after git worktree add', {
         worktreePath,
         branchName,
       });
@@ -421,7 +427,7 @@ export async function createSessionWorktree(
 
     return worktreePath;
   } catch (err) {
-    eventLogger.warn('worktree', 'createSessionWorktree failed', {
+    engineLog('warn', 'createSessionWorktree failed', {
       sessionName,
       sessionId,
       error: String(err),

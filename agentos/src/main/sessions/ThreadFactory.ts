@@ -11,7 +11,7 @@ import {
   resolveEffectiveModel,
   resolveEffectiveReasoning,
 } from '../utils/providerConfig';
-import { createSessionWorktree, removeSessionWorktree } from '../utils/worktree';
+import { worktreeWorkerClient } from '../utils/worktreeWorkerClientDefaults';
 import { eventLogger } from '../utils/eventLog';
 import { loadProjectConfig } from '../config/projectConfig';
 import { normalizeSubdir } from '../../shared/utils/subdir';
@@ -59,7 +59,7 @@ export class ThreadFactory {
     if (!callerManagedWorktree) {
       const effectiveWorktree = getEffectiveWorktreeSettings(settings, projectConfigResult.config);
       if (effectiveWorktree.autoCreate) {
-        const worktreePath = await createSessionWorktree(projectPath, req.name, id);
+        const worktreePath = await worktreeWorkerClient.createSessionWorktree(projectPath, req.name, id);
         if (worktreePath) {
           workingDirectory = worktreePath;
           usingWorktree = true;
@@ -138,7 +138,8 @@ export class ThreadFactory {
 
   private cleanupWorktree(thread: Omit<Thread, 'logBuffer'> | undefined): void {
     if (thread?.usingWorktree && thread.workingDirectory) {
-      removeSessionWorktree(thread.workingDirectory);
+      // Fire-and-forget best-effort cleanup (the worker call is async; removal is idempotent).
+      void worktreeWorkerClient.removeSessionWorktree(thread.workingDirectory).catch(() => {});
     }
   }
 }

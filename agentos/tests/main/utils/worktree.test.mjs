@@ -1,5 +1,7 @@
 /**
- * Tests for utils/worktree.ts — pure helpers used by worktree management and git summary rendering.
+ * Tests for utils/worktreeEngine.ts — pure helpers used by worktree management and git summary
+ * rendering. The engine now runs inside the worktree utilityProcess; these tests cover its logic
+ * directly (inlined below to avoid spawning the worker).
  */
 
 import test from 'node:test';
