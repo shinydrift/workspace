@@ -134,13 +134,10 @@ export function buildHeadlessSystemPrompt(input: HeadlessPromptInput): HeadlessP
     effectiveSystemPrompt = effectiveSystemPrompt ? `${effectiveSystemPrompt}\n${taskPrompt}` : taskPrompt;
   }
 
-  const slackFormattingGuide =
-    `\nSlack formatting (mrkdwn — NOT standard Markdown):\n` +
-    `- Bold: *text* (single asterisks, not double)\n` +
-    `- Italic: _text_\n` +
-    `- Code: \`code\` or \`\`\`block\`\`\`\n` +
-    `- Bullet: start line with • or -\n` +
-    `- Do NOT use ## headers, **double asterisks**, or --- separators — they appear as raw text.`;
+  // The Thread view (source of truth) renders standard Markdown; the Slack echo auto-converts it to
+  // mrkdwn (see integrations/slackFormatting.ts). So every branch instructs standard Markdown — writing
+  // mrkdwn by hand would render bold as italic and flatten lists in the Thread view.
+  const markdownGuide = `\nFormat messages with standard Markdown — it renders in the Thread view and is auto-converted for Slack.`;
 
   if (useHeadless) {
     let postingPrompt: string | null = null;
@@ -181,7 +178,7 @@ export function buildHeadlessSystemPrompt(input: HeadlessPromptInput): HeadlessP
         `2. When each stage completes (one line: stage name + outcome).\n` +
         `3. When the task finishes (brief summary of what was done).\n` +
         `Do NOT ask for approval or use ask_clarification — proceed autonomously.\n` +
-        slackFormattingGuide +
+        markdownGuide +
         `\nOnly posts you make via these tools appear in the Thread view and Slack — your stdout is not forwarded.`;
       extraEnv = { ...(extraEnv ?? {}), SLACK_CHANNEL_ID: slackCtx.channelId, SLACK_THREAD_TS: slackCtx.threadTs };
     } else if (slackCtx?.threadTs) {
@@ -202,7 +199,7 @@ export function buildHeadlessSystemPrompt(input: HeadlessPromptInput): HeadlessP
         `4. For conversational messages (greetings, questions, short answers): call post_update once with your response.\n` +
         `5. NEVER respond with plain text output — ALL responses must go through post_update or ask_clarification.\n` +
         `6. For skill-based or multi-step tasks: delegate the work to a subagent via the Agent tool, then call post_update with the returned findings.\n` +
-        slackFormattingGuide +
+        markdownGuide +
         `\nOnly posts you make via these tools appear in the Thread view and Slack — your stdout is not forwarded.`;
       extraEnv = { ...(extraEnv ?? {}), SLACK_CHANNEL_ID: slackCtx.channelId, SLACK_THREAD_TS: slackCtx.threadTs };
     } else if (slackCtx) {
@@ -219,7 +216,7 @@ export function buildHeadlessSystemPrompt(input: HeadlessPromptInput): HeadlessP
         `1. A one-line note when you start (what the automation is doing).\n` +
         `2. A concise summary when you finish.\n` +
         `Do NOT ask for approval or use ask_clarification — proceed autonomously.\n` +
-        slackFormattingGuide +
+        markdownGuide +
         `\nOnly posts you make via these tools appear in the Thread view and any channel — your stdout is not forwarded.`;
     }
     // Autonomous non-Slack roles (stage-*, Slack-disconnected task-main) match no branch and get
