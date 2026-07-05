@@ -19,10 +19,12 @@ export interface UseContinuousCaptureResult {
   micActive: boolean;
   usingSystemAudio: boolean;
   error: string;
-  /** Toggle always-on capture. Enabling starts the mic immediately (needs mic permission). */
+  /**
+   * Toggle always-on capture. Enabling starts the mic and pulls in system audio too (needs
+   * mic + screen-recording permission). System audio needs a user gesture, so on auto-restore
+   * at launch it arms on the first interaction instead.
+   */
   setEnabled: (enabled: boolean) => Promise<void>;
-  /** Add system audio to the mix. Must be called from a user gesture (screen-share picker). */
-  armSystemAudio: () => Promise<void>;
 }
 
 /**
@@ -46,6 +48,8 @@ export function useContinuousCapture(): UseContinuousCaptureResult {
   const segmentStartRef = useRef<number>(0);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Cleanup for the "arm system audio on next user gesture" fallback (see armSystemAudio).
+  const gestureCleanupRef = useRef<(() => void) | null>(null);
 
   const processSegment = useCallback(
     async (chunks: Float32Array[], sampleRate: number, startedAt: number, endedAt: number) => {
@@ -85,6 +89,7 @@ export function useContinuousCapture(): UseContinuousCaptureResult {
   }, [processSegment]);
 
   const teardown = useCallback(() => {
+    gestureCleanupRef.current?.();
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
     if (intervalRef.current) clearInterval(intervalRef.current);
     timeoutRef.current = null;
@@ -101,6 +106,53 @@ export function useContinuousCapture(): UseContinuousCaptureResult {
     pcmChunksRef.current = [];
     setMicActive(false);
     setUsingSystemAudio(false);
+  }, []);
+
+  // Pull system audio into the mix. It's granted as loopback with no picker (see the main
+  // process display-media handler), but the getDisplayMedia() call still needs a user gesture.
+  // The toggle click provides one; on auto-restore at launch there's none, so on failure we
+  // retry once the user next interacts with the window — no button, it just comes back.
+  const armSystemAudio = useCallback(async () => {
+    const audioCtx = audioCtxRef.current;
+    const mixer = mixerRef.current;
+    if (!audioCtx || !mixer || sysStreamRef.current) return;
+    try {
+      const displayStream = await navigator.mediaDevices.getDisplayMedia({
+        audio: true,
+        video: { width: 1, height: 1 },
+      });
+      displayStream.getVideoTracks().forEach((t) => t.stop());
+      const audioTracks = displayStream.getAudioTracks();
+      if (audioTracks.length === 0) {
+        stopStreamTracks(displayStream);
+        return;
+      }
+      sysStreamRef.current = displayStream;
+      audioCtx.createMediaStreamSource(new MediaStream(audioTracks)).connect(mixer);
+      setUsingSystemAudio(true);
+      // If the user stops sharing from the OS, fall back to mic-only. Guard on the exact
+      // stream so a stale listener from a previous share can't stop a freshly-armed one.
+      audioTracks[0].addEventListener('ended', () => {
+        if (sysStreamRef.current !== displayStream) return;
+        stopStreamTracks(displayStream);
+        sysStreamRef.current = null;
+        setUsingSystemAudio(false);
+      });
+    } catch {
+      // No user gesture yet (auto-restore at launch) — arm on the next interaction.
+      if (gestureCleanupRef.current) return;
+      const retry = () => {
+        gestureCleanupRef.current?.();
+        void armSystemAudio();
+      };
+      gestureCleanupRef.current = () => {
+        window.removeEventListener('pointerdown', retry);
+        window.removeEventListener('keydown', retry);
+        gestureCleanupRef.current = null;
+      };
+      window.addEventListener('pointerdown', retry);
+      window.addEventListener('keydown', retry);
+    }
   }, []);
 
   const start = useCallback(async () => {
@@ -129,13 +181,16 @@ export function useContinuousCapture(): UseContinuousCaptureResult {
       throw err;
     }
 
+    // System audio is part of the same capture now — best-effort, mic keeps going without it.
+    void armSystemAudio();
+
     segmentStartRef.current = Date.now();
     // Align the first cut to the next wall-clock boundary, then roll every 5 minutes.
     timeoutRef.current = setTimeout(() => {
       rotate();
       intervalRef.current = setInterval(rotate, SEGMENT_MS);
     }, msToNextBoundary());
-  }, [rotate, teardown]);
+  }, [rotate, teardown, armSystemAudio]);
 
   const setEnabled = useCallback(
     async (next: boolean) => {
@@ -159,39 +214,6 @@ export function useContinuousCapture(): UseContinuousCaptureResult {
     [enabled, start, rotate, teardown]
   );
 
-  const armSystemAudio = useCallback(async () => {
-    const audioCtx = audioCtxRef.current;
-    const mixer = mixerRef.current;
-    if (!audioCtx || !mixer) return;
-    try {
-      const displayStream = await navigator.mediaDevices.getDisplayMedia({
-        audio: true,
-        video: { width: 1, height: 1 },
-      });
-      displayStream.getVideoTracks().forEach((t) => t.stop());
-      const audioTracks = displayStream.getAudioTracks();
-      if (audioTracks.length === 0) {
-        stopStreamTracks(displayStream);
-        setError('No system audio track was shared.');
-        return;
-      }
-      stopStreamTracks(sysStreamRef.current);
-      sysStreamRef.current = displayStream;
-      audioCtx.createMediaStreamSource(new MediaStream(audioTracks)).connect(mixer);
-      setUsingSystemAudio(true);
-      // If the user stops sharing from the OS, fall back to mic-only. Guard on the exact
-      // stream so a stale listener from a previous share can't stop a freshly-armed one.
-      audioTracks[0].addEventListener('ended', () => {
-        if (sysStreamRef.current !== displayStream) return;
-        stopStreamTracks(displayStream);
-        sysStreamRef.current = null;
-        setUsingSystemAudio(false);
-      });
-    } catch (err) {
-      setError(`System audio not shared: ${getErrorMessage(err)}`);
-    }
-  }, []);
-
   // Restore the persisted preference on mount.
   useEffect(() => {
     let cancelled = false;
@@ -208,5 +230,5 @@ export function useContinuousCapture(): UseContinuousCaptureResult {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  return { enabled, micActive, usingSystemAudio, error, setEnabled, armSystemAudio };
+  return { enabled, micActive, usingSystemAudio, error, setEnabled };
 }

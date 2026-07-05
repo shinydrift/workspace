@@ -1,15 +1,15 @@
 import React from 'react';
 import { Microphone, Waveform, Warning } from '@phosphor-icons/react';
 import { Switch } from '@/components/ui/switch';
-import { Button } from '@/components/ui/button';
 import type { UseContinuousCaptureResult } from '../../hooks/useContinuousCapture';
 
 /**
- * Controls for always-on capture: a toggle, live source status, and a one-tap button to
- * add system audio (which needs a user gesture, so it can't arm automatically at launch).
+ * Controls for always-on capture: a single toggle plus live source status. The toggle pulls
+ * in the mic and system audio together; system audio re-arms on the next interaction after a
+ * restart, so there's no separate button.
  */
 export function ContinuousCaptureBar({ capture }: { capture: UseContinuousCaptureResult }) {
-  const { enabled, micActive, usingSystemAudio, error, setEnabled, armSystemAudio } = capture;
+  const { enabled, micActive, usingSystemAudio, error, setEnabled } = capture;
   return (
     <div className="mx-4 mt-4 mb-2 rounded-md border border-border bg-muted/30 px-3 py-2.5">
       <div className="flex items-center justify-between gap-3">
@@ -17,7 +17,7 @@ export function ContinuousCaptureBar({ capture }: { capture: UseContinuousCaptur
           <Waveform className="h-4 w-4 shrink-0 text-blue-400" />
           <div className="min-w-0">
             <p className="text-sm text-foreground">Always-on capture</p>
-            <p className="text-xs text-muted-foreground">Rolling 5-min segments · kept 7 days</p>
+            <p className="text-xs text-muted-foreground">Mic + system audio · rolling 5-min segments · kept 7 days</p>
           </div>
         </div>
         <Switch checked={enabled} onCheckedChange={(v) => void setEnabled(v)} aria-label="Toggle always-on capture" />
@@ -31,14 +31,9 @@ export function ContinuousCaptureBar({ capture }: { capture: UseContinuousCaptur
               {micActive ? 'Mic on' : 'Mic off'}
             </span>
             <span className={usingSystemAudio ? 'text-green-400' : ''}>
-              {usingSystemAudio ? '+ system audio' : 'mic only'}
+              {usingSystemAudio ? '+ system audio' : 'system audio…'}
             </span>
           </div>
-          {!usingSystemAudio && (
-            <Button size="sm" variant="outline" onClick={() => void armSystemAudio()}>
-              Add system audio
-            </Button>
-          )}
         </div>
       )}
 
