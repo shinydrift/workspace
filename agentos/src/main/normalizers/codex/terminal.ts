@@ -38,10 +38,20 @@ export function normalizeTerminalText(input: string): string {
 }
 
 export function cleanupLines(text: string): string[] {
-  return text
-    .split('\n')
-    .map((line) => line.replace(/\s+$/g, ''))
-    .filter((line) => line.trim().length > 0);
+  const lines = text.split('\n').map((line) => line.replace(/\s+$/g, ''));
+  // Preserve paragraph breaks: keep a single blank line between content blocks,
+  // but drop leading/trailing blanks and collapse runs of blank lines (terminal noise).
+  const out: string[] = [];
+  for (const line of lines) {
+    if (line.trim().length === 0) {
+      if (out.length === 0 || out[out.length - 1] === '') continue;
+      out.push('');
+    } else {
+      out.push(line);
+    }
+  }
+  while (out.length > 0 && out[out.length - 1] === '') out.pop();
+  return out;
 }
 
 export function isCodexAuthScreen(lines: string[]): boolean {
