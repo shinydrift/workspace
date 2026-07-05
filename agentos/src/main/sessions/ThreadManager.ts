@@ -26,6 +26,7 @@ import { CouncilChildThreadService } from './CouncilChildThreadService';
 import { StageWorkerService } from './StageWorkerService';
 import { SessionChunkManager } from './SessionChunkManager';
 import { CouncilSynthesisManager } from './CouncilSynthesisManager';
+import { validateThreadPostTurnId } from './threadPostTurnGuard';
 import type { Disposable } from '../lifecycle';
 
 import type { CouncilMember, CouncilOutcomeRecord } from '../../shared/types/council';
@@ -362,7 +363,11 @@ class ThreadManager implements Disposable {
   }
 
   getActiveThreadIds(): string[] {
-    return [...this.store.activeTurnProcs.keys()];
+    return [...this.store.activeTurns.keys()];
+  }
+
+  validateThreadPostTurn(threadId: string, turnId?: string): void {
+    validateThreadPostTurnId(this.store.threadPostTurnIds.get(threadId), turnId);
   }
 
   async dispose(): Promise<void> {

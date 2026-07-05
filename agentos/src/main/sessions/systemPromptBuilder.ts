@@ -152,9 +152,9 @@ export function buildHeadlessSystemPrompt(input: HeadlessPromptInput): HeadlessP
         `\nAutopilot is already active for this thread — do not call set_autopilot.\n` +
         `Post all replies to the current thread via the 'agentos-thread' MCP server. They appear in the in-app ` +
         `Thread view, the primary conversation surface:\n` +
-        `- post_update(thread_id, message): post a plan/todos at the start, progress updates during work, and your final result when done.\n` +
-        `- ask_clarification(thread_id, questions): post questions and wait for the user's reply. Phrase questions as plain natural-language text (a numbered list for multiple) — never pass raw JSON or structured field blobs.\n` +
-        `- upload_file(thread_id, file_path, filename?, initial_comment?): attach a file. file_path MUST be an absolute path under /workspace/.agentos/uploads/ — write outbound files there. Paths outside that folder are rejected.\n` +
+        `- post_update(thread_id, message, turn_id?): post a plan/todos at the start, progress updates during work, and your final result when done.\n` +
+        `- ask_clarification(thread_id, questions, turn_id?): post questions and wait for the user to reply. Phrase questions as plain natural-language text (a numbered list for multiple) — never pass raw JSON or structured field blobs.\n` +
+        `- upload_file(thread_id, file_path, filename?, initial_comment?, turn_id?): attach a file. file_path MUST be an absolute path under /workspace/.agentos/uploads/ — write outbound files there. Paths outside that folder are rejected.\n` +
         `Always pass the value of AGENTOS_THREAD_ID as thread_id.\n` +
         `\nWorkflow:\n` +
         `1. If the request is ambiguous or missing information needed to form a plan, call ask_clarification first and stop — the user will reply.\n` +
@@ -171,7 +171,7 @@ export function buildHeadlessSystemPrompt(input: HeadlessPromptInput): HeadlessP
         `\nThis kanban task was created from Slack and mirrors to channel ${slackCtx.channelId}.\n` +
         `Post progress to the current thread via the 'agentos-thread' MCP server — posts appear in the in-app ` +
         `Thread view (the primary surface) and are echoed to Slack when connected:\n` +
-        `- post_update(thread_id, message): post progress updates.\n` +
+        `- post_update(thread_id, message, turn_id?): post progress updates.\n` +
         `Always pass AGENTOS_THREAD_ID as thread_id.\n` +
         `\nPost a brief update at these moments only:\n` +
         `1. When the task starts (one line: task title + first stage).\n` +
@@ -188,9 +188,9 @@ export function buildHeadlessSystemPrompt(input: HeadlessPromptInput): HeadlessP
         `Autopilot is already active for this thread — do not call set_autopilot.\n` +
         `Post all replies to the current thread via the 'agentos-thread' MCP server. They appear in the in-app ` +
         `Thread view (the primary conversation surface) and are echoed to Slack when connected:\n` +
-        `- post_update(thread_id, message): post a plan/todos at the start, progress updates during work, and your final result when done.\n` +
-        `- ask_clarification(thread_id, questions): post questions and wait for the user's reply. Phrase questions as plain natural-language text (a numbered list for multiple) — never pass raw JSON or structured field blobs.\n` +
-        `- upload_file(thread_id, file_path, filename?, initial_comment?): attach a file. file_path MUST be an absolute path under /workspace/.agentos/uploads/ — write outbound files there (same folder inbound attachments land in). Paths outside that folder are rejected.\n` +
+        `- post_update(thread_id, message, turn_id?): post a plan/todos at the start, progress updates during work, and your final result when done.\n` +
+        `- ask_clarification(thread_id, questions, turn_id?): post questions and wait for the user to reply. Phrase questions as plain natural-language text (a numbered list for multiple) — never pass raw JSON or structured field blobs.\n` +
+        `- upload_file(thread_id, file_path, filename?, initial_comment?, turn_id?): attach a file. file_path MUST be an absolute path under /workspace/.agentos/uploads/ — write outbound files there (same folder inbound attachments land in). Paths outside that folder are rejected.\n` +
         `Always pass the value of AGENTOS_THREAD_ID as thread_id.\n` +
         `\nWorkflow:\n` +
         `1. If the request is ambiguous or missing information needed to form a plan, call ask_clarification first and stop — the user will reply.\n` +
@@ -210,7 +210,7 @@ export function buildHeadlessSystemPrompt(input: HeadlessPromptInput): HeadlessP
         `\nThis is an automated task running in its own thread.\n` +
         `Post to the current thread via the 'agentos-thread' MCP server — posts appear in the in-app ` +
         `Thread view (the primary surface) and echo to any connected channel as replies under the run's message:\n` +
-        `- post_update(thread_id, message): post an update.\n` +
+        `- post_update(thread_id, message, turn_id?): post an update.\n` +
         `Always pass AGENTOS_THREAD_ID as thread_id.\n` +
         `\nPost exactly twice:\n` +
         `1. A one-line note when you start (what the automation is doing).\n` +

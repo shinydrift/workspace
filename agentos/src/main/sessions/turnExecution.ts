@@ -1,5 +1,6 @@
 import { app } from 'electron';
 import { getErrorMessage } from '../../shared/utils/errorMessage';
+import { randomUUID } from 'node:crypto';
 import path from 'path';
 import { persistAllSessionIds, generateSlugFromSessionId } from './messagePersistence';
 import type { ThreadStateService } from './ThreadStateService';
@@ -215,6 +216,16 @@ export class TurnExecutor {
     this.store.interruptedThreads.delete(threadId);
 
     const isUserTurn = source === 'user' || source === 'automation' || source === 'autopilot';
+    const postTurnId = isUserTurn ? randomUUID() : null;
+    const effectiveSystemPromptSuffix = postTurnId
+      ? [
+          `Current AgentOS turn id: ${postTurnId}.`,
+          `When calling agentos-thread post_update, ask_clarification, or upload_file, pass turn_id="${postTurnId}".`,
+          systemPromptSuffix,
+        ]
+          .filter(Boolean)
+          .join('\n')
+      : systemPromptSuffix;
     const flushOutput = (): void => {
       if (isUserTurn) {
         this.output.flushAssistantMessage(threadId);
@@ -226,7 +237,15 @@ export class TurnExecutor {
     let wasThisTurnInterrupted = false;
     let turnEndReason: TurnEndReason | undefined;
     try {
-      turnEndReason = await this.executeTurn(threadId, input, source, timeoutMs, persistInput, systemPromptSuffix);
+      if (postTurnId) this.store.threadPostTurnIds.set(threadId, postTurnId);
+      turnEndReason = await this.executeTurn(
+        threadId,
+        input,
+        source,
+        timeoutMs,
+        persistInput,
+        effectiveSystemPromptSuffix
+      );
       wasThisTurnInterrupted = this.store.interruptedThreads.has(threadId);
       flushOutput();
       eventLogger.info('queue', 'Main agent turn ended', { threadId, source, turnEndReason });
@@ -250,6 +269,10 @@ export class TurnExecutor {
     } catch (error) {
       flushOutput();
       throw error;
+    } finally {
+      if (postTurnId && this.store.threadPostTurnIds.get(threadId) === postTurnId) {
+        this.store.threadPostTurnIds.delete(threadId);
+      }
     }
     if (wasThisTurnInterrupted) {
       throw new Error('Interrupted by user input');
@@ -322,6 +345,7 @@ export class TurnExecutor {
         activeTurn.proc.kill();
         this.store.activeTurnProcs.delete(threadId);
       }
+      this.store.activeTurns.delete(threadId);
     } else {
       await stopContainer(threadId).catch((err) => {
         eventLogger.warn('session', 'failed to stop container', { error: String(err) });

@@ -10,7 +10,9 @@ import type { LaunchMode } from './turnExecution';
 export class ThreadRuntimeStore {
   readonly ptys = new Map<string, PtyProcess>();
   readonly launchModes = new Map<string, LaunchMode>();
+  readonly activeTurns = new Map<string, { cancel: () => void; input: string; kind: 'headless' | 'interactive' }>();
   readonly activeTurnProcs = new Map<string, { proc: PtyProcess; input: string }>();
+  readonly threadPostTurnIds = new Map<string, string>();
   readonly injectionStatuses = new Map<string, ThreadInjectionStatus>();
   /** Threads whose active turn was killed by an incoming user message. Consumed by the interrupted turn and its follow-up. */
   readonly interruptedThreads = new Set<string>();
@@ -30,7 +32,9 @@ export class ThreadRuntimeStore {
   clearThread(threadId: string): void {
     this.ptys.delete(threadId);
     this.launchModes.delete(threadId);
+    this.activeTurns.delete(threadId);
     this.activeTurnProcs.delete(threadId);
+    this.threadPostTurnIds.delete(threadId);
     this.injectionStatuses.delete(threadId);
     this.interruptedThreads.delete(threadId);
     this.sessionStartedAts.delete(threadId);
