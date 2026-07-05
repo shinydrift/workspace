@@ -487,6 +487,21 @@ CREATE INDEX idx_stb_thread_id ON slack_thread_bindings(thread_id);
       }
     },
   },
+  {
+    // In-app notifications: track unseen notify-worthy events (✅/❌/attention) per thread so the
+    // list badge + dock count survive a restart. unread_count is the tally; unread_kind is the
+    // highest-priority pending reason (colors the badge). Both reset to 0/NULL when the thread is viewed.
+    name: '0012_add_thread_unread',
+    run: (db) => {
+      const cols = db.prepare(`PRAGMA table_info(threads)`).all() as { name: string }[];
+      if (!cols.some((c) => c.name === 'unread_count')) {
+        db.exec(`ALTER TABLE threads ADD COLUMN unread_count INTEGER NOT NULL DEFAULT 0`);
+      }
+      if (!cols.some((c) => c.name === 'unread_kind')) {
+        db.exec(`ALTER TABLE threads ADD COLUMN unread_kind TEXT`);
+      }
+    },
+  },
 ];
 
 // Derived from THREADS_MIGRATIONS so the seeding branch never goes stale.

@@ -79,6 +79,29 @@ export function deriveThreadDisplayStatus(
   );
 }
 
+/** A thread event worth surfacing as a notification on a thread you're not looking at. */
+export type ThreadNotificationKind = 'done' | 'error' | 'attention';
+
+/**
+ * Decides whether a status broadcast should raise a notification (unread badge / toast / native),
+ * given the previously-shown display status (`prev`, the thread's persisted currentReaction) and the
+ * event. Fires once on the settling edge: `next === prev` means the same outcome re-broadcast, so it
+ * stays silent — this dedups the repeated idle/stopped events a finished turn emits. Autopilot
+ * `blocked` is an attention signal (a human is needed) even though its persisted reaction is ✅.
+ * Returns null while a turn is still working (👀/🤖/🏛️) or when nothing changed.
+ */
+export function deriveStatusNotification(
+  prev: ThreadPostStatus | null | undefined,
+  payload: ThreadStatusEvent,
+  next: ThreadPostStatus | null
+): ThreadNotificationKind | null {
+  if (next === prev) return null;
+  if (payload.autopilotState === 'blocked') return 'attention';
+  if (next === 'done') return 'done';
+  if (next === 'error') return 'error';
+  return null;
+}
+
 /** Slack reaction emoji for each lifecycle status — the echo mapping. */
 export const THREAD_STATUS_SLACK_EMOJI: Record<ThreadPostStatus, string> = {
   working: 'eyes',

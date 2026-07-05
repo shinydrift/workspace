@@ -22,6 +22,14 @@ export const statusColors = {
 } as const;
 
 import type { ThreadStatus } from '../../shared/types';
+import type { ThreadNotificationKind } from '../../shared/threadStatusLifecycle';
+
+/** Maps an unread notification kind to a status color family (badge dot + toast accent). */
+export const notificationKindStatus: Record<ThreadNotificationKind, keyof typeof statusColors> = {
+  done: 'success',
+  error: 'error',
+  attention: 'warning',
+};
 
 /** Border-color classes for thread status indicator dots. */
 export const threadStatusDot: Record<ThreadStatus, string> = {

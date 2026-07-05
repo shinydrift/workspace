@@ -11,6 +11,7 @@ export const THREAD_IPC_CHANNELS = {
   THREAD_LIST: 'thread:list',
   THREAD_RENAME: 'thread:rename',
   THREAD_SET_AUTOPILOT: 'thread:setAutopilot',
+  THREAD_SET_ACTIVE: 'thread:setActive',
   THREAD_SET_PROVIDER_MODEL: 'thread:setProviderModel',
   THREAD_INJECTION_STATUS: 'thread:getInjectionStatus',
   THREAD_DERIVE_PERSONALITY: 'thread:derivePersonality',
@@ -87,6 +88,14 @@ export interface ThreadStatusEvent {
 export interface ThreadRenamedEvent {
   threadId: string;
   name: string;
+}
+
+export interface ThreadUnreadEvent {
+  threadId: string;
+  unreadCount: number;
+  unreadKind?: import('../../threadStatusLifecycle').ThreadNotificationKind;
+  /** The thread's display name — lets a toast render without a store lookup. */
+  threadName: string;
 }
 
 export interface MessageAppendedEvent {

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { Thread, ThreadStatus, AutomationJob, SavedProject } from '../../shared/types';
+import type { ThreadNotificationKind } from '../../shared/threadStatusLifecycle';
 import { useUIStore } from './uiStore';
 
 interface DomainStore {
@@ -12,6 +13,7 @@ interface DomainStore {
   upsertThread: (thread: Thread) => void;
   removeThread: (id: string) => void;
   updateThreadStatus: (id: string, status: ThreadStatus, extra?: Partial<Thread>) => void;
+  setThreadUnread: (id: string, unreadCount: number, unreadKind?: ThreadNotificationKind) => void;
   renameThread: (id: string, name: string) => void;
   setAutomations: (jobs: AutomationJob[]) => void;
   upsertAutomation: (job: AutomationJob) => void;
@@ -48,6 +50,13 @@ export const useDomainStore = create<DomainStore>((set) => ({
       return {
         threads: { ...state.threads, [id]: { ...thread, status, ...extra } },
       };
+    }),
+
+  setThreadUnread: (id, unreadCount, unreadKind) =>
+    set((state) => {
+      const thread = state.threads[id];
+      if (!thread) return state;
+      return { threads: { ...state.threads, [id]: { ...thread, unreadCount, unreadKind } } };
     }),
 
   renameThread: (id, name) =>

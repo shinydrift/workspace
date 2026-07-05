@@ -92,6 +92,7 @@ export type IPCMap = {
   'thread:rename': { input: { threadId: string; name: string }; output: Thread };
   'thread:getInjectionStatus': { input: { threadId: string }; output: ThreadInjectionStatus };
   'thread:setAutopilot': { input: { threadId: string; enabled: boolean }; output: Thread };
+  'thread:setActive': { input: { threadId: string | null }; output: void };
   'thread:derivePersonality': { input: { projectId: string }; output: PersonalitySettings };
   // Memory
   'memory:status': { input: { threadId: string }; output: MemoryIndexStatus };
@@ -392,6 +393,7 @@ export const TYPED_CHANNEL_SET: ReadonlySet<string> = new Set<IPCChannel>([
   'thread:rename',
   'thread:getInjectionStatus',
   'thread:setAutopilot',
+  'thread:setActive',
   'thread:derivePersonality',
   'memory:status',
   'memory:reindex',

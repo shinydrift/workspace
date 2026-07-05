@@ -217,6 +217,9 @@ const appSettingsSchema = baseConfigSchema.extend({
   continuousCaptureEnabled: z.boolean().optional(),
   mcpRequireAuth: z.boolean().optional(),
   editor: z.object({ label: z.string(), command: z.string(), args: z.string().optional() }).optional(),
+  // Desktop (OS) notifications when a thread you're not viewing finishes/errors/needs input.
+  // Off by default; the in-app toast + unread badges surface these regardless.
+  notifications: z.object({ desktop: z.boolean() }).optional(),
 });
 export type AppSettings = z.infer<typeof appSettingsSchema>;
 

@@ -48,6 +48,8 @@ export interface Thread {
   autopilotLastReason?: string;
   autopilotConsecutiveTurns?: number;
   currentReaction?: import('./thread-post').ThreadPostStatus | null; // persisted lifecycle indicator (👀/🤖/🏛️/✅/❌)
+  unreadCount?: number; // unseen notify-worthy events (✅/❌/attention) since the thread was last viewed
+  unreadKind?: import('../threadStatusLifecycle').ThreadNotificationKind; // highest-priority pending reason (colors the badge)
   claudeSessionId?: string; // persisted session ID for headless --resume
   codexSessionId?: string; // persisted thread ID for codex exec resume
   geminiSessionId?: string; // persisted session ID for gemini --resume

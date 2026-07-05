@@ -35,6 +35,7 @@ import { getStore, setSettings, settingsEvents } from '../store/index';
 import { setLocalhostAuthBypass } from '../mcp/mcpAuth';
 import { TrayManager } from '../tray/trayManager';
 import { registerTrayUpdateHook } from '../sessions/broadcaster';
+import { threadNotifications } from '../sessions/threadNotifications';
 import { getErrorMessage } from '../../shared/utils/errorMessage';
 import { loadProjectConfig, updateProjectConfig } from '../config/projectConfig';
 import { reconcilePersonalityRefresh } from '../personality/automation';
@@ -234,6 +235,7 @@ export function bootServices(
     })
   );
   councilService.rearmTimers();
+  threadNotifications.init(mainWindow);
 
   // ── Phase 2: optional services (sync, safeInit-wrapped) ──────────────────
   setLocalhostAuthBypass(!getStore().get('settings').mcpRequireAuth);

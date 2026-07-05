@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { IPC_CHANNELS } from '../../../shared/types';
 import type { CreateThreadRequest } from '../../../shared/types';
 import { threadManager, threadLifecycle, threadReads, threadAutopilotState } from '../../sessions/ThreadManager';
+import { threadNotifications } from '../../sessions/threadNotifications';
 import { threadId, filePath, shortName, ThreadIdSchema } from './schemas';
 import { handleIpc } from '../ipcResponse';
 
@@ -87,6 +88,13 @@ export function registerThreadHandlers(): void {
     handleIpc(() => {
       const { threadId: id, provider, model, effort, reasoning } = SetProviderModelSchema.parse(raw);
       return threadManager.setThreadProviderModel(id, provider, model, effort, reasoning);
+    })
+  );
+
+  ipcMain.handle(IPC_CHANNELS.THREAD_SET_ACTIVE, (_e, raw) =>
+    handleIpc(() => {
+      const { threadId: id } = z.object({ threadId: z.string().nullable() }).parse(raw);
+      threadNotifications.setActiveThread(id);
     })
   );
 
