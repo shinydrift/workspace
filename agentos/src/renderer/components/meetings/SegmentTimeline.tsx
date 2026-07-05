@@ -78,7 +78,8 @@ function SelectionPlayer({
     [index, segments]
   );
 
-  const cleanupAudio = useCallback(() => {
+  const cleanupAudio = useCallback((invalidateLoad = false) => {
+    if (invalidateLoad) loadTokenRef.current += 1;
     const audio = audioRef.current;
     if (audio) {
       audio.pause();
@@ -138,10 +139,10 @@ function SelectionPlayer({
     setDuration(segments[0]?.durationSeconds ?? 0);
     setCurrent(0);
     setPlaying(false);
-    cleanupAudio();
+    cleanupAudio(true);
   }, [cleanupAudio, index, segments]);
 
-  useEffect(() => cleanupAudio, [cleanupAudio]);
+  useEffect(() => () => cleanupAudio(true), [cleanupAudio]);
 
   function toggle() {
     if (!currentSegment) return;
