@@ -190,6 +190,27 @@ test('extractCodexTokenUsage extracts cached input tokens', () => {
   assert.deepEqual(result, { inputTokens: 200, outputTokens: 80, cacheReadTokens: 120, model: 'gpt-5-codex' });
 });
 
+test('extractCodexTokenUsage extracts cached input tokens from prompt_tokens_details', () => {
+  const result = extractCodexTokenUsage([
+    {
+      type: 'turn.completed',
+      model: 'gpt-5-codex',
+      usage: { input_tokens: 200, output_tokens: 80, prompt_tokens_details: { cached_tokens: 120 } },
+    },
+  ]);
+  assert.deepEqual(result, { inputTokens: 200, outputTokens: 80, cacheReadTokens: 120, model: 'gpt-5-codex' });
+});
+
+test('extractCodexTokenUsage supports prompt/completion token names', () => {
+  const result = extractCodexTokenUsage([
+    {
+      type: 'turn.completed',
+      usage: { prompt_tokens: 200, completion_tokens: 80, prompt_tokens_details: { cached_tokens: 120 } },
+    },
+  ]);
+  assert.deepEqual(result, { inputTokens: 200, outputTokens: 80, cacheReadTokens: 120, model: undefined });
+});
+
 test('extractCodexTokenUsage returns undefined when tokens are zero', () => {
   assert.equal(extractCodexTokenUsage([{ type: 'turn.completed', usage: { input_tokens: 0, output_tokens: 0 } }]), undefined);
 });

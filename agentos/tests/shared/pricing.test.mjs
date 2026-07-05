@@ -12,7 +12,8 @@ const TOKEN_PRICES_USD_PER_1M = {
   'claude-opus-4': { input: 15.0, output: 75.0, cacheRead: 1.5, cacheCreation: 18.75 },
   'claude-sonnet-4-6': { input: 3.0, output: 15.0, cacheRead: 0.3, cacheCreation: 3.75 },
   'claude-haiku-4-5': { input: 0.8, output: 4.0, cacheRead: 0.08, cacheCreation: 1.0 },
-  'codex-default': { input: 3.0, output: 12.0 },
+  'gpt-5.4-mini': { input: 0.75, output: 4.5, cacheRead: 0.075 },
+  'codex-default': { input: 3.0, output: 12.0, cacheRead: 0.3 },
   'gemini-2.5-pro': { input: 1.25, output: 10.0, cacheRead: 0.31 },
   'gemini-2.5-flash': { input: 0.15, output: 0.6, cacheRead: 0.0375 },
   'gemini-2.0-flash': { input: 0.1, output: 0.4, cacheRead: 0.025 },
@@ -114,4 +115,14 @@ test('gemini cache read tokens factored in', () => {
 test('claude cache read tokens factored in', () => {
   // 1M cache read @ $0.3 = 300_000 microdollars
   assert.equal(calcCostUsdMicro(0, 0, 'claude-sonnet-4-6', 1_000_000), 300_000);
+});
+
+test('gpt-5.4-mini cache read tokens use explicit OpenAI cached input price', () => {
+  // 1M cache read @ $0.075 = 75_000 microdollars
+  assert.equal(calcCostUsdMicro(0, 0, 'gpt-5.4-mini', 1_000_000), 75_000);
+});
+
+test('codex-default cache read tokens use explicit cached input price', () => {
+  // 1M cache read @ $0.3 = 300_000 microdollars
+  assert.equal(calcCostUsdMicro(0, 0, 'codex-default', 1_000_000), 300_000);
 });
