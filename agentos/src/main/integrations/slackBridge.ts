@@ -70,6 +70,12 @@ const MAX_ECHO_UPLOAD_BYTES = 100 * 1024 * 1024;
 
 const PERIODIC_CATCHUP_MS = 10 * 60 * 1000;
 
+const TRANSIENT_THREAD_REACTION_EMOJI = new Set([
+  THREAD_STATUS_SLACK_EMOJI.working,
+  THREAD_STATUS_SLACK_EMOJI.autopilot,
+  THREAD_STATUS_SLACK_EMOJI.council,
+]);
+
 class SlackBridge extends BaseBridge<SlackBridgeDeps> {
   private socketClient: SocketModeClient | null = null;
   private socketEventHandler: ((envelope: unknown) => void) | null = null;
@@ -223,6 +229,11 @@ class SlackBridge extends BaseBridge<SlackBridgeDeps> {
     const { remove, add } = reconcileReaction(prev, emoji);
     if (remove) void this.removeReaction(channelId, messageTs, remove);
     if (add) {
+      if (TERMINAL_THREAD_REACTION_EMOJI.has(add)) {
+        for (const stale of TRANSIENT_THREAD_REACTION_EMOJI) {
+          if (stale !== remove) void this.removeReactionIfPresent(channelId, messageTs, stale);
+        }
+      }
       void this.addReaction(channelId, messageTs, add);
       this.currentReactions.set(bindingKey, { messageTs, emoji: add });
       // Evict the oldest binding entry if the cache grows too large (best-effort projection state).
@@ -555,6 +566,21 @@ class SlackBridge extends BaseBridge<SlackBridgeDeps> {
     );
   }
 
+  private async removeReactionIfPresent(channelId: string, messageTs: string, emoji: string): Promise<void> {
+    if (!this.webClient) return;
+    try {
+      await this.webClient.reactions.remove({ channel: channelId, timestamp: messageTs, name: emoji });
+    } catch (error) {
+      const code = this.getSlackErrorCode(error);
+      if (code === 'no_reaction' || code === 'not_reacted' || code === 'message_not_found') return;
+      eventLogger.warn('slack', 'Slack removeReaction failed', {
+        error: getErrorMessage(error),
+        channelId,
+        emoji,
+      });
+    }
+  }
+
   private async postMessage(channelId: string, text: string, threadTs?: string): Promise<void> {
     if (!this.webClient) return;
     await this.safeSlackCall(
@@ -579,6 +605,14 @@ class SlackBridge extends BaseBridge<SlackBridgeDeps> {
     } catch (error) {
       eventLogger.warn('slack', label, { error: getErrorMessage(error), ...context });
     }
+  }
+
+  private getSlackErrorCode(error: unknown): string | undefined {
+    if (!error || typeof error !== 'object') return undefined;
+    const data = (error as { data?: unknown }).data;
+    if (!data || typeof data !== 'object') return undefined;
+    const code = (data as { error?: unknown }).error;
+    return typeof code === 'string' ? code : undefined;
   }
 
   private readSlackSettings() {
