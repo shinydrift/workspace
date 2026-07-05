@@ -204,6 +204,7 @@ export type IPCMap = {
     input: { folderPath: string; target: 'vscode' | 'finder' | 'terminal' | 'xcode' };
     output: void;
   };
+  'shell:openAttachment': { input: { name: string; data: ArrayBuffer }; output: void };
 
   // Analytics
   'analytics:getSessionMetrics': { input: { threadId: string }; output: SessionMetrics | null };
@@ -442,6 +443,7 @@ export const TYPED_CHANNEL_SET: ReadonlySet<string> = new Set<IPCChannel>([
   'shell:openExternal',
   'shell:openInEditor',
   'shell:openFolderTarget',
+  'shell:openAttachment',
   'log:getHistory',
   'health:run',
   'audio:transcribe',

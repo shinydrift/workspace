@@ -187,6 +187,7 @@ const api = {
     openInEditor: (folderPath: string) => invoke('shell:openInEditor', { folderPath }),
     openFolderTarget: (folderPath: string, target: 'vscode' | 'finder' | 'terminal' | 'xcode') =>
       invoke('shell:openFolderTarget', { folderPath, target }),
+    openAttachment: (name: string, data: ArrayBuffer) => invoke('shell:openAttachment', { name, data }),
   },
 
   env: {
