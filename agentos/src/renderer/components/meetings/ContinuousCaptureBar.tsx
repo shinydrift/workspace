@@ -1,44 +1,38 @@
 import React from 'react';
-import { Microphone, Waveform, Warning } from '@phosphor-icons/react';
+import { Warning } from '@phosphor-icons/react';
 import { Switch } from '@/components/ui/switch';
+import { cn } from '@/lib/utils';
 import type { UseContinuousCaptureResult } from '../../hooks/useContinuousCapture';
 
 /**
- * Controls for always-on capture: a single toggle plus live source status. The toggle pulls
- * in the mic and system audio together; system audio re-arms on the next interaction after a
- * restart, so there's no separate button.
+ * A small always-visible recording pill. Capture runs seamlessly in the background — this only
+ * signals whether it is live and lets the user toggle it. No segment or retention mechanics shown.
  */
 export function ContinuousCaptureBar({ capture }: { capture: UseContinuousCaptureResult }) {
   const { enabled, micActive, usingSystemAudio, error, setEnabled } = capture;
+  const live = enabled && micActive;
   return (
-    <div className="mx-4 mt-4 mb-2 rounded-md border border-border bg-muted/30 px-3 py-2.5">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2 min-w-0">
-          <Waveform className="h-4 w-4 shrink-0 text-blue-400" />
-          <div className="min-w-0">
-            <p className="text-sm text-foreground">Always-on capture</p>
-            <p className="text-xs text-muted-foreground">Mic + system audio · rolling 5-min segments · kept 7 days</p>
-          </div>
-        </div>
-        <Switch checked={enabled} onCheckedChange={(v) => void setEnabled(v)} aria-label="Toggle always-on capture" />
+    <div className="mx-4 mt-4 mb-2">
+      <div className="inline-flex items-center gap-2 rounded-full border border-border bg-muted/30 py-1 pl-2.5 pr-1.5">
+        <span
+          className={cn(
+            'h-2 w-2 shrink-0 rounded-full',
+            live ? 'animate-pulse bg-red-500' : enabled ? 'bg-amber-400' : 'bg-muted-foreground/40'
+          )}
+        />
+        <span className="text-xs text-foreground">
+          {enabled ? (usingSystemAudio ? 'Recording · mic + system' : 'Recording · mic') : 'Recording off'}
+        </span>
+        <Switch
+          checked={enabled}
+          onCheckedChange={(v) => void setEnabled(v)}
+          aria-label="Toggle background recording"
+          className="scale-90"
+        />
       </div>
 
-      {enabled && (
-        <div className="flex items-center justify-between gap-2 mt-2 pt-2 border-t border-border/60">
-          <div className="flex items-center gap-3 text-xs text-muted-foreground">
-            <span className="flex items-center gap-1">
-              <Microphone className={micActive ? 'h-3 w-3 text-green-400' : 'h-3 w-3'} />
-              {micActive ? 'Mic on' : 'Mic off'}
-            </span>
-            <span className={usingSystemAudio ? 'text-green-400' : ''}>
-              {usingSystemAudio ? '+ system audio' : 'mic only'}
-            </span>
-          </div>
-        </div>
-      )}
-
       {error && (
-        <p className="flex items-center gap-1 mt-2 text-xs text-amber-500">
+        <p className="mt-1.5 flex items-center gap-1 text-xs text-amber-500">
           <Warning className="h-3 w-3 shrink-0" />
           {error}
         </p>
