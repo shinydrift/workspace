@@ -23,6 +23,9 @@ import type { QueueSource } from './ThreadInputQueue';
 const HEADLESS_IDLE_STOP_MS = 30 * 60 * 1000; // 30 minutes
 
 const PROVIDER_LIMIT_SIGNALS = [
+  "you've hit your org's monthly spend limit",
+  'monthly spend limit',
+  'spend limit',
   "you've hit your org's monthly usage limit",
   'monthly usage limit',
   'usage limit',
@@ -241,7 +244,7 @@ export async function execHeadlessTurn(
           reject(new Error(`Container exited mid-turn (exit code ${exitCode})`));
           return;
         }
-        if (exitCode !== 0 && exitCode !== undefined && hasProviderLimitSignal(outputBuffer)) {
+        if (hasProviderLimitSignal(outputBuffer)) {
           eventLogger.warn('thread', 'Provider usage limit signal detected', { threadId, provider, source, exitCode });
           reject(new ProviderLimitError(outputBuffer));
           return;
