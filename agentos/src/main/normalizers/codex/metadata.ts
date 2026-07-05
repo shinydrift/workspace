@@ -12,22 +12,38 @@ export function extractCodexTokenUsage(events: Array<Record<string, unknown>>) {
     const u = e.usage;
     if (!u || typeof u !== 'object') continue;
     const usage = u as Record<string, unknown>;
-    const inputTokens = typeof usage.input_tokens === 'number' ? usage.input_tokens : 0;
-    const outputTokens = typeof usage.output_tokens === 'number' ? usage.output_tokens : 0;
+    const inputTokens = firstNumber(usage, ['input_tokens', 'prompt_tokens']);
+    const outputTokens = firstNumber(usage, ['output_tokens', 'completion_tokens']);
     if (inputTokens === 0 && outputTokens === 0) continue;
     totalInput += inputTokens;
     totalOutput += outputTokens;
     found = true;
-    // OpenAI reports cached tokens under input_tokens_details.cached_tokens or usage.cached_tokens
-    const details = usage.input_tokens_details;
-    if (details && typeof details === 'object') {
-      const d = details as Record<string, unknown>;
-      if (typeof d.cached_tokens === 'number') totalCacheRead += d.cached_tokens;
-    } else if (typeof usage.cached_tokens === 'number') {
-      totalCacheRead += usage.cached_tokens;
-    }
+    totalCacheRead += extractCachedInputTokens(usage);
   }
 
   if (!found) return undefined;
   return { inputTokens: totalInput, outputTokens: totalOutput, cacheReadTokens: totalCacheRead, model };
+}
+
+function firstNumber(record: Record<string, unknown>, keys: string[]): number {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+  }
+  return 0;
+}
+
+function cachedTokensFromDetails(value: unknown): number {
+  if (!value || typeof value !== 'object') return 0;
+  const details = value as Record<string, unknown>;
+  const cachedTokens = details.cached_tokens;
+  return typeof cachedTokens === 'number' && Number.isFinite(cachedTokens) ? cachedTokens : 0;
+}
+
+function extractCachedInputTokens(usage: Record<string, unknown>): number {
+  for (const key of ['input_tokens_details', 'prompt_tokens_details', 'input_token_details', 'prompt_token_details']) {
+    const cachedTokens = cachedTokensFromDetails(usage[key]);
+    if (cachedTokens > 0) return cachedTokens;
+  }
+  return firstNumber(usage, ['cached_tokens', 'cached_input_tokens', 'cache_read_input_tokens']);
 }

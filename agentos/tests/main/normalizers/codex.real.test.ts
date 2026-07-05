@@ -83,6 +83,19 @@ test('normalizeCodex: cached tokens in input_tokens_details are captured', () =>
   assert.equal(result.tokenUsage?.cacheReadTokens, 120);
 });
 
+test('normalizeCodex: cached tokens in prompt_tokens_details are captured', () => {
+  const raw = [
+    JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'ok' } }),
+    JSON.stringify({
+      type: 'turn.completed',
+      model: 'gpt-5',
+      usage: { input_tokens: 200, output_tokens: 80, prompt_tokens_details: { cached_tokens: 120 } },
+    }),
+  ].join('\n');
+  const result = normalizeCodex({ ...BASE, raw });
+  assert.equal(result.tokenUsage?.cacheReadTokens, 120);
+});
+
 test('normalizeCodex: turn.failed event surfaces error text', () => {
   const raw = JSON.stringify({ type: 'turn.failed', error: { message: 'Something went wrong' } });
   const result = normalizeCodex({ ...BASE, raw });

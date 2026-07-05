@@ -28,8 +28,8 @@ export const TOKEN_PRICES_USD_PER_1M: Record<string, ModelPrice> = {
   // OpenAI list prices. codex-default is the fallback for unpinned/free-text Codex models.
   'gpt-5.5': { input: 5.0, output: 30.0, cacheRead: 0.5 },
   'gpt-5.4': { input: 2.5, output: 15.0, cacheRead: 0.25 },
-  'gpt-5.4-mini': { input: 0.75, output: 4.5 },
-  'codex-default': { input: 3.0, output: 12.0 },
+  'gpt-5.4-mini': { input: 0.75, output: 4.5, cacheRead: 0.075 },
+  'codex-default': { input: 3.0, output: 12.0, cacheRead: 0.3 },
   // Gemini list prices. Cache read ≈ 25% of input on the 2.x line; Gemini 3.x dropped to 10%.
   'gemini-3.5-flash': { input: 1.5, output: 9.0, cacheRead: 0.15 },
   'gemini-3.1-pro-preview': { input: 2.0, output: 12.0, cacheRead: 0.2 },

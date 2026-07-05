@@ -152,7 +152,7 @@ test('onTokenUsage: Codex cumulative rollup subtracts cache_read from input', ()
     threadId: 't-codex',
     projectId: 'p1',
     provider: 'codex',
-    model: 'gpt-5',
+    model: 'codex-default',
     inputTokens: 100000,
     outputTokens: 500,
     cacheReadTokens: 90000,
@@ -162,6 +162,7 @@ test('onTokenUsage: Codex cumulative rollup subtracts cache_read from input', ()
   const daily = adapter.prepare('SELECT * FROM project_daily_stats WHERE project_id = ?').get('p1') as DailyRow;
   assert.equal(daily.input_tokens, 10000, 'cumulative rollup input must be (input - cache_read)');
   assert.equal(daily.cache_read_tokens, 90000);
+  assert.equal(daily.cost_usd_micro, 63000, 'cache_read must be priced at cached-input rate, not full input rate');
 });
 
 test('onTokenUsage: Claude multi-emit accumulates positively across the same day', () => {
