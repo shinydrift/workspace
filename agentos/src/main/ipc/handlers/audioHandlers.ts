@@ -1,4 +1,4 @@
-import { ipcMain, BrowserWindow } from 'electron';
+import { ipcMain } from 'electron';
 import { z } from 'zod';
 import { IPC_CHANNELS } from '../../../shared/types';
 import { audioService } from '../../audio/audioService';
@@ -21,17 +21,16 @@ const PlayTTSSchema = z.object({
 export function registerAudioHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.AUDIO_MODEL_READY, () => handleIpc(() => ({ ready: audioService.isModelReady() })));
 
-  ipcMain.handle(IPC_CHANNELS.AUDIO_TRANSCRIBE, (e, audioBuffer: unknown) =>
+  ipcMain.handle(IPC_CHANNELS.AUDIO_TRANSCRIBE, (_e, audioBuffer: unknown) =>
     handleIpc(async () => {
       if (!(audioBuffer instanceof ArrayBuffer)) throw new Error('audio buffer: expected ArrayBuffer');
       if (audioBuffer.byteLength === 0 || audioBuffer.byteLength > MAX_AUDIO_BYTES) {
         throw new Error(`audio buffer: invalid size ${audioBuffer.byteLength}`);
       }
-      const win = BrowserWindow.fromWebContents(e.sender);
       eventLogger.info(LOG, 'Transcribe request received', { bytes: audioBuffer.byteLength });
       const started = Date.now();
       try {
-        const text = await audioService.transcribe(Buffer.from(audioBuffer), win);
+        const text = await audioService.transcribe(audioBuffer);
         eventLogger.info(LOG, 'Transcribe complete', {
           ms: Date.now() - started,
           chars: text.length,

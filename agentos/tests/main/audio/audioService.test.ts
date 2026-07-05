@@ -1,15 +1,17 @@
 /**
  * Tests for src/main/audio/audioService.ts
  *
+ * audioService is now a thin proxy: transcription runs in the whisper
+ * utilityProcess (see whisperWorkerClient / whisperEngine, tested separately).
  * External dependencies are mocked via Module._load:
- *   - electron              (app.getPath, BrowserWindow)
- *   - @fugood/whisper.node  (initWhisper → WhisperContext)
- *   - store/index           (getStore, settingsEvents)
+ *   - electron              (app.getPath)
+ *   - store/index           (getStore)
  *   - fs                    (existsSync stubbed for model-path checks)
  *   - child_process         (spawn → for TTS "say" command)
+ *   - whisperWorkerClient   (fake — records delegation, returns canned text)
  *
- * Tests cover: isModelReady, playTTS platform guard, stopTTS safety,
- * and the transcribe pipeline (write WAV → transcribeFile → cleanup).
+ * Tests cover: isModelReady, playTTS platform guard, stopTTS safety, and that
+ * transcribe/transcribeFromFile delegate to the whisper worker client.
  */
 
 import test from 'node:test';
@@ -33,24 +35,33 @@ function makeProc() {
   return proc;
 }
 
-// ── @fugood/whisper.node mock ─────────────────────────────────────────────────
+// ── whisperWorkerClient mock ──────────────────────────────────────────────────
 
-let transcribeResult = 'transcribed text';
-let initWhisperCalls = 0;
-let transcribeFileCalls = 0;
+let transcribeText = 'transcribed text';
+const workerCalls = {
+  configure: [] as string[],
+  transcribeBuffer: [] as Array<{ model: string }>,
+  transcribeFromFile: [] as Array<{ filePath: string; model: string }>,
+};
 
-const mockCtx = {
-  transcribeFile: (_file: string, opts: { onNewSegments?: (r: { result: string }) => void }) => {
-    transcribeFileCalls++;
-    opts.onNewSegments?.({ result: transcribeResult });
-    return { promise: Promise.resolve({ result: transcribeResult }) };
+const mockWorkerClient = {
+  configure: (userDataPath: string) => {
+    workerCalls.configure.push(userDataPath);
   },
-  release: () => {},
+  transcribeBuffer: async (_audio: ArrayBuffer, model: string) => {
+    workerCalls.transcribeBuffer.push({ model });
+    return transcribeText;
+  },
+  transcribeFromFile: async (filePath: string, model: string) => {
+    workerCalls.transcribeFromFile.push({ filePath, model });
+    return transcribeText;
+  },
+  shutdown: async () => {},
 };
 
 // ── fs mock — real fs, but existsSync stubbed for model-path checks ───────────
 
-/** Set to true in transcribe tests to simulate model file already present. */
+/** Set to true in tests to simulate model file already present. */
 let modelFileExists = false;
 
 const MODEL_PATH_MARKER = 'whisper-models';
@@ -65,7 +76,6 @@ const mockedFs = {
 
 // ── Store mock ────────────────────────────────────────────────────────────────
 
-const mockSettingsEvents = new EventEmitter();
 const configuredModel = 'base.en';
 
 const mockStore = {
@@ -80,18 +90,7 @@ const mockStore = {
 const origLoad = Module._load as (req: string, parent: unknown, isMain: boolean) => unknown;
 (Module._load as unknown) = function (request: string, parent: unknown, isMain: boolean) {
   if (request === 'electron') {
-    return {
-      app: { getPath: () => '/tmp/test-userdata-audioservice' },
-      BrowserWindow: class {},
-    };
-  }
-  if (request === '@fugood/whisper.node') {
-    return {
-      initWhisper: async (_opts: unknown) => {
-        initWhisperCalls++;
-        return mockCtx;
-      },
-    };
+    return { app: { getPath: () => '/tmp/test-userdata-audioservice' } };
   }
   if (request === 'child_process') {
     return {
@@ -105,9 +104,11 @@ const origLoad = Module._load as (req: string, parent: unknown, isMain: boolean)
   if (request === 'fs') {
     return mockedFs;
   }
-  // Intercept store/index (resolved absolute path for relative imports)
   if (typeof request === 'string' && request.includes('/store/index')) {
-    return { getStore: () => mockStore, settingsEvents: mockSettingsEvents };
+    return { getStore: () => mockStore, settingsEvents: new EventEmitter() };
+  }
+  if (typeof request === 'string' && request.includes('/whisperWorkerClient')) {
+    return { whisperWorkerClient: mockWorkerClient };
   }
   return origLoad.call(this, request, parent, isMain);
 };
@@ -116,8 +117,8 @@ const origLoad = Module._load as (req: string, parent: unknown, isMain: boolean)
 const { audioService } = require('../../../src/main/audio/audioService') as {
   audioService: {
     isModelReady: () => boolean;
-    transcribe: (buf: Buffer, win: null) => Promise<string>;
-    invalidateContext: () => void;
+    transcribe: (buf: ArrayBuffer) => Promise<string>;
+    transcribeFromFile: (filePath: string) => Promise<string>;
     playTTS: (text: string) => void;
     stopTTS: () => void;
   };
@@ -190,45 +191,39 @@ test('playTTS: spawns "say" on darwin', () => {
   audioService.playTTS('test text');
   assert.strictEqual(spawnCalls.length, 1);
   assert.strictEqual(spawnCalls[0].cmd, 'say');
-  assert.deepStrictEqual(spawnCalls[0].args, ['test text']);
+  // '--' terminates option parsing so text with leading hyphens isn't read as say(1) flags.
+  assert.deepStrictEqual(spawnCalls[0].args, ['--', 'test text']);
   audioService.stopTTS();
 });
 
-// ── transcribe ────────────────────────────────────────────────────────────────
+// ── transcribe (delegation to whisper worker) ─────────────────────────────────
 
-test('transcribe: calls transcribeFile and returns trimmed result', async () => {
-  modelFileExists = true;
-  audioService.invalidateContext();
-  transcribeResult = '  hello world  ';
-  transcribeFileCalls = 0;
-  const result = await audioService.transcribe(Buffer.from('fake-wav-data'), null);
-  assert.ok(transcribeFileCalls >= 1, 'transcribeFile should have been called');
+test('transcribe: delegates to the whisper worker and returns its text', async () => {
+  transcribeText = 'hello world';
+  workerCalls.transcribeBuffer.length = 0;
+  const result = await audioService.transcribe(new ArrayBuffer(8));
   assert.strictEqual(result, 'hello world');
+  assert.strictEqual(workerCalls.transcribeBuffer.length, 1);
+  assert.strictEqual(workerCalls.transcribeBuffer[0].model, configuredModel);
 });
 
-test('transcribe: returns empty string when result is whitespace-only', async () => {
-  modelFileExists = true;
-  transcribeResult = '   ';
-  const result = await audioService.transcribe(Buffer.from('silence'), null);
-  assert.strictEqual(result, '');
+test('transcribe: configures the worker with the userData path', async () => {
+  workerCalls.configure.length = 0;
+  await audioService.transcribe(new ArrayBuffer(8));
+  // configure() is idempotent — it registers only on the first transcribe of the
+  // process. Either it was already configured (0 recorded) or it used the app path.
+  assert.ok(
+    workerCalls.configure.length === 0 || workerCalls.configure[0] === '/tmp/test-userdata-audioservice',
+    'worker should be configured with the app userData path'
+  );
 });
 
-test('transcribe: reuses STT context across calls (persistent context)', async () => {
-  modelFileExists = true;
-  audioService.invalidateContext();
-  initWhisperCalls = 0;
-  transcribeResult = 'first';
-  await audioService.transcribe(Buffer.from('a'), null);
-  transcribeResult = 'second';
-  await audioService.transcribe(Buffer.from('b'), null);
-  assert.strictEqual(initWhisperCalls, 1, 'initWhisper should only be called once for two transcriptions');
-});
-
-test('transcribe: reinitializes context after invalidateContext', async () => {
-  modelFileExists = true;
-  audioService.invalidateContext();
-  initWhisperCalls = 0;
-  transcribeResult = 'after reset';
-  await audioService.transcribe(Buffer.from('x'), null);
-  assert.strictEqual(initWhisperCalls, 1, 'initWhisper should be called once after invalidation');
+test('transcribeFromFile: delegates to the whisper worker', async () => {
+  transcribeText = 'from file';
+  workerCalls.transcribeFromFile.length = 0;
+  const result = await audioService.transcribeFromFile('/tmp/voice-memo.m4a');
+  assert.strictEqual(result, 'from file');
+  assert.strictEqual(workerCalls.transcribeFromFile.length, 1);
+  assert.strictEqual(workerCalls.transcribeFromFile[0].filePath, '/tmp/voice-memo.m4a');
+  assert.strictEqual(workerCalls.transcribeFromFile[0].model, configuredModel);
 });

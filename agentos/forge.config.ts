@@ -201,6 +201,11 @@ const config: ForgeConfig = {
           target: 'main',
         },
         {
+          entry: 'src/main/audio/worker/whisperWorker.ts',
+          config: 'vite.whisper.config.ts',
+          target: 'main',
+        },
+        {
           entry: 'src/preload/index.ts',
           config: 'vite.preload.config.ts',
           target: 'preload',

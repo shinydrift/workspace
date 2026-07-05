@@ -26,6 +26,7 @@ import { startKanbanArchiver } from '../kanban/archiver';
 import { isTerminalStatus } from '../kanban/db';
 import { kanbanService } from '../kanban/service';
 import { agentOSMemoryService } from '../memory/service';
+import { whisperWorkerClient } from '../audio/whisperWorkerClient';
 import { analyticsService } from '../analytics/service';
 import { initAnalyticsDbDir } from '../analytics/db';
 import { initCouncilDbDir } from '../council/councilDb';
@@ -462,6 +463,7 @@ export function bootServices(
   });
   disposables.push(recordingsMcpServer);
   disposables.push({ dispose: () => stopSegmentRetention() });
+  disposables.push({ dispose: () => whisperWorkerClient.shutdown() });
   disposables.push(councilMcpServer);
   disposables.push(autopilotMcpServer);
   disposables.push(slackBridge);
