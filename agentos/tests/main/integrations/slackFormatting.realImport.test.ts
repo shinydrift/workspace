@@ -54,6 +54,21 @@ test('convertMarkdownToMrkdwn: code fence language is stripped', () => {
   assert.equal(convertMarkdownToMrkdwn('```ts\ncode\n```'), '```\ncode\n```');
 });
 
+test('convertMarkdownToMrkdwn: content inside a code fence is left verbatim', () => {
+  // Dash-diff lines, headers, and strikethrough inside a fence must not be rewritten.
+  const input = '```diff\n- old line\n+ new line\n# not a header\n~~keep~~\n```';
+  assert.equal(convertMarkdownToMrkdwn(input), '```\n- old line\n+ new line\n# not a header\n~~keep~~\n```');
+});
+
+test('convertMarkdownToMrkdwn: text around a fence is still converted', () => {
+  const input = '**before**\n```\n- code\n```\n- after';
+  assert.equal(convertMarkdownToMrkdwn(input), '*before*\n```\n- code\n```\n• after');
+});
+
+test('convertMarkdownToMrkdwn: tilde (~~~) fences are protected from strikethrough', () => {
+  assert.equal(convertMarkdownToMrkdwn('~~~\n~~x~~\n~~~'), '~~~\n~~x~~\n~~~');
+});
+
 test('convertMarkdownToMrkdwn: GFM table becomes a code-fenced aligned grid', () => {
   const input = ['| Name | Qty |', '|------|-----|', '| Apple | 3 |', '| Fig | 12 |'].join('\n');
   const result = convertMarkdownToMrkdwn(input);
@@ -66,6 +81,12 @@ test('convertMarkdownToMrkdwn: GFM table becomes a code-fenced aligned grid', ()
 test('convertMarkdownToMrkdwn: non-table text with pipes is left alone', () => {
   const input = 'a | b\nc | d';
   assert.equal(convertMarkdownToMrkdwn(input), input);
+});
+
+test('convertMarkdownToMrkdwn: a pipe line above a bare --- rule is not read as a table', () => {
+  const result = convertMarkdownToMrkdwn('| note: pass --flag |\n---');
+  assert.ok(!result.startsWith('```'), 'not wrapped as a table');
+  assert.ok(result.includes('| note: pass --flag |'), 'pipe line preserved');
 });
 
 test('convertMarkdownToMrkdwn: plain text passes through unchanged', () => {
