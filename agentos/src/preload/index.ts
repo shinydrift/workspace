@@ -185,6 +185,8 @@ const api = {
   shell: {
     openExternal: (url: string) => invoke('shell:openExternal', { url }),
     openInEditor: (folderPath: string) => invoke('shell:openInEditor', { folderPath }),
+    openFolderTarget: (folderPath: string, target: 'vscode' | 'finder' | 'terminal' | 'xcode') =>
+      invoke('shell:openFolderTarget', { folderPath, target }),
   },
 
   env: {

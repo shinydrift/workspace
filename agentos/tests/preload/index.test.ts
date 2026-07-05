@@ -78,10 +78,31 @@ test('exposeInMainWorld is called with name "electronAPI"', () => {
 test('api has expected top-level namespaces', () => {
   const api = getAPI();
   const expected = [
-    'thread', 'memory', 'terminal', 'settings', 'project', 'slack',
-    'automation', 'messages', 'dialog', 'sandbox', 'log', 'health',
-    'audio', 'win', 'wiki', 'shell', 'env', 'files', 'desktopCapturer',
-    'analytics', 'kanban', 'council', 'tray', 'on', 'platform',
+    'thread',
+    'memory',
+    'terminal',
+    'settings',
+    'project',
+    'slack',
+    'automation',
+    'messages',
+    'dialog',
+    'sandbox',
+    'log',
+    'health',
+    'audio',
+    'win',
+    'wiki',
+    'shell',
+    'env',
+    'files',
+    'desktopCapturer',
+    'analytics',
+    'kanban',
+    'council',
+    'tray',
+    'on',
+    'platform',
   ];
   for (const key of expected) {
     assert.ok(key in api, `api should have namespace "${key}"`);
@@ -167,6 +188,14 @@ test('council.run invokes council:run channel', async () => {
   capturedInvokeChannels.length = 0;
   await council.run('cfg-1', 'parent-1', 'prompt');
   assert.ok(capturedInvokeChannels.includes('council:run'));
+});
+
+test('shell.openFolderTarget invokes shell:openFolderTarget channel', async () => {
+  const api = getAPI();
+  const shell = api.shell as { openFolderTarget: (folderPath: string, target: string) => Promise<unknown> };
+  capturedInvokeChannels.length = 0;
+  await shell.openFolderTarget('/tmp/project', 'vscode');
+  assert.ok(capturedInvokeChannels.includes('shell:openFolderTarget'));
 });
 
 test('platform is a string', () => {
