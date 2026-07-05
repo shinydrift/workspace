@@ -212,7 +212,9 @@ export async function execHeadlessTurn(
     throw error;
   }
 
+  const activeTurn = { kind: 'headless' as const, input: trimmed, cancel: () => turnProc.kill() };
   store.activeTurnProcs.set(threadId, { proc: turnProc, input: trimmed });
+  store.activeTurns.set(threadId, activeTurn);
   emitTurnStarted({ threadId });
   let outputBuffer = '';
 
@@ -264,6 +266,7 @@ export async function execHeadlessTurn(
     const wasActive = store.activeTurnProcs.get(threadId)?.proc === turnProc;
     if (wasActive) {
       store.activeTurnProcs.delete(threadId);
+      if (store.activeTurns.get(threadId) === activeTurn) store.activeTurns.delete(threadId);
       emitTurnEnded({ threadId });
     }
   }

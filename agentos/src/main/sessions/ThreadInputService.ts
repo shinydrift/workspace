@@ -89,7 +89,7 @@ export class ThreadInputService {
     threadId: string,
     input: string
   ): { execInput: string; persistExecInput: boolean } | null {
-    const activeTurn = this.store.activeTurnProcs.get(threadId);
+    const activeTurn = this.store.activeTurns.get(threadId);
     if (!activeTurn) return null;
     const trimmed = input.replace(/\n$/, '').trim();
     if (!trimmed) return null;
@@ -104,8 +104,10 @@ export class ThreadInputService {
     threadPostsStore.append(threadId, 'prompt', 'user', trimmed);
     this.output.clearPendingOutput(threadId);
 
-    activeTurn.proc.kill();
+    activeTurn.cancel();
+    this.store.activeTurns.delete(threadId);
     this.store.activeTurnProcs.delete(threadId);
+    this.store.threadPostTurnIds.delete(threadId);
     emitTurnEnded({ threadId });
     this.store.interruptedThreads.add(threadId);
 
@@ -118,8 +120,9 @@ export class ThreadInputService {
     const droppedAutopilot = this.inputQueue.dropPendingItemsBySource(threadId, 'autopilot', (id, depth) =>
       this.broadcastQueueDepth(id, depth)
     );
-    eventLogger.info('queue', 'Interrupted active headless turn for new user input', {
+    eventLogger.info('queue', 'Interrupted active turn for new user input', {
       threadId,
+      kind: activeTurn.kind,
       droppedStaleMessages: droppedUser + droppedAutopilot,
     });
     return { execInput: input, persistExecInput: false };

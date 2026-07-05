@@ -21,12 +21,13 @@ type ListProjectMessagesFn = (
 ) => Array<{ role: string; content: string; timestamp: number }>;
 type SetRecordingTitleFn = (recordingId: string, title: string) => void;
 type TestWebhookEventFn = (jobId: string, payload: unknown) => Promise<{ ok: boolean; error?: string }>;
-type PostThreadUpdateFn = (threadId: string, kind: 'update' | 'clarification', text: string) => void;
+type PostThreadUpdateFn = (threadId: string, kind: 'update' | 'clarification', text: string, turnId?: string) => void;
 type UploadThreadFileFn = (
   threadId: string,
   filePath: string,
   filename: string | undefined,
-  comment: string | undefined
+  comment: string | undefined,
+  turnId?: string
 ) => Promise<string>;
 
 const BigFiveSchema = z.object({
@@ -363,11 +364,12 @@ class ThreadMcpServer extends BaseMcpServer {
       {
         thread_id: z.string().describe('The thread ID. Use the AGENTOS_THREAD_ID environment variable.'),
         message: z.string().describe('Message to post to the thread.'),
+        turn_id: z.string().optional().describe('Current AgentOS turn id from the turn instructions.'),
       },
-      ({ thread_id, message }) =>
+      ({ thread_id, message, turn_id }) =>
         this.runTool(() => {
           if (!this.postThreadUpdateFn) throw new Error('ThreadMcpServer not initialized');
-          this.postThreadUpdateFn(thread_id, 'update', message);
+          this.postThreadUpdateFn(thread_id, 'update', message, turn_id);
           return 'Posted.';
         })
     );
@@ -378,16 +380,17 @@ class ThreadMcpServer extends BaseMcpServer {
         'the thread view and echoed to Slack when connected. Use AGENTOS_THREAD_ID env var for thread_id.',
       {
         thread_id: z.string().describe('The thread ID. Use the AGENTOS_THREAD_ID environment variable.'),
+        turn_id: z.string().optional().describe('Current AgentOS turn id from the turn instructions.'),
         questions: z
           .string()
           .describe(
             'Plain natural-language questions. Use a numbered list when asking more than one — NOT a JSON object or array.'
           ),
       },
-      ({ thread_id, questions }) =>
+      ({ thread_id, questions, turn_id }) =>
         this.runTool(() => {
           if (!this.postThreadUpdateFn) throw new Error('ThreadMcpServer not initialized');
-          this.postThreadUpdateFn(thread_id, 'clarification', questions);
+          this.postThreadUpdateFn(thread_id, 'clarification', questions, turn_id);
           return 'Questions posted.';
         })
     );
@@ -399,6 +402,7 @@ class ThreadMcpServer extends BaseMcpServer {
         'Use AGENTOS_THREAD_ID env var for thread_id.',
       {
         thread_id: z.string().describe('The thread ID. Use the AGENTOS_THREAD_ID environment variable.'),
+        turn_id: z.string().optional().describe('Current AgentOS turn id from the turn instructions.'),
         file_path: z.string().describe('Absolute path to the file under /workspace/.agentos/uploads/.'),
         filename: z
           .string()
@@ -407,10 +411,10 @@ class ThreadMcpServer extends BaseMcpServer {
           .describe('Display name for the file (defaults to the basename of file_path).'),
         initial_comment: z.string().optional().describe('Optional message to accompany the file.'),
       },
-      ({ thread_id, file_path, filename, initial_comment }) =>
+      ({ thread_id, file_path, filename, initial_comment, turn_id }) =>
         this.runTool(async () => {
           if (!this.uploadThreadFileFn) throw new Error('ThreadMcpServer not initialized');
-          return await this.uploadThreadFileFn(thread_id, file_path, filename, initial_comment);
+          return await this.uploadThreadFileFn(thread_id, file_path, filename, initial_comment, turn_id);
         })
     );
   }

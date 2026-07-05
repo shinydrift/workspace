@@ -149,11 +149,13 @@ function buildThreadMcpConfig(): Parameters<typeof threadMcpServer.init>[0] {
       if (recording?.threadId) threadManager.renameThread(recording.threadId, title);
     },
     testWebhookEvent: (jobId, payload) => automationService.testWebhookEvent(jobId, payload),
-    postThreadUpdate: (threadId, kind, text) => {
+    postThreadUpdate: (threadId, kind, text, turnId) => {
+      threadManager.validateThreadPostTurn(threadId, turnId);
       threadPostsStore.append(threadId, kind, 'agent', text);
       slackBridge.echoThreadPost(threadId, text);
     },
-    uploadThreadFile: async (threadId, filePath, filename, comment) => {
+    uploadThreadFile: async (threadId, filePath, filename, comment, turnId) => {
+      threadManager.validateThreadPostTurn(threadId, turnId);
       const hostWorkingDir = threadManager.getThread(threadId)?.workingDirectory ?? null;
       if (!hostWorkingDir) throw new Error(`No working directory bound to thread ${threadId}`);
       // Validates the sandbox prefix, ensures the host uploads dir exists, then realpath-checks

@@ -79,6 +79,9 @@ export async function execClaudeInteractiveTurn(
   if (!session) {
     const launchMode = store.launchModes.get(threadId);
     const baseSystemPrompt = launchMode?.systemPrompt ?? null;
+    const systemPrompt = !isResume
+      ? [baseSystemPrompt, systemPromptSuffix].filter(Boolean).join('\n') || null
+      : baseSystemPrompt;
     const settings = getStore().get('settings');
     const projectConfigResult = await loadProjectConfig(thread.projectPath ?? thread.workingDirectory);
     const model = resolveEffectiveModel('claude-interactive', thread.model, projectConfigResult.config, settings);
@@ -100,7 +103,7 @@ export async function execClaudeInteractiveTurn(
         mcpBearerToken: null,
         model,
         effort,
-        systemPrompt: baseSystemPrompt,
+        systemPrompt,
         disallowedTools,
         skipPermissions: settings.skipPermissions ?? true,
         runOnHost: launchMode?.runOnHost ?? false,
@@ -144,6 +147,12 @@ export async function execClaudeInteractiveTurn(
   // the user message instead. Only inject on resumed sessions — on a fresh session the
   // suffix is already applied via --append-system-prompt and would otherwise be doubled.
   const effectiveInput = isResume && systemPromptSuffix ? `${systemPromptSuffix}\n\n${input}` : input;
+  const activeTurn = {
+    kind: 'interactive' as const,
+    input: trimmed,
+    cancel: () => session.dispose(),
+  };
+  store.activeTurns.set(threadId, activeTurn);
 
   try {
     const turnEndReason = await session.runTurn(effectiveInput, timeoutMs, onEntry);
@@ -164,6 +173,9 @@ export async function execClaudeInteractiveTurn(
     eventLogger.info('queue', 'Queued input completed (claude interactive)', { threadId, source, turnEndReason });
     return { rawOutput, turnEndReason };
   } finally {
-    emitTurnEnded({ threadId });
+    if (store.activeTurns.get(threadId) === activeTurn) {
+      store.activeTurns.delete(threadId);
+      emitTurnEnded({ threadId });
+    }
   }
 }
