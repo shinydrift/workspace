@@ -16,6 +16,21 @@ import type {
  * renderer, and tests alike.
  */
 
+/**
+ * Normalizes the long-lived thread session status into the per-turn status used by the reaction
+ * lifecycle. A thread row can remain `running` while its PTY/container is alive even when no turn is
+ * currently active; lifecycle badges must treat that quiet state as `idle`.
+ */
+export function normalizeThreadStatusForLifecycle(
+  status: ThreadStatus,
+  hasActiveTurn: boolean,
+  queueDepth: number
+): ThreadStatus {
+  if (status !== 'running') return status;
+  if (hasActiveTurn || queueDepth > 0) return status;
+  return 'idle';
+}
+
 /** The transient, non-persisted half of the lifecycle (👀 / 🤖 / 🏛️). */
 export type LiveThreadPostStatus = Exclude<ThreadPostStatus, ThreadPostTerminalStatus>;
 

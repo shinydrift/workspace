@@ -14,6 +14,7 @@ import {
   deriveLiveThreadPostStatus,
   deriveThreadDisplayStatus,
   deriveThreadReactionEmoji,
+  normalizeThreadStatusForLifecycle,
   reconcileReaction,
 } from '../../src/shared/threadStatusLifecycle';
 import type { ThreadStatusEvent } from '../../src/shared/types';
@@ -21,6 +22,26 @@ import type { ThreadStatusEvent } from '../../src/shared/types';
 function event(overrides: Partial<ThreadStatusEvent> = {}): ThreadStatusEvent {
   return { threadId: 't1', status: 'running', ...overrides };
 }
+
+// ── Session status normalization ─────────────────────────────────────────────
+
+test('normalize: running session with active turn stays running', () => {
+  assert.equal(normalizeThreadStatusForLifecycle('running', true, 0), 'running');
+});
+
+test('normalize: running session with queued work stays running', () => {
+  assert.equal(normalizeThreadStatusForLifecycle('running', false, 1), 'running');
+});
+
+test('normalize: running session with no active turn is lifecycle-idle', () => {
+  assert.equal(normalizeThreadStatusForLifecycle('running', false, 0), 'idle');
+});
+
+test('normalize: non-running statuses pass through unchanged', () => {
+  for (const status of ['idle', 'error', 'stopped', 'archived', 'building'] as const) {
+    assert.equal(normalizeThreadStatusForLifecycle(status, false, 0), status);
+  }
+});
 
 // ── Terminal (persisted ✅/❌) ─────────────────────────────────────────────────
 

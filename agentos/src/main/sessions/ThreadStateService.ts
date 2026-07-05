@@ -2,6 +2,7 @@ import * as threadStore from '../threads/threadStore';
 import { broadcastStatus } from './broadcaster';
 import type { ThreadRuntimeStore } from './ThreadRuntimeStore';
 import type { ThreadStatus, AutopilotThreadState, Provider } from '../../shared/types';
+import { normalizeThreadStatusForLifecycle } from '../../shared/threadStatusLifecycle';
 
 /**
  * Single write path for thread status transitions.
@@ -84,18 +85,23 @@ export class ThreadStateService {
       autopilotConsecutiveTurns?: number;
     }
   ): void {
+    const queueDepth = this.getQueueDepth(threadId);
     broadcastStatus({
       threadId,
-      status: thread.status,
+      status: this.effectiveStatusForLifecycle(threadId, thread.status, queueDepth),
       provider: thread.provider,
       pid: this.getPid(threadId),
-      queueDepth: this.getQueueDepth(threadId),
+      queueDepth,
       autopilotEnabled: thread.autopilotEnabled,
       autopilotState: thread.autopilotState,
       autopilotLastReason: thread.autopilotLastReason,
       autopilotConsecutiveTurns: thread.autopilotConsecutiveTurns,
       sessionStartedAt: this.store.sessionStartedAts.get(threadId),
     });
+  }
+
+  private effectiveStatusForLifecycle(threadId: string, status: ThreadStatus, queueDepth: number): ThreadStatus {
+    return normalizeThreadStatusForLifecycle(status, this.store.activeTurns.has(threadId), queueDepth);
   }
 
   // Generic broadcast with optional overrides
