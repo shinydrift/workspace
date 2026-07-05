@@ -1,5 +1,6 @@
 import { toString as describeCron } from 'cronstrue';
 import type { AutomationJob, AutomationSchedule, AutomationTrigger } from '../../../shared/types';
+import type { ClaudeEffort, CodexReasoning, Provider } from '../../../shared/types/provider';
 import { formatTimestamp } from '../../lib/analyticsFormatters';
 
 export type FormState = {
@@ -8,6 +9,11 @@ export type FormState = {
   description: string;
   projectId: string;
   instructions: string;
+  // Pinned agent settings. When `provider` is undefined the run inherits the project/app default.
+  provider?: Provider;
+  model?: string;
+  effort?: ClaudeEffort;
+  reasoning?: CodexReasoning;
   triggerKind: 'schedule' | 'manual';
   scheduleKind: 'cron' | 'every' | 'at';
   cronExpr: string;
@@ -46,6 +52,10 @@ export function fromJob(job: AutomationJob): FormState {
     description: job.description ?? '',
     projectId: job.projectId,
     instructions: job.instructions,
+    provider: job.provider,
+    model: job.model,
+    effort: job.effort,
+    reasoning: job.reasoning,
     notificationChannel: job.notification?.channel ?? 'none',
     notifyOnFailure: job.notification?.onFailure ?? true,
     notificationSlackChannelId: job.notification?.slackChannelId ?? '',

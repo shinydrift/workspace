@@ -46,7 +46,9 @@ export class ThreadFactory {
     const provider = req.provider ?? primaryEntry.provider;
     const model = req.model ?? resolveEffectiveModel(provider, undefined, projectConfigResult.config, settings);
     const effort =
-      provider === 'claude' ? (req.effort ?? resolveEffectiveEffort(projectConfigResult.config, settings)) : undefined;
+      provider === 'claude' || provider === 'claude-interactive'
+        ? (req.effort ?? resolveEffectiveEffort(projectConfigResult.config, settings))
+        : undefined;
     const reasoning =
       provider === 'codex'
         ? (req.reasoning ?? resolveEffectiveReasoning(projectConfigResult.config, settings))

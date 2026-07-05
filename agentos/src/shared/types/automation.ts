@@ -1,4 +1,5 @@
 import type { KanbanTaskPriority } from './kanban';
+import type { ClaudeEffort, CodexReasoning, Provider } from './provider';
 
 export type AutomationSchedule =
   | { kind: 'cron'; expr: string }
@@ -46,6 +47,15 @@ export interface AutomationJob {
   kanbanTaskTemplate?: KanbanTaskTemplate;
   /** When set, this is a built-in system automation managed by AgentOS. */
   isSystem?: boolean;
+  /**
+   * Agent settings pinned to the automation. When set, every run uses these instead of
+   * resolving the project/app defaults at run time. When unset, the run inherits the
+   * effective defaults (backward-compatible behavior).
+   */
+  provider?: Provider;
+  model?: string;
+  effort?: ClaudeEffort;
+  reasoning?: CodexReasoning;
   notification?: AutomationNotification;
   enabled: boolean;
   deleteAfterRun: boolean;
@@ -66,6 +76,10 @@ export interface AutomationCreateRequest {
   trigger: AutomationTrigger;
   instructions: string;
   kanbanTaskTemplate?: KanbanTaskTemplate;
+  provider?: Provider;
+  model?: string;
+  effort?: ClaudeEffort;
+  reasoning?: CodexReasoning;
   notification?: AutomationNotification;
   enabled?: boolean;
   deleteAfterRun?: boolean;

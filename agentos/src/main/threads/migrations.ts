@@ -473,6 +473,20 @@ CREATE INDEX idx_stb_thread_id ON slack_thread_bindings(thread_id);
       }
     },
   },
+  {
+    // Per-automation agent settings: pin the provider/model/effort/reasoning an automation run
+    // uses instead of resolving the project/app defaults at run time. All nullable — a NULL
+    // column means "inherit the effective default", preserving prior behavior.
+    name: '0011_add_automation_provider_model',
+    run: (db) => {
+      const cols = db.prepare(`PRAGMA table_info(automation_jobs)`).all() as { name: string }[];
+      for (const col of ['provider', 'model', 'effort', 'reasoning']) {
+        if (!cols.some((c) => c.name === col)) {
+          db.exec(`ALTER TABLE automation_jobs ADD COLUMN ${col} TEXT`);
+        }
+      }
+    },
+  },
 ];
 
 // Derived from THREADS_MIGRATIONS so the seeding branch never goes stale.
