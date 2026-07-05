@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { CaretDown, CaretUp, CircleNotch, Pause, Play, Timer, WaveTriangle, Warning, X } from '@phosphor-icons/react';
+import { CalendarBlank, CaretDown, CaretUp, CircleNotch, Pause, Play, Warning, X } from '@phosphor-icons/react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
-import { cn, formatSeconds } from '@/lib/utils';
+import { formatSeconds } from '@/lib/utils';
 import type { RecordingRecord, SavedProject } from '../../../shared/types';
 import { useDomainStore } from '../../store/domainStore';
 import { useUIStore } from '../../store/uiStore';
@@ -13,7 +13,8 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
 const WINDOW_MS = 7 * DAY_MS;
 const DEFAULT_SELECTION_MS = HOUR_MS;
-const TIMELINE_HEIGHT = 3024; // 18px/hour across the 7-day retention window.
+const TIMELINE_HEIGHT = 3024; // 18px/hour across the retention window.
+const MERGE_GAP_MS = 90 * 1000; // Bridge tiny gaps so captured audio reads as one continuous stretch.
 
 type DragTarget = 'start' | 'end' | null;
 
@@ -45,8 +46,21 @@ function overlaps(segment: RecordingRecord, from: number, to: number): boolean {
   return segment.createdAt < to && segment.createdAt + segment.durationSeconds * 1000 > from;
 }
 
-function segmentEnd(segment: RecordingRecord): number {
-  return segment.createdAt + segment.durationSeconds * 1000;
+/**
+ * Collapse the underlying capture clips into continuous availability ranges so the timeline shows
+ * "there is audio here" without ever exposing individual clip boundaries.
+ */
+function mergeAvailability(segments: RecordingRecord[]): Array<{ from: number; to: number }> {
+  const sorted = [...segments].sort((a, b) => a.createdAt - b.createdAt);
+  const ranges: Array<{ from: number; to: number }> = [];
+  for (const s of sorted) {
+    const start = s.createdAt;
+    const end = s.createdAt + s.durationSeconds * 1000;
+    const last = ranges[ranges.length - 1];
+    if (last && start - last.to <= MERGE_GAP_MS) last.to = Math.max(last.to, end);
+    else ranges.push({ from: start, to: end });
+  }
+  return ranges;
 }
 
 interface SegmentTimelineProps {
@@ -167,14 +181,14 @@ function SelectionPlayer({
     <div className="rounded-md border border-border bg-muted/25 p-3">
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-xs font-medium text-foreground">Selection playback</p>
+          <p className="text-xs font-medium text-foreground">Preview</p>
           <p className="text-[11px] text-muted-foreground truncate">
             {currentSegment
-              ? `Segment ${index + 1} of ${segments.length} · ${new Date(currentSegment.createdAt).toLocaleTimeString(
-                  'en-US',
-                  { hour: 'numeric', minute: '2-digit' }
-                )}`
-              : 'No recorded audio in this selection'}
+              ? `Playing from ${new Date(currentSegment.createdAt).toLocaleTimeString('en-US', {
+                  hour: 'numeric',
+                  minute: '2-digit',
+                })}`
+              : 'No audio in this window'}
           </p>
         </div>
         <div className="flex items-center gap-1 shrink-0">
@@ -185,7 +199,7 @@ function SelectionPlayer({
             className="h-7 w-7"
             disabled={index <= 0 || loading}
             onClick={() => void playIndex(index - 1, playing)}
-            aria-label="Previous segment"
+            aria-label="Skip back"
           >
             <CaretUp className="h-3.5 w-3.5" />
           </Button>
@@ -195,7 +209,7 @@ function SelectionPlayer({
             className="h-8 w-8"
             disabled={!currentSegment || loading}
             onClick={toggle}
-            aria-label={playing ? 'Pause selection' : 'Play selection'}
+            aria-label={playing ? 'Pause preview' : 'Play preview'}
           >
             {loading ? (
               <CircleNotch className="h-3.5 w-3.5 animate-spin" />
@@ -212,7 +226,7 @@ function SelectionPlayer({
             className="h-7 w-7"
             disabled={index >= segments.length - 1 || loading}
             onClick={() => void playIndex(index + 1, playing)}
-            aria-label="Next segment"
+            aria-label="Skip forward"
           >
             <CaretDown className="h-3.5 w-3.5" />
           </Button>
@@ -227,7 +241,7 @@ function SelectionPlayer({
           value={Math.min(current, duration || current)}
           onChange={seek}
           disabled={!audioRef.current}
-          aria-label="Seek current segment"
+          aria-label="Seek preview"
           className="h-1 flex-1 cursor-pointer accent-blue-500 disabled:cursor-default"
         />
         <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">{progressLabel}</span>
@@ -243,8 +257,9 @@ function SelectionPlayer({
 }
 
 /**
- * Sheet-based browser for always-on capture segments. The visible panel stays compact;
- * the sheet owns time-window selection, sparse/gap visibility, playback, and summarizing.
+ * Calendar-style picker over always-on capture. Captured audio stays invisible in the background;
+ * here the user drags a meeting slot on a newest-first timeline and turns it into a meeting thread.
+ * The underlying clips are an implementation detail — never surfaced as counts or blocks.
  */
 export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps) {
   const { upsertThread } = useDomainStore();
@@ -260,7 +275,6 @@ export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [focusedId, setFocusedId] = useState<string | null>(null);
 
   const from = now - WINDOW_MS;
   const selFrom = Math.round(from + startFrac * WINDOW_MS);
@@ -270,7 +284,8 @@ export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps
     [segments, selFrom, selTo]
   );
   const selectedDuration = Math.max(0, Math.round((selTo - selFrom) / 1000));
-  const latestSegment = segments[segments.length - 1] ?? null;
+  const availability = useMemo(() => mergeAvailability(segments), [segments]);
+  const hasAudio = selectedSegments.length > 0;
 
   const load = useCallback(async () => {
     const t = Date.now();
@@ -291,16 +306,19 @@ export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps
     if (open) void load();
   }, [load, open]);
 
-  const fracFromEvent = useCallback((clientY: number): number => {
+  // Vertical position on the newest-first axis: top of the track is now, bottom is 7 days ago.
+  const posFromFrac = useCallback((frac: number): number => (1 - frac) * 100, []);
+  // Read a time-fraction (0 = oldest edge, 1 = now) from a pointer's vertical position.
+  const timeFracFromEvent = useCallback((clientY: number): number => {
     const rect = trackRef.current?.getBoundingClientRect();
-    if (!rect || rect.height === 0) return 0;
-    return clampFrac((clientY - rect.top) / rect.height);
+    if (!rect || rect.height === 0) return 1;
+    return clampFrac(1 - (clientY - rect.top) / rect.height);
   }, []);
 
   useEffect(() => {
     function onMove(e: PointerEvent) {
       if (!dragging.current) return;
-      const frac = fracFromEvent(e.clientY);
+      const frac = timeFracFromEvent(e.clientY);
       if (dragging.current === 'start') setStartFrac(Math.min(frac, endFrac - 0.002));
       else setEndFrac(Math.max(frac, startFrac + 0.002));
     }
@@ -313,7 +331,7 @@ export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
     };
-  }, [endFrac, fracFromEvent, startFrac]);
+  }, [endFrac, startFrac, timeFracFromEvent]);
 
   function applyPreset(preset: (typeof PRESETS)[number]) {
     const startOfToday = new Date(now);
@@ -329,12 +347,12 @@ export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps
     else setEndFrac((v) => Math.max(clampFrac(v + delta), startFrac + 0.002));
   }
 
-  async function summarize() {
+  async function createMeeting() {
     if (!defaultProject) return;
     setBusy(true);
     setError('');
     try {
-      const name = `Discussion - ${fmtRange(selFrom, selTo)}`;
+      const name = `Meeting - ${fmtRange(selFrom, selTo)}`;
       const thread = await window.electronAPI.thread.create({
         name,
         workingDirectory: defaultProject.path,
@@ -364,22 +382,16 @@ export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
             <p className="flex items-center gap-1.5 text-sm text-foreground">
-              <Timer className="h-3.5 w-3.5 text-blue-400" />
-              Capture timeline
+              <CalendarBlank className="h-3.5 w-3.5 text-blue-400" />
+              Meetings
             </p>
             <p className="text-xs text-muted-foreground truncate">
-              {segments.length === 0
-                ? active
-                  ? 'Waiting for the first spoken segment'
-                  : 'No retained segments'
-                : `${segments.length} retained segment${segments.length === 1 ? '' : 's'} · latest ${new Date(
-                    latestSegment?.createdAt ?? Date.now()
-                  ).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`}
+              {active ? 'Pick a time to turn into a meeting' : 'Recent audio you can turn into a meeting'}
             </p>
           </div>
           <Button type="button" size="sm" variant="outline" className="shrink-0 gap-1" onClick={() => setOpen(true)}>
-            <WaveTriangle className="h-3.5 w-3.5" />
-            Open capture timeline
+            <CalendarBlank className="h-3.5 w-3.5" />
+            New meeting
           </Button>
         </div>
       </div>
@@ -388,8 +400,8 @@ export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps
         <SheetContent hideClose className="w-[1040px] max-w-[96vw] gap-0 p-0">
           <div className="flex items-center justify-between border-b border-border px-4 py-3.5 shrink-0">
             <div className="flex items-center gap-2 min-w-0">
-              <WaveTriangle size={16} className="text-blue-400" />
-              <SheetTitle>Capture Timeline</SheetTitle>
+              <CalendarBlank size={16} className="text-blue-400" />
+              <SheetTitle>New meeting</SheetTitle>
               {loading && <CircleNotch className="h-3.5 w-3.5 animate-spin text-muted-foreground/60" />}
               <span className="text-xs text-muted-foreground truncate">{fmtRange(selFrom, selTo)}</span>
             </div>
@@ -399,7 +411,7 @@ export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps
               size="icon"
               className="h-7 w-7"
               onClick={() => setOpen(false)}
-              aria-label="Close capture timeline"
+              aria-label="Close"
             >
               <X size={16} />
             </Button>
@@ -413,74 +425,51 @@ export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps
                   className="relative rounded-md border border-border bg-muted/20"
                   style={{ height: TIMELINE_HEIGHT }}
                   onDoubleClick={(e) => {
-                    const frac = fracFromEvent(e.clientY);
+                    const frac = timeFracFromEvent(e.clientY);
                     const distanceToStart = Math.abs(frac - startFrac);
                     const distanceToEnd = Math.abs(frac - endFrac);
-                    if (distanceToStart < distanceToEnd) setStartFrac(Math.min(frac, endFrac - 0.002));
-                    else setEndFrac(Math.max(frac, startFrac + 0.002));
+                    if (distanceToEnd < distanceToStart) setEndFrac(Math.max(frac, startFrac + 0.002));
+                    else setStartFrac(Math.min(frac, endFrac - 0.002));
                   }}
                 >
                   {dayLines.map((ts, i) => (
                     <div
                       key={ts}
                       className="absolute left-0 right-0 border-t border-border/50"
-                      style={{ top: `${(i / 7) * 100}%` }}
+                      style={{ top: `${posFromFrac(i / 7)}%` }}
                     >
-                      {i < 7 && (
+                      {i >= 1 && (
                         <span className="absolute left-3 top-1 text-[11px] font-medium text-muted-foreground/80">
-                          {fmtDay(ts)}
+                          {i === 7 ? 'Today' : fmtDay(ts)}
                         </span>
                       )}
                     </div>
                   ))}
 
-                  {segments.map((segment) => {
-                    const top = ((segment.createdAt - from) / WINDOW_MS) * 100;
-                    const height = Math.max(12, ((segment.durationSeconds * 1000) / WINDOW_MS) * TIMELINE_HEIGHT);
-                    const isSelected = overlaps(segment, selFrom, selTo);
-                    const isFocused = focusedId === segment.id;
+                  {availability.map((range) => {
+                    const topFrac = clampFrac((range.to - from) / WINDOW_MS);
+                    const botFrac = clampFrac((range.from - from) / WINDOW_MS);
+                    const top = posFromFrac(topFrac);
+                    const height = Math.max(6, (topFrac - botFrac) * TIMELINE_HEIGHT);
                     return (
-                      <button
-                        key={segment.id}
-                        type="button"
-                        onClick={() => {
-                          setFocusedId(segment.id);
-                          setStartFrac(clampFrac((segment.createdAt - from) / WINDOW_MS));
-                          setEndFrac(clampFrac((segmentEnd(segment) - from) / WINDOW_MS));
-                        }}
-                        className={cn(
-                          'absolute left-28 right-5 rounded-sm border px-2 text-left transition-colors',
-                          isSelected
-                            ? 'border-blue-400/70 bg-blue-500/25 text-blue-100'
-                            : 'border-border bg-background/70 text-muted-foreground hover:bg-accent/50',
-                          isFocused && 'ring-1 ring-blue-300'
-                        )}
+                      <div
+                        key={range.from}
+                        className="absolute left-24 right-6 rounded-sm border border-blue-400/15 bg-blue-400/10 pointer-events-none"
                         style={{ top: `${top}%`, height }}
-                        title={`${new Date(segment.createdAt).toLocaleString()} - ${formatSeconds(
-                          segment.durationSeconds
-                        )}`}
-                      >
-                        <span className="block truncate text-[11px]">
-                          {new Date(segment.createdAt).toLocaleTimeString('en-US', {
-                            hour: 'numeric',
-                            minute: '2-digit',
-                          })}{' '}
-                          · {formatSeconds(segment.durationSeconds)}
-                        </span>
-                      </button>
+                      />
                     );
                   })}
 
                   <div
-                    className="absolute left-20 right-2 rounded-md border border-blue-400/70 bg-blue-400/10 pointer-events-none"
-                    style={{ top: `${startFrac * 100}%`, height: `${(endFrac - startFrac) * 100}%` }}
+                    className="absolute left-20 right-2 rounded-md border border-blue-400/70 bg-blue-400/15 pointer-events-none"
+                    style={{ top: `${posFromFrac(endFrac)}%`, height: `${(endFrac - startFrac) * 100}%` }}
                   />
 
                   {(['start', 'end'] as const).map((which) => (
                     <div
                       key={which}
                       role="slider"
-                      aria-label={`${which} of capture window`}
+                      aria-label={which === 'end' ? 'Meeting end' : 'Meeting start'}
                       aria-valuenow={Math.round((which === 'start' ? startFrac : endFrac) * 100)}
                       tabIndex={0}
                       onPointerDown={(e) => {
@@ -488,7 +477,7 @@ export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps
                         dragging.current = which;
                       }}
                       className="absolute left-16 right-2 z-10 -mt-2 h-4 cursor-ns-resize"
-                      style={{ top: `${(which === 'start' ? startFrac : endFrac) * 100}%` }}
+                      style={{ top: `${posFromFrac(which === 'start' ? startFrac : endFrac)}%` }}
                     >
                       <div className="h-1 rounded-full bg-blue-400 shadow-sm" />
                     </div>
@@ -501,7 +490,7 @@ export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps
               <ScrollArea className="min-h-0 flex-1">
                 <div className="space-y-4 p-4">
                   <div className="space-y-2">
-                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Quick window</p>
+                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Quick length</p>
                     <div className="grid grid-cols-5 gap-1">
                       {PRESETS.map((preset) => (
                         <Button
@@ -519,17 +508,11 @@ export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps
                   </div>
 
                   <div className="rounded-md border border-border bg-muted/20 p-3">
-                    <p className="text-xs font-medium text-foreground">Selected window</p>
+                    <p className="text-xs font-medium text-foreground">Meeting slot</p>
                     <p className="mt-1 text-xs text-muted-foreground">{fmtRange(selFrom, selTo)}</p>
-                    <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-                      <div className="rounded-md bg-background/70 p-2">
-                        <p className="text-muted-foreground">Duration</p>
-                        <p className="mt-1 tabular-nums text-foreground">{formatSeconds(selectedDuration)}</p>
-                      </div>
-                      <div className="rounded-md bg-background/70 p-2">
-                        <p className="text-muted-foreground">Segments</p>
-                        <p className="mt-1 tabular-nums text-foreground">{selectedSegments.length}</p>
-                      </div>
+                    <div className="mt-3 rounded-md bg-background/70 p-2 text-xs">
+                      <p className="text-muted-foreground">Length</p>
+                      <p className="mt-1 tabular-nums text-foreground">{formatSeconds(selectedDuration)}</p>
                     </div>
                     <div className="mt-3 grid grid-cols-2 gap-2">
                       <Button type="button" size="sm" variant="ghost" onClick={() => nudge('start', -5 * 60 * 1000)}>
@@ -547,44 +530,12 @@ export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps
                     </div>
                   </div>
 
-                  <SelectionPlayer segments={selectedSegments} onFocusSegment={(segment) => setFocusedId(segment.id)} />
-
-                  <div className="space-y-2">
-                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                      Selected segments
+                  <SelectionPlayer segments={selectedSegments} onFocusSegment={() => {}} />
+                  {!hasAudio && (
+                    <p className="rounded-md border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground">
+                      No captured audio in this slot yet.
                     </p>
-                    {selectedSegments.length === 0 ? (
-                      <p className="rounded-md border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground">
-                        No captured speech overlaps this window.
-                      </p>
-                    ) : (
-                      <div className="space-y-1.5">
-                        {selectedSegments.map((segment) => (
-                          <button
-                            key={segment.id}
-                            type="button"
-                            onClick={() => setFocusedId(segment.id)}
-                            className={cn(
-                              'flex w-full items-center justify-between gap-2 rounded-md border px-2.5 py-2 text-left text-xs transition-colors',
-                              focusedId === segment.id
-                                ? 'border-blue-400/70 bg-blue-500/15'
-                                : 'border-border bg-background/60 hover:bg-accent/40'
-                            )}
-                          >
-                            <span className="min-w-0 truncate">
-                              {new Date(segment.createdAt).toLocaleTimeString('en-US', {
-                                hour: 'numeric',
-                                minute: '2-digit',
-                              })}
-                            </span>
-                            <span className="shrink-0 tabular-nums text-muted-foreground">
-                              {formatSeconds(segment.durationSeconds)}
-                            </span>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
+                  )}
                 </div>
               </ScrollArea>
 
@@ -593,15 +544,15 @@ export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps
                 <Button
                   type="button"
                   className="w-full gap-1"
-                  disabled={busy || selectedSegments.length === 0 || !defaultProject}
-                  onClick={() => void summarize()}
+                  disabled={busy || !hasAudio || !defaultProject}
+                  onClick={() => void createMeeting()}
                 >
                   {busy ? (
                     <CircleNotch className="h-3.5 w-3.5 animate-spin" />
                   ) : (
-                    <WaveTriangle className="h-3.5 w-3.5" />
+                    <CalendarBlank className="h-3.5 w-3.5" />
                   )}
-                  Summarize selected window
+                  Create meeting
                 </Button>
               </div>
             </div>
