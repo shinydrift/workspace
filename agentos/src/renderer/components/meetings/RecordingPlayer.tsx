@@ -1,9 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Play, Pause, CircleNotch, Warning } from '@phosphor-icons/react';
 import { cn, formatSeconds } from '@/lib/utils';
-
-// Only one recording plays at a time across the whole panel — starting one pauses the rest.
-let currentAudio: HTMLAudioElement | null = null;
+import { claimRecordingPlayback, releaseRecordingPlayback } from './recordingPlayback';
 
 interface RecordingPlayerProps {
   recordingId: string;
@@ -21,6 +19,7 @@ interface RecordingPlayerProps {
 export function RecordingPlayer({ recordingId, durationSeconds, autoPlay = false, className }: RecordingPlayerProps) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const urlRef = useRef<string | null>(null);
+  const loadPromiseRef = useRef<Promise<HTMLAudioElement | null> | null>(null);
   const [loading, setLoading] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [playing, setPlaying] = useState(false);
@@ -30,36 +29,41 @@ export function RecordingPlayer({ recordingId, durationSeconds, autoPlay = false
 
   const ensureLoaded = useCallback(async (): Promise<HTMLAudioElement | null> => {
     if (audioRef.current) return audioRef.current;
+    if (loadPromiseRef.current) return loadPromiseRef.current;
     setLoading(true);
     setError('');
-    try {
-      const { data } = await window.electronAPI.files.readRecording({ recordingId });
-      const url = URL.createObjectURL(new Blob([data], { type: 'audio/wav' }));
-      urlRef.current = url;
-      const audio = new Audio(url);
-      audio.addEventListener('timeupdate', () => setCurrent(audio.currentTime));
-      audio.addEventListener('loadedmetadata', () => {
-        if (Number.isFinite(audio.duration) && audio.duration > 0) setDuration(audio.duration);
-      });
-      audio.addEventListener('ended', () => {
-        setPlaying(false);
-        setCurrent(0);
-      });
-      audio.addEventListener('play', () => {
-        if (currentAudio && currentAudio !== audio) currentAudio.pause();
-        currentAudio = audio;
-        setPlaying(true);
-      });
-      audio.addEventListener('pause', () => setPlaying(false));
-      audioRef.current = audio;
-      setLoaded(true);
-      return audio;
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load audio');
-      return null;
-    } finally {
-      setLoading(false);
-    }
+    const promise = (async () => {
+      try {
+        const { data } = await window.electronAPI.files.readRecording({ recordingId });
+        const url = URL.createObjectURL(new Blob([data], { type: 'audio/wav' }));
+        urlRef.current = url;
+        const audio = new Audio(url);
+        audio.addEventListener('timeupdate', () => setCurrent(audio.currentTime));
+        audio.addEventListener('loadedmetadata', () => {
+          if (Number.isFinite(audio.duration) && audio.duration > 0) setDuration(audio.duration);
+        });
+        audio.addEventListener('ended', () => {
+          setPlaying(false);
+          setCurrent(0);
+        });
+        audio.addEventListener('play', () => {
+          claimRecordingPlayback(audio);
+          setPlaying(true);
+        });
+        audio.addEventListener('pause', () => setPlaying(false));
+        audioRef.current = audio;
+        setLoaded(true);
+        return audio;
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to load audio');
+        return null;
+      } finally {
+        setLoading(false);
+        loadPromiseRef.current = null;
+      }
+    })();
+    loadPromiseRef.current = promise;
+    return promise;
   }, [recordingId]);
 
   const toggle = useCallback(async () => {
@@ -81,7 +85,7 @@ export function RecordingPlayer({ recordingId, durationSeconds, autoPlay = false
       const audio = audioRef.current;
       if (audio) {
         audio.pause();
-        if (currentAudio === audio) currentAudio = null;
+        releaseRecordingPlayback(audio);
       }
       if (urlRef.current) URL.revokeObjectURL(urlRef.current);
       audioRef.current = null;
