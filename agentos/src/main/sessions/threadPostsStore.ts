@@ -81,7 +81,7 @@ class ThreadPostsStore {
    * in the renderer, so it is intentionally not persisted here.
    */
   applyThreadStatus(payload: ThreadStatusEvent): void {
-    const postId = this.currentPromptId.get(payload.threadId);
+    const postId = this.currentPromptId.get(payload.threadId) ?? this.findLatestUnresolvedPromptId(payload.threadId);
     if (!postId) return;
     // A pending council keeps the turn unsettled (🏛️) — the parent idles right after dispatch, so
     // don't let that idle persist ✅ yet; the post-council broadcast resolves the outcome instead.
@@ -90,6 +90,29 @@ class ThreadPostsStore {
     if (!status) return;
     this.currentPromptId.delete(payload.threadId);
     this.setStatus(payload.threadId, postId, status);
+  }
+
+  private findLatestUnresolvedPromptId(threadId: string): string | null {
+    const p = path.join(this.dir, `${threadId}.jsonl`);
+    if (!fs.existsSync(p)) return null;
+    try {
+      const posts = fs
+        .readFileSync(p, 'utf8')
+        .split('\n')
+        .filter(Boolean)
+        .map((l) => JSON.parse(l) as ThreadPost);
+      for (let i = posts.length - 1; i >= 0; i--) {
+        const post = posts[i];
+        if (post.kind === 'prompt' && !post.status) return post.id;
+      }
+      return null;
+    } catch (err) {
+      eventLogger.error('thread', 'Failed to resolve latest unresolved thread prompt', {
+        threadId,
+        error: getErrorMessage(err),
+      });
+      return null;
+    }
   }
 
   private setStatus(threadId: string, postId: string, status: ThreadPostTerminalStatus): void {
