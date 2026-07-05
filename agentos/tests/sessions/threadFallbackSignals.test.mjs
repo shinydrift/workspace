@@ -24,6 +24,9 @@ function hasUnsupportedFlagSignal(rawOutput) {
 }
 
 const PROVIDER_LIMIT_SIGNALS = [
+  "you've hit your org's monthly spend limit",
+  'monthly spend limit',
+  'spend limit',
   "you've hit your org's monthly usage limit",
   'monthly usage limit',
   'usage limit',
@@ -31,10 +34,17 @@ const PROVIDER_LIMIT_SIGNALS = [
   'rate limit exceeded',
   'too many requests',
 ];
+const CLAUDE_MONTHLY_SPEND_LIMIT =
+  "You've hit your org's monthly spend limit · ask your admin to raise it at claude.ai/settings/usage";
 
 function hasProviderLimitSignal(rawOutput) {
   const lower = rawOutput.toLowerCase();
   return PROVIDER_LIMIT_SIGNALS.some((signal) => lower.includes(signal));
+}
+
+function shouldTreatAsProviderLimit(exitCode, rawOutput) {
+  void exitCode;
+  return hasProviderLimitSignal(rawOutput);
 }
 
 // ── each signal individually ──────────────────────────────────────────────────
@@ -113,10 +123,22 @@ test("hasProviderLimitSignal: org's monthly usage limit triggers provider fallba
   assert.equal(hasProviderLimitSignal("You've hit your org's monthly usage limit"), true);
 });
 
+test("hasProviderLimitSignal: org's monthly spend limit triggers provider fallback", () => {
+  assert.equal(hasProviderLimitSignal(CLAUDE_MONTHLY_SPEND_LIMIT), true);
+});
+
 test('hasProviderLimitSignal: quota exceeded triggers provider fallback', () => {
   assert.equal(hasProviderLimitSignal('Error: quota exceeded for this account'), true);
 });
 
 test('hasProviderLimitSignal: normal output returns false', () => {
   assert.equal(hasProviderLimitSignal('The command completed successfully.'), false);
+});
+
+test('shouldTreatAsProviderLimit: zero-exit Claude spend-limit output triggers provider fallback', () => {
+  assert.equal(shouldTreatAsProviderLimit(0, CLAUDE_MONTHLY_SPEND_LIMIT), true);
+});
+
+test('shouldTreatAsProviderLimit: zero-exit normal output does not trigger provider fallback', () => {
+  assert.equal(shouldTreatAsProviderLimit(0, 'The command completed successfully.'), false);
 });
