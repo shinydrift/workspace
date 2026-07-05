@@ -297,6 +297,41 @@ describe('useVoiceFlow', () => {
     expect(window.electronAPI.win.focus).toHaveBeenCalled();
   });
 
+  it('hung transcription times out → resets to idle and acks main (no wedge in transcribing)', async () => {
+    vi.useFakeTimers();
+    try {
+      // Transcription that never resolves — simulates a hung STT / model load.
+      vi.mocked(window.electronAPI.audio.transcribe).mockReturnValueOnce(new Promise<{ text: string }>(() => {}));
+
+      const { result } = renderHook(() => useVoiceFlow());
+
+      await act(async () => {
+        voiceFlowStartCb?.({ appFocused: true, frontmostApp: null });
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(result.current.state).toBe('recording');
+
+      act(() => {
+        lastOnChunk?.(new Float32Array(Array(100).fill(0.1)));
+      });
+
+      await act(async () => {
+        voiceFlowStopCb?.();
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(result.current.state).toBe('transcribing');
+
+      // Advance past the transcribe timeout — the flow must self-heal.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(300_001);
+      });
+      expect(result.current.state).toBe('idle');
+      expect(window.electronAPI.win.notifyVoiceFlowStopped).toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('listener cleanup on unmount — off-functions are called', () => {
     const { unmount } = renderHook(() => useVoiceFlow());
 
