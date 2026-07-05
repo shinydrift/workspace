@@ -123,40 +123,54 @@ export function ThreadDetailHeader({
             </span>
           ) : null}
           <DropdownMenu>
-            <div className="ml-1 flex shrink-0 overflow-hidden rounded-md border bg-background shadow-sm">
+            <div className="ml-1 flex shrink-0 overflow-hidden rounded bg-muted text-foreground/60">
               <Tooltip content={`Open ${thread.workingDirectory} in VS Code`}>
                 <button
+                  type="button"
                   onClick={() => openFolderTarget('vscode')}
-                  className="flex h-7 items-center gap-1.5 px-2 text-xs font-medium text-foreground hover:bg-muted transition-colors"
+                  className="flex h-5 items-center gap-1 px-1.5 text-xs font-medium transition-colors hover:bg-muted-foreground/10 hover:text-foreground"
                 >
-                  <Code className="h-3.5 w-3.5 text-blue-500" weight="bold" />
+                  <Code className="h-3 w-3" weight="bold" />
                   <span>Open in</span>
                 </button>
               </Tooltip>
               <DropdownMenuTrigger asChild>
                 <button
-                  className="flex h-7 w-7 items-center justify-center border-l text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                  type="button"
+                  className="flex h-5 w-5 items-center justify-center border-l border-background/50 transition-colors hover:bg-muted-foreground/10 hover:text-foreground"
                   aria-label="Choose folder open target"
                 >
-                  <CaretDown className="h-3.5 w-3.5" />
+                  <CaretDown className="h-3 w-3" />
                 </button>
               </DropdownMenuTrigger>
             </div>
-            <DropdownMenuContent align="end" className="w-48">
-              <DropdownMenuItem onSelect={() => openFolderTarget('vscode')}>
-                <Code className="text-blue-500" weight="bold" />
+            <DropdownMenuContent align="end" className="w-40">
+              <DropdownMenuItem
+                onSelect={() => openFolderTarget('vscode')}
+                className="gap-1.5 px-2 py-1 text-xs text-muted-foreground focus:text-foreground"
+              >
+                <Code weight="bold" />
                 VS Code
               </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => openFolderTarget('finder')}>
-                <FolderOpen className="text-sky-500" weight="fill" />
+              <DropdownMenuItem
+                onSelect={() => openFolderTarget('finder')}
+                className="gap-1.5 px-2 py-1 text-xs text-muted-foreground focus:text-foreground"
+              >
+                <FolderOpen weight="fill" />
                 Finder
               </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => openFolderTarget('terminal')}>
-                <Terminal className="text-muted-foreground" weight="fill" />
+              <DropdownMenuItem
+                onSelect={() => openFolderTarget('terminal')}
+                className="gap-1.5 px-2 py-1 text-xs text-muted-foreground focus:text-foreground"
+              >
+                <Terminal weight="fill" />
                 Terminal
               </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => openFolderTarget('xcode')}>
-                <Hammer className="text-blue-500" weight="fill" />
+              <DropdownMenuItem
+                onSelect={() => openFolderTarget('xcode')}
+                className="gap-1.5 px-2 py-1 text-xs text-muted-foreground focus:text-foreground"
+              >
+                <Hammer weight="fill" />
                 Xcode
               </DropdownMenuItem>
             </DropdownMenuContent>
