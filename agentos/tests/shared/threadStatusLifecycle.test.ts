@@ -16,6 +16,7 @@ import {
   deriveThreadReactionEmoji,
   normalizeThreadStatusForLifecycle,
   reconcileReaction,
+  deriveStatusNotification,
 } from '../../src/shared/threadStatusLifecycle';
 import type { ThreadStatusEvent } from '../../src/shared/types';
 
@@ -205,4 +206,30 @@ test('reconcile: status goes quiet → KEEP a settled ✅/❌ (a later stopped/a
 
 test('reconcile: a new turn replaces a settled ✅ with the live badge', () => {
   assert.deepEqual(reconcileReaction('white_check_mark', 'eyes'), { remove: 'white_check_mark', add: 'eyes' });
+});
+
+// ── Notifications (deriveStatusNotification) ──────────────────────────────────
+
+test('notify: working → done fires done on the settling edge', () => {
+  assert.equal(deriveStatusNotification('working', event({ status: 'idle' }), 'done'), 'done');
+});
+
+test('notify: working → error fires error', () => {
+  assert.equal(deriveStatusNotification('working', event({ status: 'error' }), 'error'), 'error');
+});
+
+test('notify: a repeat outcome (prev === next) stays silent — dedups idle/stopped churn', () => {
+  assert.equal(deriveStatusNotification('done', event({ status: 'idle' }), 'done'), null);
+  assert.equal(deriveStatusNotification('error', event({ status: 'error' }), 'error'), null);
+});
+
+test('notify: autopilot blocked is attention, even though its reaction is ✅', () => {
+  const blocked = event({ status: 'idle', autopilotEnabled: true, autopilotState: 'blocked' });
+  assert.equal(deriveStatusNotification('autopilot', blocked, 'done'), 'attention');
+});
+
+test('notify: still-working states (👀/🤖/🏛️) never notify', () => {
+  assert.equal(deriveStatusNotification('done', event({ status: 'running' }), 'working'), null);
+  assert.equal(deriveStatusNotification(null, event({ status: 'running' }), 'autopilot'), null);
+  assert.equal(deriveStatusNotification('working', event({ status: 'running' }), 'council'), null);
 });

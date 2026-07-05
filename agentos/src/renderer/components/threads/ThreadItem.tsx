@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import type { ContainerSummary, Thread } from '../../../shared/types';
 import { cn } from '@/lib/utils';
 import { RelativeTime } from '@/components/ui/relative-time';
-import { threadStatusDot } from '../../lib/status-colors';
+import { threadStatusDot, statusColors, notificationKindStatus } from '../../lib/status-colors';
 import { Robot, CaretRight } from '@phosphor-icons/react';
 import { StatusDot } from '@/components/ui/status-badge';
 import { HoverActions } from '@/components/ui/hover-actions';
@@ -107,6 +107,17 @@ export function ThreadItem({ thread: t, onSelect: onSelectOverride }: ThreadItem
           />
         ) : (
           <span className="flex-1 min-w-0 font-medium text-sm text-foreground truncate">{t.name}</span>
+        )}
+
+        {(t.unreadCount ?? 0) > 0 && selectedId !== t.id && (
+          <span
+            className={cn(
+              'shrink-0 rounded-full px-1.5 py-0.5 text-xs font-semibold tabular-nums',
+              statusColors[notificationKindStatus[t.unreadKind ?? 'done']].badge
+            )}
+          >
+            {t.unreadCount}
+          </span>
         )}
 
         {(t.queueDepth ?? 0) > 0 && (

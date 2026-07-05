@@ -9,6 +9,7 @@ import type {
   ThreadPostAppendedEvent,
   ThreadPostUpdatedEvent,
   ThreadRenamedEvent,
+  ThreadUnreadEvent,
   Thread,
   AppLogEntry,
   WikiPage,
@@ -50,6 +51,7 @@ const api = {
     rename: (threadId: string, name: string) => invoke('thread:rename', { threadId, name }),
     getInjectionStatus: (threadId: string) => invoke('thread:getInjectionStatus', { threadId }),
     setAutopilot: (threadId: string, enabled: boolean) => invoke('thread:setAutopilot', { threadId, enabled }),
+    setActive: (threadId: string | null) => invoke('thread:setActive', { threadId }),
     setProviderModel: (
       threadId: string,
       provider: string,
@@ -380,6 +382,12 @@ const api = {
       const handler = (_: Electron.IpcRendererEvent, payload: { threadId: string }) => cb(payload);
       ipcRenderer.on(IPC_EVENTS.THREAD_DELETED, handler);
       return () => ipcRenderer.off(IPC_EVENTS.THREAD_DELETED, handler);
+    },
+
+    threadUnread: (cb: (e: ThreadUnreadEvent) => void): (() => void) => {
+      const handler = (_: Electron.IpcRendererEvent, payload: ThreadUnreadEvent) => cb(payload);
+      ipcRenderer.on(IPC_EVENTS.THREAD_UNREAD, handler);
+      return () => ipcRenderer.off(IPC_EVENTS.THREAD_UNREAD, handler);
     },
 
     trayThreadsUpdate: (cb: (threads: TrayThread[]) => void): (() => void) => {

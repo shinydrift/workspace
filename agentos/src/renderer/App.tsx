@@ -6,6 +6,7 @@ import { useUIStore } from './store/uiStore';
 import { useTheme } from './hooks/useTheme';
 import { useDomainStore } from './store/domainStore';
 import { LogoTextAnimation } from './components/ui/logo-text-animation';
+import { ThreadToaster } from './components/thread/ThreadToaster';
 
 export function App() {
   useTheme();
@@ -45,6 +46,7 @@ export function App() {
   return (
     <TooltipProvider>
       <AppShell />
+      <ThreadToaster />
       {splashVisible && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-background transition-opacity duration-500"

@@ -41,6 +41,13 @@ export function AppearanceTab() {
     });
   }
 
+  function handleDesktopNotificationsChange(value: boolean) {
+    appearance.setDesktopNotifications(value);
+    window.electronAPI?.settings.set({ notifications: { desktop: value } }).catch((err) => {
+      console.warn('Failed to persist notification settings', err);
+    });
+  }
+
   return (
     <div className="space-y-6">
       <SettingSection title="Theme">
@@ -102,6 +109,15 @@ export function AppearanceTab() {
             />
           ))}
         </div>
+      </SettingSection>
+
+      <SettingSection title="Notifications">
+        <ToggleRow
+          label="Desktop notifications"
+          description="Show an OS notification when a thread you're not viewing finishes, errors, or needs input. In-app toasts and unread badges always show regardless."
+          checked={appearance.desktopNotifications}
+          onCheckedChange={handleDesktopNotificationsChange}
+        />
       </SettingSection>
 
       <SettingSection title="Developer">

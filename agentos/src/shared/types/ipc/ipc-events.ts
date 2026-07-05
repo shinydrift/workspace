@@ -10,6 +10,7 @@ export const IPC_EVENTS = {
   THREAD_POST_UPDATED: 'event:threadPost:updated',
   THREAD_CREATED: 'event:thread:created',
   THREAD_DELETED: 'event:thread:deleted',
+  THREAD_UNREAD: 'event:thread:unread',
   TRAY_THREADS_UPDATE: 'event:tray:threadsUpdate',
   TRAY_NAVIGATE_TO_THREAD: 'event:tray:navigateToThread',
   KANBAN_TASK_MOVED: 'event:kanban:taskMoved',

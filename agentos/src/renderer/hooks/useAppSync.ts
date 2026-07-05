@@ -3,11 +3,13 @@ import type { AppLogEntry } from '../../shared/types';
 import { useDomainStore } from '../store/domainStore';
 import { useUIStore } from '../store/uiStore';
 import { useLogsStore } from '../store/logsStore';
+import { useToastStore } from '../store/toastStore';
 
 export function useAppSync() {
   const {
     setThreads,
     updateThreadStatus,
+    setThreadUnread,
     renameThread,
     setAutomations,
     upsertThread,
@@ -18,6 +20,14 @@ export function useAppSync() {
   } = useDomainStore();
   const { setSandboxBuildProgress, setMemoryIndexProgress, setDevMode, setEditor, setUpdateReady } = useUIStore();
   const { setLogs, addLogs } = useLogsStore();
+  const selectedThreadId = useUIStore((s) => s.selectedThreadId);
+
+  // Tell main which thread is open so it suppresses (and clears) notifications for it. Clear the badge
+  // locally too for an instant response — main persists the clear and echoes it back.
+  useEffect(() => {
+    window.electronAPI?.thread.setActive(selectedThreadId);
+    if (selectedThreadId) setThreadUnread(selectedThreadId, 0, undefined);
+  }, [selectedThreadId, setThreadUnread]);
 
   const ttsEnabledRef = useRef(false);
   const pendingLogsRef = useRef<AppLogEntry[]>([]);
@@ -118,6 +128,18 @@ export function useAppSync() {
       removeThread(threadId);
     });
 
+    const unsubUnread = window.electronAPI.on.threadUnread((event) => {
+      setThreadUnread(event.threadId, event.unreadCount, event.unreadKind);
+      // A fresh notify-worthy event (count > 0) raises a toast; count 0 is a read-clear, no toast.
+      if (event.unreadCount > 0 && event.unreadKind) {
+        useToastStore.getState().push({
+          threadId: event.threadId,
+          threadName: event.threadName,
+          kind: event.unreadKind,
+        });
+      }
+    });
+
     const unsubSettings = window.electronAPI.on.settingsChanged((settings) => {
       ttsEnabledRef.current = Boolean(settings.voice?.ttsEnabled);
       setDevMode(Boolean(settings.devMode));
@@ -165,6 +187,7 @@ export function useAppSync() {
       unsubRenamed();
       unsubCreated();
       unsubDeleted();
+      unsubUnread();
       unsubSettings();
       unsubProjectSaved();
       unsubProjectDeleted();

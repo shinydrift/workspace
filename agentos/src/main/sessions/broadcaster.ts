@@ -15,9 +15,10 @@ import { IPC_EVENTS } from '../../shared/types';
 import { slackBridge } from '../integrations/slackBridge';
 import { emitMessageAppended, emitThreadIdle } from '../events';
 import { threadPostsStore } from './threadPostsStore';
-import { deriveThreadDisplayStatus } from '../../shared/threadStatusLifecycle';
+import { deriveThreadDisplayStatus, deriveStatusNotification } from '../../shared/threadStatusLifecycle';
 import { councilService } from '../council/service';
 import * as threadStore from '../threads/threadStore';
+import { threadNotifications } from './threadNotifications';
 
 let trayUpdateHook: (() => void) | null = null;
 
@@ -42,8 +43,15 @@ export function broadcastStatus(payload: ThreadStatusEvent): void {
   // render it as-is — and persist it on the thread so it survives an app restart.
   const councilPending = councilService.hasPendingRunForThread(payload.threadId);
   const event: ThreadStatusEvent = { ...payload, reaction: deriveThreadDisplayStatus(payload, councilPending) };
-  if (threadStore.getThread(event.threadId)) {
+  const existing = threadStore.getThread(event.threadId);
+  if (existing) {
+    // Compare against the previously-persisted reaction before overwriting it — the notification
+    // fires once on the settling edge (working → done/error/attention), not on repeated broadcasts.
+    const notification = deriveStatusNotification(existing.currentReaction, payload, event.reaction ?? null);
     threadStore.updateThread(event.threadId, { currentReaction: event.reaction });
+    // Council sub-threads collapse under their parent, so a finished member isn't independently
+    // actionable — don't raise a notification for it.
+    if (notification && !existing.parentThreadId) threadNotifications.notify(event.threadId, notification);
   }
   slackBridge.onThreadStatus(event);
   threadPostsStore.applyThreadStatus(event);
@@ -67,6 +75,8 @@ export function broadcastMessageAppended(payload: MessageAppendedEvent): void {
 
 export function broadcastThreadPostAppended(payload: ThreadPostAppendedEvent): void {
   broadcastToWindows(IPC_EVENTS.THREAD_POST_APPENDED, payload);
+  // A clarification request is a needs-attention signal — done/error come through broadcastStatus.
+  if (payload.post.kind === 'clarification') threadNotifications.notify(payload.threadId, 'attention');
 }
 
 export function broadcastThreadPostUpdated(payload: ThreadPostUpdatedEvent): void {
