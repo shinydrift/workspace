@@ -142,21 +142,21 @@ export function ThreadDetailHeader({
                 </button>
               </DropdownMenuTrigger>
             </div>
-            <DropdownMenuContent align="end" className="w-48 p-2">
-              <DropdownMenuItem className="gap-3 py-2.5 text-base" onSelect={() => openFolderTarget('vscode')}>
-                <Code className="h-4 w-4 text-blue-500" weight="bold" />
+            <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuItem onSelect={() => openFolderTarget('vscode')}>
+                <Code className="text-blue-500" weight="bold" />
                 VS Code
               </DropdownMenuItem>
-              <DropdownMenuItem className="gap-3 py-2.5 text-base" onSelect={() => openFolderTarget('finder')}>
-                <FolderOpen className="h-4 w-4 text-sky-500" weight="fill" />
+              <DropdownMenuItem onSelect={() => openFolderTarget('finder')}>
+                <FolderOpen className="text-sky-500" weight="fill" />
                 Finder
               </DropdownMenuItem>
-              <DropdownMenuItem className="gap-3 py-2.5 text-base" onSelect={() => openFolderTarget('terminal')}>
-                <Terminal className="h-4 w-4 text-muted-foreground" weight="fill" />
+              <DropdownMenuItem onSelect={() => openFolderTarget('terminal')}>
+                <Terminal className="text-muted-foreground" weight="fill" />
                 Terminal
               </DropdownMenuItem>
-              <DropdownMenuItem className="gap-3 py-2.5 text-base" onSelect={() => openFolderTarget('xcode')}>
-                <Hammer className="h-4 w-4 text-blue-500" weight="fill" />
+              <DropdownMenuItem onSelect={() => openFolderTarget('xcode')}>
+                <Hammer className="text-blue-500" weight="fill" />
                 Xcode
               </DropdownMenuItem>
             </DropdownMenuContent>
