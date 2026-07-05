@@ -7,6 +7,7 @@ import type { AutomationJob, SavedProject } from '../../../shared/types';
 import type { FormState } from './scheduleUtils';
 import { triggerLabel, humanizeCron } from './scheduleUtils';
 import { AutomationRunHistory } from '../insights/AutomationRunHistory';
+import { ProviderModelBadges } from '../threads/ProviderModelBadges';
 import { ScheduleFields } from './ScheduleFields';
 import { SectionHeader, PropertyRow, InlineSelect } from './RightPanelHelpers';
 import { useSlackChannelData } from '../../hooks/useSlackChannelData';
@@ -65,6 +66,46 @@ export function RightPanel({ editing, patch, job, projects }: Props) {
               <div className="pl-0">
                 <ScheduleFields editing={editing} patch={patch} />
               </div>
+            )}
+          </section>
+
+          <section className="px-4 py-3 space-y-1.5">
+            <SectionHeader>Model</SectionHeader>
+            <PropertyRow label="Use specific model">
+              <Switch
+                checked={editing.provider !== undefined}
+                onCheckedChange={(v) => {
+                  if (v) {
+                    patch('provider', 'claude');
+                  } else {
+                    patch('provider', undefined);
+                    patch('model', undefined);
+                    patch('effort', undefined);
+                    patch('reasoning', undefined);
+                  }
+                }}
+              />
+            </PropertyRow>
+            {editing.provider !== undefined ? (
+              <ProviderModelBadges
+                provider={editing.provider}
+                model={editing.model}
+                effort={editing.effort}
+                reasoning={editing.reasoning}
+                onProviderChange={(p) => {
+                  patch('provider', p);
+                  patch('model', undefined);
+                  patch('effort', undefined);
+                  patch('reasoning', undefined);
+                }}
+                onModelChange={(m) => patch('model', m)}
+                onEffortChange={(e) => patch('effort', e)}
+                onReasoningChange={(r) => patch('reasoning', r)}
+              />
+            ) : (
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Inherits the project / app default each time it runs.
+              </p>
             )}
           </section>
 

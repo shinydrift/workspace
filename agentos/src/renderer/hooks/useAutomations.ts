@@ -53,6 +53,10 @@ export function useAutomations(open: boolean, jobs: AutomationJob[], onJobsChang
         projectId: editing.projectId,
         trigger: toTrigger(editing),
         instructions: editing.instructions.trim(),
+        provider: editing.provider,
+        model: editing.model,
+        effort: editing.effort,
+        reasoning: editing.reasoning,
         notification:
           editing.notificationChannel !== 'none'
             ? {

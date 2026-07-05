@@ -102,6 +102,11 @@ async function createAutomationThread(job: AutomationJob, projectPath: string): 
     name: `⚡ ${job.name}`,
     workingDirectory: projectPath,
     projectName: getProject(job.projectId)?.name,
+    // Pinned agent settings (undefined → inherit the project/app defaults at run time).
+    provider: job.provider,
+    model: job.model,
+    effort: job.effort,
+    reasoning: job.reasoning,
   });
   eventLogger.info('automation', 'Created thread for automation run', {
     automationId: job.id,

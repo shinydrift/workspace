@@ -161,6 +161,10 @@ function rowToJob(row: JobRow): AutomationJob {
       { table: 'automation_jobs', column: 'trigger', id: row.id }
     ),
     instructions: row.instructions,
+    provider: (row.provider as AutomationJob['provider']) ?? undefined,
+    model: row.model ?? undefined,
+    effort: (row.effort as AutomationJob['effort']) ?? undefined,
+    reasoning: (row.reasoning as AutomationJob['reasoning']) ?? undefined,
     kanbanTaskTemplate: row.kanbanTaskTemplate
       ? parseJson<AutomationJob['kanbanTaskTemplate']>(row.kanbanTaskTemplate, undefined, {
           table: 'automation_jobs',
@@ -203,6 +207,10 @@ function jobToRow(job: AutomationJob): typeof automationJobs.$inferInsert {
     description: job.description ?? null,
     trigger: JSON.stringify(job.trigger),
     instructions: job.instructions,
+    provider: job.provider ?? null,
+    model: job.model ?? null,
+    effort: job.effort ?? null,
+    reasoning: job.reasoning ?? null,
     kanbanTaskTemplate: job.kanbanTaskTemplate ? JSON.stringify(job.kanbanTaskTemplate) : null,
     isSystem: job.isSystem ? 1 : 0,
     notification: job.notification ? JSON.stringify(job.notification) : null,
