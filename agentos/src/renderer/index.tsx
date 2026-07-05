@@ -8,14 +8,15 @@ import './styles/globals.css';
 import 'highlight.js/styles/github.css';
 
 const isTray = window.location.hash === '#/tray';
+const isRecordingOverlay = window.location.hash === '#/recording-overlay';
+const isShutdownOverlay = window.location.hash === '#/shutdown-overlay';
+const isOverlayWindow = isTray || isRecordingOverlay || isShutdownOverlay;
 
-if (isTray) {
+if (isOverlayWindow) {
   document.documentElement.style.background = 'transparent';
   document.body.style.background = 'transparent';
 }
 
-const isRecordingOverlay = window.location.hash === '#/recording-overlay';
-const isShutdownOverlay = window.location.hash === '#/shutdown-overlay';
 const root = createRoot(document.getElementById('root')!);
 root.render(
   isTray ? (

@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { cn, formatSeconds } from '@/lib/utils';
 import type { VoiceFlowState } from '@/hooks/useVoiceFlow';
+import { OverlayPill } from '../OverlayPill';
 
 const BAR_COUNT = 12;
 const MIN_H = 3;
@@ -81,15 +82,10 @@ export function RecordingPill({
 }: RecordingPillProps) {
   if (state === 'idle') return null;
 
+  const positionClassName = overlay ? undefined : 'bottom-6 top-auto translate-y-0';
+
   return (
-    <div
-      className={cn(
-        'flex items-center gap-3 px-4 py-2 rounded-full bg-neutral-900 shadow-lg select-none z-50',
-        overlay
-          ? 'fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2'
-          : 'fixed bottom-6 left-1/2 -translate-x-1/2'
-      )}
-    >
+    <OverlayPill className={positionClassName}>
       {state === 'recording' ? (
         <>
           <span className="h-1.5 w-1.5 rounded-full bg-white/50 shrink-0" />
@@ -133,6 +129,6 @@ export function RecordingPill({
           ))}
         </div>
       )}
-    </div>
+    </OverlayPill>
   );
 }

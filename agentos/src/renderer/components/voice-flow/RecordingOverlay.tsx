@@ -11,10 +11,6 @@ export function RecordingOverlay() {
   const [recordingSeconds, setRecordingSeconds] = useState(0);
 
   useEffect(() => {
-    document.body.style.backgroundColor = 'transparent';
-  }, []);
-
-  useEffect(() => {
     const off = window.electronAPI?.on.recordingOverlayState(setPayload);
     return () => off?.();
   }, []);
