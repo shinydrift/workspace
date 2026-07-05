@@ -200,6 +200,10 @@ export type IPCMap = {
   // Shell
   'shell:openExternal': { input: { url: string }; output: void };
   'shell:openInEditor': { input: { folderPath: string }; output: void };
+  'shell:openFolderTarget': {
+    input: { folderPath: string; target: 'vscode' | 'finder' | 'terminal' | 'xcode' };
+    output: void;
+  };
 
   // Analytics
   'analytics:getSessionMetrics': { input: { threadId: string }; output: SessionMetrics | null };
@@ -437,6 +441,7 @@ export const TYPED_CHANNEL_SET: ReadonlySet<string> = new Set<IPCChannel>([
   'sandbox:removeContainer',
   'shell:openExternal',
   'shell:openInEditor',
+  'shell:openFolderTarget',
   'log:getHistory',
   'health:run',
   'audio:transcribe',

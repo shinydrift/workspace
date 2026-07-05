@@ -16,6 +16,106 @@ import { handleIpc } from '../ipcResponse';
 const execFileAsync = promisify(execFile);
 const OpenExternalSchema = z.object({ url: z.string().url() });
 const OpenInEditorSchema = z.object({ folderPath: z.string().min(1) });
+const OpenFolderTargetSchema = z.object({
+  folderPath: z.string().min(1),
+  target: z.enum(['vscode', 'finder', 'terminal', 'xcode']),
+});
+
+function splitArgs(raw?: string): string[] {
+  return raw?.trim() ? raw.trim().split(/\s+/) : [];
+}
+
+function isVsCodeEditor(label: string | undefined, command: string): boolean {
+  const normalized = `${label ?? ''} ${command}`.toLowerCase();
+  return (
+    normalized.includes('vs code') ||
+    normalized.includes('visual studio code') ||
+    /(^|[/\\])code(\.cmd)?$/.test(command)
+  );
+}
+
+async function spawnDetached(bin: string, args: string[]): Promise<boolean> {
+  const hostEnv = await getHostShellEnv();
+  const useShell = process.platform === 'win32';
+  const quoteForShell = (value: string) => `"${value.replace(/"/g, '""')}"`;
+  const launchBin = useShell ? quoteForShell(bin) : bin;
+  const launchArgs = args.map((arg) => (useShell ? quoteForShell(arg) : arg));
+
+  return new Promise<boolean>((resolve) => {
+    try {
+      const child = spawn(launchBin, launchArgs, {
+        env: { ...process.env, ...hostEnv },
+        detached: true,
+        stdio: 'ignore',
+        shell: useShell,
+      });
+      child.once('spawn', () => resolve(true));
+      child.once('error', () => resolve(false));
+      child.unref();
+    } catch {
+      resolve(false);
+    }
+  });
+}
+
+async function openInFileManager(folderPath: string): Promise<void> {
+  await shell.openPath(folderPath);
+}
+
+async function openInConfiguredEditor(folderPath: string, forceVsCodeNewWindow = false): Promise<void> {
+  const editor = getStore().get('settings').editor;
+  const configuredBin = editor?.command?.trim();
+  const shouldUseCodeCli = forceVsCodeNewWindow && (!configuredBin || !isVsCodeEditor(editor?.label, configuredBin));
+  const bin = shouldUseCodeCli ? 'code' : configuredBin;
+
+  if (!bin) {
+    await openInFileManager(folderPath);
+    return;
+  }
+
+  const args = shouldUseCodeCli ? [] : splitArgs(editor?.args);
+  if (
+    (forceVsCodeNewWindow || isVsCodeEditor(editor?.label, bin)) &&
+    !args.includes('-n') &&
+    !args.includes('--new-window')
+  ) {
+    args.unshift('-n');
+  }
+
+  if (!(await spawnDetached(bin, [...args, folderPath]))) {
+    await openInFileManager(folderPath);
+  }
+}
+
+async function openTerminalAtFolder(folderPath: string): Promise<void> {
+  if (process.platform === 'darwin') {
+    const script = `tell application "Terminal" to do script "cd " & quoted form of ${JSON.stringify(folderPath)}`;
+    await execFileAsync('osascript', ['-e', script], { timeout: 3000, killSignal: 'SIGKILL' });
+    return;
+  }
+
+  if (process.platform === 'win32') {
+    if (!(await spawnDetached('cmd.exe', ['/K', 'cd', '/d', folderPath]))) await openInFileManager(folderPath);
+    return;
+  }
+
+  const candidates: Array<[string, string[]]> = [
+    ['x-terminal-emulator', ['--working-directory', folderPath]],
+    ['gnome-terminal', ['--working-directory', folderPath]],
+    ['konsole', ['--workdir', folderPath]],
+  ];
+  for (const [bin, args] of candidates) {
+    if (await spawnDetached(bin, args)) return;
+  }
+  await openInFileManager(folderPath);
+}
+
+async function openInXcode(folderPath: string): Promise<void> {
+  if (process.platform === 'darwin') {
+    if (await spawnDetached('open', ['-a', 'Xcode', folderPath])) return;
+  }
+  await openInFileManager(folderPath);
+}
 
 export function registerMiscHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.MESSAGES_LIST, (_e, raw) =>
@@ -62,51 +162,17 @@ export function registerMiscHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.SHELL_OPEN_IN_EDITOR, (_e, raw) =>
     handleIpc(async () => {
       const { folderPath } = OpenInEditorSchema.parse(raw);
-      const editor = getStore().get('settings').editor;
-      const bin = editor?.command?.trim();
-      // No editor configured (or its launch fails) → fall back to the OS file manager so the
-      // action never silently no-ops. shell.openPath resolves to '' on success, an error string
-      // otherwise.
-      const openInFileManager = () => shell.openPath(folderPath);
-      if (!bin) {
-        await openInFileManager();
-        return;
-      }
-      // `command` is the whole executable — kept intact so a full path with spaces (e.g. a macOS
-      // `.app` bundle path) still resolves; extra flags live in the separate `args` field. The
-      // folder is always the final argument. Resolve against the user's interactive shell PATH: a
-      // GUI-launched Electron app inherits a minimal PATH, so `code`/`cursor` would otherwise not
-      // be found.
-      const extraArgs = editor?.args?.trim() ? editor.args.trim().split(/\s+/) : [];
-      const hostEnv = await getHostShellEnv();
-      // On Windows the common editor CLIs are batch shims (VS Code ships `code.cmd`), and
-      // CreateProcess cannot launch a `.cmd` directly — so spawn must go through the shell there.
-      // With `shell` on, Node no longer quotes args, so wrap the executable and every argument in
-      // double quotes ourselves (doubling embedded quotes) so paths with spaces survive cmd.exe.
-      // On macOS/Linux keep `shell` off: spawn hands the user-supplied strings straight to execve,
-      // which stays injection-safe.
-      const useShell = process.platform === 'win32';
-      const quoteForShell = (value: string) => `"${value.replace(/"/g, '""')}"`;
-      const launchBin = useShell ? quoteForShell(bin) : bin;
-      const launchArgs = [...extraArgs, folderPath].map((arg) => (useShell ? quoteForShell(arg) : arg));
-      // Spawn detached and don't await the child's lifetime: a GUI editor that stays open (or a
-      // `--wait` flag) must not keep the IPC call pending or buffer the child's stdout. Resolve as
-      // soon as it launches; fall back to the file manager only on a launch error (e.g. ENOENT).
-      await new Promise<void>((resolve) => {
-        try {
-          const child = spawn(launchBin, launchArgs, {
-            env: { ...process.env, ...hostEnv },
-            detached: true,
-            stdio: 'ignore',
-            shell: useShell,
-          });
-          child.once('spawn', () => resolve());
-          child.once('error', () => void openInFileManager().finally(() => resolve()));
-          child.unref();
-        } catch {
-          void openInFileManager().finally(() => resolve());
-        }
-      });
+      await openInConfiguredEditor(folderPath);
+    })
+  );
+
+  ipcMain.handle(IPC_CHANNELS.SHELL_OPEN_FOLDER_TARGET, (_e, raw) =>
+    handleIpc(async () => {
+      const { folderPath, target } = OpenFolderTargetSchema.parse(raw);
+      if (target === 'vscode') await openInConfiguredEditor(folderPath, true);
+      else if (target === 'finder') await openInFileManager(folderPath);
+      else if (target === 'terminal') await openTerminalAtFolder(folderPath);
+      else await openInXcode(folderPath);
     })
   );
 

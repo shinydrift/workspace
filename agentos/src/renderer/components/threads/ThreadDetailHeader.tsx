@@ -1,13 +1,27 @@
 import React, { useState } from 'react';
 import type { Thread, ThreadInjectionStatus, SlackChannelOption } from '../../../shared/types';
 import { MODEL_LABEL, PROVIDER_LABEL } from '../../../shared/types/provider';
-import { CheckCircle, HourglassSimple, PaperPlaneTilt } from '@phosphor-icons/react';
+import {
+  CaretDown,
+  CheckCircle,
+  Code,
+  FolderOpen,
+  Hammer,
+  HourglassSimple,
+  PaperPlaneTilt,
+  Terminal,
+} from '@phosphor-icons/react';
 import { Tooltip } from '../ui/tooltip';
-import { useUIStore } from '../../store/uiStore';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import type { DetailView } from './ThreadDetail';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 
@@ -30,13 +44,9 @@ export function ThreadDetailHeader({
 }: Props) {
   const isTaskMainThread = thread.agentRole === 'task-main' && !!thread.taskId;
 
-  const editor = useUIStore((s) => s.editor);
-  const editorCommand = editor?.command.trim() ?? '';
-  const editorLabel = editor?.label.trim() || editorCommand;
-
-  function openInEditor() {
-    window.electronAPI?.shell.openInEditor(thread.workingDirectory).catch((err) => {
-      console.warn('Failed to open in editor', err);
+  function openFolderTarget(target: 'vscode' | 'finder' | 'terminal' | 'xcode') {
+    window.electronAPI?.shell.openFolderTarget(thread.workingDirectory, target).catch((err) => {
+      console.warn(`Failed to open folder in ${target}`, err);
     });
   }
 
@@ -112,16 +122,45 @@ export function ThreadDetailHeader({
                 : (PROVIDER_LABEL[thread.provider as keyof typeof PROVIDER_LABEL] ?? thread.provider)}
             </span>
           ) : null}
-          {editorCommand ? (
-            <Tooltip content={`Open ${thread.workingDirectory} in ${editorLabel}`}>
-              <button
-                onClick={openInEditor}
-                className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-foreground/60 hover:bg-muted hover:text-foreground transition-colors"
-              >
-                {editorLabel}
-              </button>
-            </Tooltip>
-          ) : null}
+          <DropdownMenu>
+            <div className="ml-1 flex shrink-0 overflow-hidden rounded-md border bg-background shadow-sm">
+              <Tooltip content={`Open ${thread.workingDirectory} in VS Code`}>
+                <button
+                  onClick={() => openFolderTarget('vscode')}
+                  className="flex h-7 items-center gap-1.5 px-2 text-xs font-medium text-foreground hover:bg-muted transition-colors"
+                >
+                  <Code className="h-3.5 w-3.5 text-blue-500" weight="bold" />
+                  <span>Open in</span>
+                </button>
+              </Tooltip>
+              <DropdownMenuTrigger asChild>
+                <button
+                  className="flex h-7 w-7 items-center justify-center border-l text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                  aria-label="Choose folder open target"
+                >
+                  <CaretDown className="h-3.5 w-3.5" />
+                </button>
+              </DropdownMenuTrigger>
+            </div>
+            <DropdownMenuContent align="end" className="w-48 p-2">
+              <DropdownMenuItem className="gap-3 py-2.5 text-base" onSelect={() => openFolderTarget('vscode')}>
+                <Code className="h-4 w-4 text-blue-500" weight="bold" />
+                VS Code
+              </DropdownMenuItem>
+              <DropdownMenuItem className="gap-3 py-2.5 text-base" onSelect={() => openFolderTarget('finder')}>
+                <FolderOpen className="h-4 w-4 text-sky-500" weight="fill" />
+                Finder
+              </DropdownMenuItem>
+              <DropdownMenuItem className="gap-3 py-2.5 text-base" onSelect={() => openFolderTarget('terminal')}>
+                <Terminal className="h-4 w-4 text-muted-foreground" weight="fill" />
+                Terminal
+              </DropdownMenuItem>
+              <DropdownMenuItem className="gap-3 py-2.5 text-base" onSelect={() => openFolderTarget('xcode')}>
+                <Hammer className="h-4 w-4 text-blue-500" weight="fill" />
+                Xcode
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-2 text-xs">
