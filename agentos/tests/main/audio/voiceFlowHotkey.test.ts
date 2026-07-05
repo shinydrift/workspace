@@ -164,6 +164,60 @@ test('full hold cycle: countdown completes, then key release sends VOICE_FLOW_ST
   mock.timers.reset();
 });
 
+test('auto-stop while key is still held does not re-arm on key-repeat (no double recording)', () => {
+  mock.timers.enable(['setTimeout']);
+  const sentMessages: string[] = [];
+  const instance = new VoiceFlowHotkey();
+  instance.start(() => makeWindow(sentMessages));
+
+  // Hold past the threshold — recording starts.
+  uiohookHandlers['keydown']?.forEach((h) => h({ keycode: MOCK_KEY.Alt }));
+  mock.timers.tick(1001);
+  assert.strictEqual(instance.isRecording, true);
+
+  // Renderer's silence auto-stop acks completion while the key is STILL physically held.
+  ipcMainHandlers['event:voiceFlow:stopped']?.forEach((h) => h());
+  assert.strictEqual(instance.isRecording, false, 'recording ends on auto-stop ack');
+  assert.notStrictEqual(instance.activeKeycode, null, 'activeKeycode must persist — the key is still held');
+
+  // OS key-repeat keeps delivering keydowns — they must NOT arm a second countdown.
+  uiohookHandlers['keydown']?.forEach((h) => h({ keycode: MOCK_KEY.Alt }));
+  assert.strictEqual(instance.startTimer, null, 'no new countdown armed after auto-stop while held');
+  mock.timers.tick(1001);
+  assert.strictEqual(instance.isRecording, false, 'no second recording starts from the same hold');
+
+  // The physical release finally clears the held-key marker.
+  uiohookHandlers['keyup']?.forEach((h) => h({ keycode: MOCK_KEY.Alt }));
+  assert.strictEqual(instance.activeKeycode, null, 'key-up clears activeKeycode');
+
+  instance.stop();
+  mock.timers.reset();
+});
+
+test('stuck-key watchdog: a dropped key-up self-heals so the hotkey never wedges', () => {
+  mock.timers.enable(['setTimeout']);
+  const instance = new VoiceFlowHotkey();
+  instance.start(() => null);
+
+  // Hold past the threshold, then the matching key-up is never delivered (dropped by the global hook).
+  uiohookHandlers['keydown']?.forEach((h) => h({ keycode: MOCK_KEY.Alt }));
+  mock.timers.tick(1001);
+  assert.strictEqual(instance.isRecording, true);
+  assert.notStrictEqual(instance.activeKeycode, null, 'key is considered held');
+
+  // The watchdog force-releases the held key after the timeout.
+  mock.timers.tick(150001);
+  assert.strictEqual(instance.activeKeycode, null, 'watchdog clears the stuck activeKeycode');
+  assert.strictEqual(instance.isRecording, false, 'watchdog ends the stuck recording');
+
+  // Hotkey is usable again — a fresh press arms a new countdown.
+  uiohookHandlers['keydown']?.forEach((h) => h({ keycode: MOCK_KEY.Alt }));
+  assert.notStrictEqual(instance.startTimer, null, 'a new hold arms after self-heal');
+
+  instance.stop();
+  mock.timers.reset();
+});
+
 test('key-repeat during hold is debounced: countdown is armed only once', () => {
   mock.timers.enable(['setTimeout']);
   const instance = new VoiceFlowHotkey();

@@ -12,6 +12,12 @@ const LOG = 'voice-flow';
 const DEFAULT_KEY = 'Alt';
 /** Hold duration before recording starts — short enough to feel snappy, long enough to ignore stray taps. */
 const COUNTDOWN_MS = 1000;
+/**
+ * Safety net: if the global hook ever misses a key-up (focus/Spaces switch, secure input, etc.), the held
+ * key would otherwise stay "active" forever and wedge the hotkey. Force-release after this long. Must exceed
+ * any legitimate hold — recording hard-caps at 120s (MAX_RECORD_SECONDS) so 150s never fires mid-use.
+ */
+const STUCK_KEY_TIMEOUT_MS = 150_000;
 
 /** For modifier keys, both left and right variants should match (e.g. either ⌘ key). */
 const MODIFIER_PAIRS: Record<string, readonly (keyof typeof UiohookKey)[]> = {
@@ -91,12 +97,42 @@ export class VoiceFlowHotkey {
   private started = false;
   private getMainWindow: (() => BrowserWindow | null) | null = null;
   private settingsChangeHandler: ((s: AppSettings) => void) | null = null;
-  /** Keycode that started the current recording; prevents double-trigger on key-repeat. */
+  /** Keycode that started the current recording; prevents double-trigger on key-repeat. Cleared only by the physical key-up. */
   private activeKeycode: number | null = null;
   /** Countdown timer before recording starts; cancel clears this. */
   private startTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Self-heal timer that force-releases activeKeycode if the matching key-up is ever dropped by the global hook. */
+  private stuckKeyTimer: ReturnType<typeof setTimeout> | null = null;
   /** True from VOICE_FLOW_START send until the renderer acks VOICE_FLOW_STOPPED — gates Esc cancel. */
   private voiceFlowActive = false;
+
+  /** Clear the held-key marker and its self-heal watchdog together. */
+  private clearActiveKey(): void {
+    this.activeKeycode = null;
+    if (this.stuckKeyTimer !== null) {
+      clearTimeout(this.stuckKeyTimer);
+      this.stuckKeyTimer = null;
+    }
+  }
+
+  /** (Re)arm the watchdog that recovers from a dropped key-up so the hotkey can never wedge. */
+  private armStuckKeyWatchdog(): void {
+    if (this.stuckKeyTimer !== null) clearTimeout(this.stuckKeyTimer);
+    this.stuckKeyTimer = setTimeout(() => {
+      this.stuckKeyTimer = null;
+      if (this.activeKeycode === null) return;
+      eventLogger.warn(LOG, 'Key-up missed; force-releasing stuck hotkey', { keycode: this.activeKeycode });
+      const wasRecording = this.isRecording;
+      const w = this.getMainWindow?.();
+      if (this.startTimer !== null) {
+        clearTimeout(this.startTimer);
+        this.startTimer = null;
+      }
+      this.clearActiveKey();
+      this.isRecording = false;
+      if (wasRecording && w && !w.isDestroyed()) w.webContents.send(IPC_EVENTS.VOICE_FLOW_STOP);
+    }, STUCK_KEY_TIMEOUT_MS);
+  }
 
   private onProcessExit = (): void => {
     if (this.started) {
@@ -127,6 +163,7 @@ export class VoiceFlowHotkey {
     if (!this.configuredKeyCodes.has(e.keycode)) return;
     if (this.activeKeycode !== null) return; // key-repeat debounce — must precede isRecording check
     this.activeKeycode = e.keycode;
+    this.armStuckKeyWatchdog();
     const appFocused = w?.isFocused() ?? false;
     // Kick off frontmost-app check immediately — resolves in ~200ms, well before COUNTDOWN_MS.
     const frontmostPromise = !appFocused ? checkFrontmostApp() : Promise.resolve({ name: null, isTextField: false });
@@ -152,7 +189,7 @@ export class VoiceFlowHotkey {
 
   private onKeyUp = (e: UiohookKeyboardEvent): void => {
     if (e.keycode !== this.activeKeycode) return;
-    this.activeKeycode = null;
+    this.clearActiveKey();
     const w = this.getMainWindow?.();
     // Released before hold threshold — abort countdown.
     if (this.startTimer !== null) {
@@ -171,13 +208,15 @@ export class VoiceFlowHotkey {
 
   private onVoiceFlowStopped = (): void => {
     // Renderer signals that silence-based auto-stop completed — reset main-side state.
+    // Deliberately leave activeKeycode set: the physical key may still be held. Only the real
+    // key-up clears it, otherwise key-repeat would re-arm and fire a second recording (or, at
+    // OS repeat rate, a runaway start/stop loop that freezes the app).
     if (this.startTimer !== null) {
       clearTimeout(this.startTimer);
       this.startTimer = null;
     }
     this.isRecording = false;
     this.voiceFlowActive = false;
-    this.activeKeycode = null;
   };
 
   private checkAccessibility(): boolean {
@@ -256,7 +295,7 @@ export class VoiceFlowHotkey {
     }
     this.isRecording = false;
     this.voiceFlowActive = false;
-    this.activeKeycode = null;
+    this.clearActiveKey();
     this.getMainWindow = null;
   }
 }
