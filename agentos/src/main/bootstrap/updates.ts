@@ -30,7 +30,7 @@ export function requestQuitAndInstall(): void {
 
 export function setupAutoUpdates(): void {
   updateElectronApp({
-    repo: 'godarapradeep/workspace',
+    repo: 'shinydrift/workspace',
     // Providing onNotifyUser suppresses the library's blocking restart dialog;
     // the renderer shows a title-bar badge instead (event:app:updateReady).
     onNotifyUser: (info) => {
