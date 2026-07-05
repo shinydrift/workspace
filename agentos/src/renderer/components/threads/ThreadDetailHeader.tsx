@@ -124,16 +124,14 @@ export function ThreadDetailHeader({
           ) : null}
           <DropdownMenu>
             <div className="ml-1 flex shrink-0 overflow-hidden rounded bg-muted text-foreground/60">
-              <Tooltip content={`Open ${thread.workingDirectory} in VS Code`}>
-                <button
-                  type="button"
-                  onClick={() => openFolderTarget('vscode')}
-                  className="flex h-5 items-center gap-1 px-1.5 text-xs font-medium transition-colors hover:bg-muted-foreground/10 hover:text-foreground"
-                >
-                  <Code className="h-3 w-3" weight="bold" />
-                  <span>Open in</span>
-                </button>
-              </Tooltip>
+              <button
+                type="button"
+                onClick={() => openFolderTarget('vscode')}
+                className="flex h-5 items-center gap-1 px-1.5 text-xs font-medium transition-colors hover:bg-muted-foreground/10 hover:text-foreground"
+              >
+                <Code className="h-3 w-3" weight="bold" />
+                <span>Open in</span>
+              </button>
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"
