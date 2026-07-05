@@ -26,10 +26,8 @@ function hasUnsupportedFlagSignal(rawOutput) {
 const PROVIDER_LIMIT_SIGNALS = [
   "you've hit your org's monthly spend limit",
   'monthly spend limit',
-  'spend limit',
   "you've hit your org's monthly usage limit",
   'monthly usage limit',
-  'usage limit',
   'quota exceeded',
   'rate limit exceeded',
   'too many requests',
@@ -133,6 +131,19 @@ test('hasProviderLimitSignal: quota exceeded triggers provider fallback', () => 
 
 test('hasProviderLimitSignal: normal output returns false', () => {
   assert.equal(hasProviderLimitSignal('The command completed successfully.'), false);
+});
+
+// Regression: bare "usage limit" / "spend limit" appearing in model-visible content (a user
+// message echoed by a tool, a skill doc) must NOT trigger a provider fallback. This is what
+// cascaded the Personality Refresh run through every provider. Only the qualified provider
+// phrasings above should match.
+test('hasProviderLimitSignal: echoed user message mentioning a usage limit returns false', () => {
+  const echoed = "So the cloud usage limit doesn't automatically move us to the next agent.";
+  assert.equal(hasProviderLimitSignal(echoed), false);
+});
+
+test('hasProviderLimitSignal: prose mentioning a spend limit returns false', () => {
+  assert.equal(hasProviderLimitSignal('Check whether the spend limit is configured for the project.'), false);
 });
 
 test('shouldTreatAsProviderLimit: zero-exit Claude spend-limit output triggers provider fallback', () => {

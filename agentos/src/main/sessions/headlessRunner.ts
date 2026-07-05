@@ -22,13 +22,15 @@ import type { QueueSource } from './ThreadInputQueue';
 
 const HEADLESS_IDLE_STOP_MS = 30 * 60 * 1000; // 30 minutes
 
+// Qualified provider phrasings only. Bare 'spend limit' / 'usage limit' were removed:
+// they false-matched ordinary content (e.g. a user message or skill doc mentioning a
+// "usage limit"), tripping a spurious provider fallback. Every real limit hit emits one
+// of the qualified phrases below in the CLI's own error output.
 const PROVIDER_LIMIT_SIGNALS = [
   "you've hit your org's monthly spend limit",
   'monthly spend limit',
-  'spend limit',
   "you've hit your org's monthly usage limit",
   'monthly usage limit',
-  'usage limit',
   'quota exceeded',
   'rate limit exceeded',
   'too many requests',
