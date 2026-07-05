@@ -22,6 +22,28 @@ const MAX_RECORD_SECONDS = 120;
 /** Consecutive silence duration before auto-stop. */
 const AUTO_STOP_SILENCE_MS = 3000;
 const SILENCE_CHECK_INTERVAL_MS = 100;
+/**
+ * Backstop for a hung transcription (first-run model load + STT of up to MAX_RECORD_SECONDS of audio).
+ * If it never returns, reject so the flow resets to idle instead of wedging in 'transcribing' — which
+ * would silently no-op every subsequent hotkey press. Esc still cancels sooner.
+ */
+const TRANSCRIBE_TIMEOUT_MS = 300_000;
+
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const id = window.setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+    p.then(
+      (v) => {
+        window.clearTimeout(id);
+        resolve(v);
+      },
+      (e) => {
+        window.clearTimeout(id);
+        reject(e);
+      }
+    );
+  });
+}
 
 function hasAudioEnergy(chunks: Float32Array[]): boolean {
   let sum = 0;
@@ -154,7 +176,11 @@ export function useVoiceFlow(): UseVoiceFlowResult {
       const resampled = await resamplePcmTo16kHz(chunks, sampleRate);
       if (cancelledRef.current) return;
       const arrayBuffer = encodePcmAsWav([resampled], 16000);
-      const { text } = await window.electronAPI.audio.transcribe(arrayBuffer);
+      const { text } = await withTimeout(
+        window.electronAPI.audio.transcribe(arrayBuffer),
+        TRANSCRIBE_TIMEOUT_MS,
+        'transcription'
+      );
       if (cancelledRef.current) {
         console.log('[voice-flow] transcription completed but cancelled — discarding');
         return;
