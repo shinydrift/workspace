@@ -184,7 +184,7 @@ const config: ForgeConfig = {
   publishers: [
     new PublisherGithub({
       repository: { owner: 'shinydrift', name: 'workspace' },
-      draft: true,
+      draft: false,
     }),
   ],
   plugins: [
