@@ -15,6 +15,7 @@ const WINDOW_MS = 7 * DAY_MS;
 const DEFAULT_SELECTION_MS = HOUR_MS;
 const TIMELINE_HEIGHT = 3024; // 18px/hour across the retention window.
 const MERGE_GAP_MS = 90 * 1000; // Bridge tiny gaps so captured audio reads as one continuous stretch.
+const TIMELINE_LANE_CLASS = 'left-24 right-6';
 
 type DragTarget = 'start' | 'end' | null;
 
@@ -178,10 +179,10 @@ function SelectionPlayer({
   const progressLabel = `${formatSeconds(Math.floor(windowCurrent))} / ${formatSeconds(Math.floor(totalDuration))}`;
 
   return (
-    <div className="rounded-md border border-border bg-muted/25 p-3">
+    <div className="rounded-md border border-border/70 bg-muted/10 p-3">
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-xs font-medium text-foreground">Preview</p>
+          <p className="text-xs font-medium text-muted-foreground">Preview</p>
           <p className="text-[11px] text-muted-foreground truncate">
             {currentSegment
               ? `Playing from ${new Date(currentSegment.createdAt).toLocaleTimeString('en-US', {
@@ -191,12 +192,12 @@ function SelectionPlayer({
               : 'No audio in this window'}
           </p>
         </div>
-        <div className="flex items-center gap-1 shrink-0">
+        <div className="flex items-center gap-0.5 shrink-0">
           <Button
             type="button"
             variant="ghost"
             size="icon"
-            className="h-7 w-7"
+            className="h-6 w-6"
             disabled={index <= 0 || loading}
             onClick={() => void playIndex(index - 1, playing)}
             aria-label="Skip back"
@@ -206,7 +207,7 @@ function SelectionPlayer({
           <Button
             type="button"
             size="icon"
-            className="h-8 w-8"
+            className="h-7 w-7"
             disabled={!currentSegment || loading}
             onClick={toggle}
             aria-label={playing ? 'Pause preview' : 'Play preview'}
@@ -223,7 +224,7 @@ function SelectionPlayer({
             type="button"
             variant="ghost"
             size="icon"
-            className="h-7 w-7"
+            className="h-6 w-6"
             disabled={index >= segments.length - 1 || loading}
             onClick={() => void playIndex(index + 1, playing)}
             aria-label="Skip forward"
@@ -232,7 +233,7 @@ function SelectionPlayer({
           </Button>
         </div>
       </div>
-      <div className="mt-3 flex items-center gap-2">
+      <div className="mt-2 flex items-center gap-2">
         <input
           type="range"
           min={0}
@@ -417,7 +418,7 @@ export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps
             </Button>
           </div>
 
-          <div className="grid min-h-0 flex-1 grid-cols-[minmax(360px,1fr)_340px] overflow-hidden">
+          <div className="grid min-h-0 flex-1 grid-cols-[minmax(360px,1fr)_320px] overflow-hidden">
             <ScrollArea className="min-h-0 border-r border-border">
               <div className="p-5">
                 <div
@@ -454,14 +455,14 @@ export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps
                     return (
                       <div
                         key={range.from}
-                        className="absolute left-24 right-6 rounded-sm border border-blue-400/15 bg-blue-400/10 pointer-events-none"
+                        className={`absolute ${TIMELINE_LANE_CLASS} rounded-sm border border-blue-400/15 bg-blue-400/10 pointer-events-none`}
                         style={{ top: `${top}%`, height }}
                       />
                     );
                   })}
 
                   <div
-                    className="absolute left-20 right-2 rounded-md border border-blue-400/70 bg-blue-400/15 pointer-events-none"
+                    className={`absolute ${TIMELINE_LANE_CLASS} rounded-md border border-blue-400/70 bg-blue-400/15 pointer-events-none`}
                     style={{ top: `${posFromFrac(endFrac)}%`, height: `${(endFrac - startFrac) * 100}%` }}
                   />
 
@@ -476,7 +477,7 @@ export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps
                         e.preventDefault();
                         dragging.current = which;
                       }}
-                      className="absolute left-16 right-2 z-10 -mt-2 h-4 cursor-ns-resize"
+                      className={`absolute ${TIMELINE_LANE_CLASS} z-10 -mt-2 h-4 cursor-ns-resize`}
                       style={{ top: `${posFromFrac(which === 'start' ? startFrac : endFrac)}%` }}
                     >
                       <div className="h-1 rounded-full bg-blue-400 shadow-sm" />
@@ -488,8 +489,8 @@ export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps
 
             <div className="flex min-h-0 flex-col">
               <ScrollArea className="min-h-0 flex-1">
-                <div className="space-y-4 p-4">
-                  <div className="space-y-2">
+                <div className="space-y-3 p-3">
+                  <div className="space-y-1.5">
                     <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Quick length</p>
                     <div className="grid grid-cols-5 gap-1">
                       {PRESETS.map((preset) => (
@@ -497,8 +498,8 @@ export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps
                           key={preset.label}
                           type="button"
                           size="sm"
-                          variant="outline"
-                          className="h-7 px-2 text-xs"
+                          variant="secondary"
+                          className="h-7 px-1.5 text-xs"
                           onClick={() => applyPreset(preset)}
                         >
                           {preset.label}
@@ -507,24 +508,52 @@ export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps
                     </div>
                   </div>
 
-                  <div className="rounded-md border border-border bg-muted/20 p-3">
-                    <p className="text-xs font-medium text-foreground">Meeting slot</p>
-                    <p className="mt-1 text-xs text-muted-foreground">{fmtRange(selFrom, selTo)}</p>
-                    <div className="mt-3 rounded-md bg-background/70 p-2 text-xs">
-                      <p className="text-muted-foreground">Length</p>
-                      <p className="mt-1 tabular-nums text-foreground">{formatSeconds(selectedDuration)}</p>
+                  <div className="rounded-md border border-border/70 bg-muted/10 p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-xs font-medium text-foreground">Meeting slot</p>
+                        <p className="mt-1 truncate text-xs text-muted-foreground">{fmtRange(selFrom, selTo)}</p>
+                      </div>
+                      <div className="shrink-0 text-right">
+                        <p className="text-[11px] text-muted-foreground">Length</p>
+                        <p className="mt-1 tabular-nums text-xs text-foreground">{formatSeconds(selectedDuration)}</p>
+                      </div>
                     </div>
-                    <div className="mt-3 grid grid-cols-2 gap-2">
-                      <Button type="button" size="sm" variant="ghost" onClick={() => nudge('start', -5 * 60 * 1000)}>
+                    <div className="mt-3 grid grid-cols-2 gap-1">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        className="h-7 justify-start px-2 text-xs"
+                        onClick={() => nudge('start', -5 * 60 * 1000)}
+                      >
                         Start -5m
                       </Button>
-                      <Button type="button" size="sm" variant="ghost" onClick={() => nudge('start', 5 * 60 * 1000)}>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        className="h-7 justify-start px-2 text-xs"
+                        onClick={() => nudge('start', 5 * 60 * 1000)}
+                      >
                         Start +5m
                       </Button>
-                      <Button type="button" size="sm" variant="ghost" onClick={() => nudge('end', -5 * 60 * 1000)}>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        className="h-7 justify-start px-2 text-xs"
+                        onClick={() => nudge('end', -5 * 60 * 1000)}
+                      >
                         End -5m
                       </Button>
-                      <Button type="button" size="sm" variant="ghost" onClick={() => nudge('end', 5 * 60 * 1000)}>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        className="h-7 justify-start px-2 text-xs"
+                        onClick={() => nudge('end', 5 * 60 * 1000)}
+                      >
                         End +5m
                       </Button>
                     </div>
