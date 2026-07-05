@@ -31,7 +31,7 @@ Use this skill when the user asks to "do a release", "ship a new version", or "b
    - `git tag <new version>`
    - `git push origin HEAD:main`
    - `git push origin <new version>`
-6. Confirm push succeeded and share the Actions URL: `https://github.com/godarapradeep/workspace/actions`
+6. Confirm push succeeded and share the Actions URL: `https://github.com/shinydrift/workspace/actions`
 
 ## Notes
 

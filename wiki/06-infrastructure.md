@@ -186,7 +186,7 @@ Packaging steps:
 
 ### Auto-update
 
-Packaged builds check for updates on startup via `update-electron-app` (wired in `src/main/index.ts`, guarded by `app.isPackaged`). The updater polls `https://github.com/godarapradeep/workspace/releases` and downloads new versions in the background; the user is prompted to restart when an update is ready. Development builds (`!app.isPackaged`) are unaffected.
+Packaged builds check for updates on startup via `update-electron-app` (wired in `src/main/index.ts`, guarded by `app.isPackaged`). The updater polls `https://github.com/shinydrift/workspace/releases` and downloads new versions in the background; the user is prompted to restart when an update is ready. Development builds (`!app.isPackaged`) are unaffected.
 
 ### Runtime file locations (macOS packaged)
 

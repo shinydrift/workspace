@@ -16,11 +16,11 @@ export function AboutTab() {
         <p className="text-sm font-medium mb-2">Repository</p>
         <button
           type="button"
-          onClick={() => window.electronAPI?.shell.openExternal('https://github.com/godarapradeep/workspace')}
+          onClick={() => window.electronAPI?.shell.openExternal('https://github.com/shinydrift/workspace')}
           className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
         >
           <GithubLogo size={14} />
-          <span>godarapradeep/workspace</span>
+          <span>shinydrift/workspace</span>
         </button>
       </div>
 
