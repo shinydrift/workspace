@@ -187,7 +187,7 @@ After every assistant turn (in `TurnExecutor`), `autopilot.maybeRunAfterTurn(thr
 
 3. If the action is `send_message`, it is enqueued via `sendInput(threadId, message, 'autopilot')`.
 
-4. The consecutive turn counter increments. When it reaches `autopilot.maxConsecutiveTurns` (default 10), autopilot stops with state `'stopped'`.
+4. The consecutive turn counter increments. When it reaches `agents.autopilot.maxConsecutiveTurns` (default 10), autopilot stops with state `'stopped'`.
 
 5. Autopilot stops when the assistant asks for human input, authorization, destructive actions, secrets, or ambiguous product decisions — the system prompt lists these stopping conditions explicitly.
 
@@ -195,7 +195,7 @@ After every assistant turn (in `TurnExecutor`), `autopilot.maybeRunAfterTurn(thr
 
 ### Activation
 
-Autopilot is **enabled at thread start** (set in `ThreadLifecycle` when `autopilot.enabled` is true in `AppSettings`). The previous pattern of requiring the agent to call `set_autopilot` via the `agentos-thread` MCP server on its first turn is no longer used for initial activation. Autopilot can still be toggled at any time via `setThreadAutopilot(threadId, enabled)` from the UI.
+Autopilot is **enabled at thread start** (set in `ThreadLifecycle` when `agents.autopilot.enabled` is true in effective settings). The previous pattern of requiring the agent to call `set_autopilot` via the `agentos-thread` MCP server on its first turn is no longer used for initial activation. Autopilot can still be toggled at any time via `setThreadAutopilot(threadId, enabled)` from the UI.
 
 ### States
 
@@ -207,7 +207,7 @@ idle → thinking → sent → idle (loop)
 
 ### Personality injection
 
-If `settings.personality.enabled` is true and a profile string is set, it is appended to the autopilot system prompt as "User style profile". This makes generated user-behalf messages sound like the actual user.
+If a personality profile string is set, it is appended to the autopilot system prompt as "User style profile". This makes generated user-behalf messages follow the configured project style.
 
 ### Decision reasoning
 
@@ -232,7 +232,7 @@ If a headless turn produces no output for 60 seconds (`HEADLESS_STALL_MS`), Agen
 
 Threads created from inbound Slack messages have autopilot **automatically enabled** at thread creation. The ✅ reaction is deferred until autopilot finishes evaluating after each turn (tracked in `pendingAutopilotChecks` map on `SlackBridge`), ensuring the reaction is posted only once the agent has actually completed its work.
 
-Autopilot behavior in Slack is also gated by the global `settings.autopilot.enabled` flag — if autopilot is globally disabled, Slack threads do not auto-enable it.
+Autopilot behavior in Slack is also gated by global `settings.agents.autopilot.enabled` — if autopilot is globally disabled, Slack threads do not auto-enable it.
 
 ### Configurable planner provider and model
 
@@ -258,7 +258,7 @@ When autopilot is disabled in `AppSettings`, turn configuration controls (max co
 
 ## Slack Integration
 
-**Files:** `src/main/integrations/slackBridge.ts`, `slackMcpServer.ts`, `slackWorkspaces.ts`
+**Files:** `src/main/integrations/slackBridge.ts`, `threadMcpServer.ts`, `slackWorkspaces.ts`, `mediumPosters.ts`
 
 ### Connection
 
@@ -266,7 +266,7 @@ Uses Slack Socket Mode (`@slack/socket-mode`) — the app connects outbound to S
 
 **Required Slack app scopes:** `channels:history`, `channels:read`, `chat:write`, `groups:history`, `groups:read`, `im:history`, `im:read`, `mpim:history`, `mpim:read`.
 
-**App tokens:** A bot token (`xoxb-*`) is enough to start the Slack MCP server and channel discovery. Socket Mode event ingestion additionally requires an app token (`xapp-*`) and at least one watched channel.
+**App tokens:** A bot token (`xoxb-*`) is enough for channel discovery and outbound echoing. Socket Mode event ingestion additionally requires an app token (`xapp-*`) and at least one watched channel.
 
 ### Message routing
 
@@ -275,7 +275,7 @@ Uses Slack Socket Mode (`@slack/socket-mode`) — the app connects outbound to S
 3. Looks up `slackBindings[channelId:threadTs]` to find an existing AgentOS thread.
 4. If no binding exists: creates a new thread with `threadManager.createThread()`.
 5. Sends the message text to the thread via `threadManager.sendInput(threadId, text, 'user')`.
-6. Sets the Slack context on the thread so the MCP server knows where to post replies.
+6. Persists a `slack_thread_bindings` row so `agentos-thread` post tools can save to the Thread view and mirror replies to Slack.
 
 ### Coding task approval
 
@@ -291,15 +291,18 @@ When `settings.slack.requireMention = true` (default `false`), the SlackBridge d
 
 The dead settings fields (`commandPrefix`, `agentPrompt`, `postThreadStatusUpdates`, `mcpPort`) have been removed from `SlackSettings` — they were persisted and rendered in the UI but never enforced at runtime.
 
-### Slack MCP server
+### Thread MCP messaging tools
 
-Runs on the hardcoded `SLACK_MCP_PORT` (3457), exported as a named constant from `slackMcpServer.ts`. (The `settings.slack.mcpPort` field has been removed.) Exposes two tools to running agents:
+Slack-specific MCP posting was folded into `agentos-thread`. Running agents always address the AgentOS thread by `thread_id`; Slack echoing is derived from the persisted binding.
 
-**`post_update(channel_id, thread_ts, message)`**
-Posts a Slack message to the thread. Used by agents to post progress updates or final results.
+**`post_update(thread_id, message)`**
+Saves an update to the in-app Thread view and mirrors it to the bound Slack thread when connected.
 
-**`ask_clarification(channel_id, thread_ts, questions)`**
-Posts questions to the Slack thread and returns immediately. The agent should stop and wait for the user to reply in Slack. Required before beginning coding tasks.
+**`ask_clarification(thread_id, questions)`**
+Saves questions to the Thread view and mirrors them to Slack when connected. The agent should stop and wait for the user to reply. Required before beginning coding tasks.
+
+**`upload_file(thread_id, file_path, filename?, initial_comment?)`**
+Attaches a file from `/workspace/.agentos/uploads/` to the Thread view and mirrors it to Slack when connected. Paths outside that upload folder are rejected.
 
 ### 🤖 Autopilot message prefix
 
@@ -352,9 +355,9 @@ Each Slack channel can be bound to a specific project working directory (`channe
 When `search()` is called for a project that has not been synced yet (or is dirty from a file change):
 
 1. `syncProject(scope, provider)` scans:
-   - `<memoryRootPath>/<projectId>/MEMORY.md` and `memory/*.md`
+   - `<settings.memory.rootPath>/<projectId>/MEMORY.md` and `memory/*.md`
    - `~/.agentos/messages/<threadId>.jsonl` (session transcripts)
-   - Paths in `settings.extraMemoryPaths`
+   - Paths in `settings.memory.extraPaths`
    - **Workspace code files** — after the extra-memory-paths pass, `codeChunking.ts` indexes `.ts/.tsx/.js/.jsx/.mjs/.cjs/.py` files from the project workspace directory using web-tree-sitter (lazy WASM init). Each top-level syntax node (function, class, interface, etc.) becomes a semantically coherent chunk rather than naive line-splitting. Files in `node_modules`, `dist`, `build`, and `.git` are skipped; per-file cap is 500 KB. Chunk `source` is `'code'`; IDs follow the pattern `code:<absPath>:<startLine>:<endLine>`.
 
 2. Files are compared against the `files` table by SHA256 hash. Unchanged files are skipped.
@@ -414,8 +417,8 @@ When no provider is configured or no API key is available, AgentOS falls back to
 
 When a thread starts, AgentOS injects a startup context message that may contain:
 
-- **BOOT.md** — a project-level startup instructions file at `<memoryRootPath>/<projectId>/BOOT.md`. Loaded when `boot.enabled` is true in `.agentos/config.json` (default) and the file exists.
-- **Personality prompt** — if `settings.personality.enabled` is true, the derived personality profile string.
+- **BOOT.md** — a project-level startup instructions file at `<settings.memory.rootPath>/<projectId>/BOOT.md`. Loaded by default when the file exists.
+- **Personality prompt** — if a project personality profile string is set.
 
 Memory search results are **not** injected at startup. Agents access memory on-demand via the `agentos-memory` MCP server (see below). This avoids injecting stale or irrelevant context into every turn.
 
@@ -580,7 +583,7 @@ Shallow-merges `patch` (a JSON object) into `AppSettings`. The tool description 
 Reads and returns `.agentos/config.json` for the project associated with the given thread.
 
 **Tool: `update_project_config(thread_id, key, updates)`**
-Merges `updates` into a top-level key of `.agentos/config.json`. The `version` key is excluded from the mergeable set to prevent corruption. Supported keys: `apiKeys`, `failover`, `sandbox`, `memory`, `worktree`, `kanban`, `agents`, `boot`, `env`, `recording`.
+Merges `updates` into a top-level key of `.agentos/config.json`. The `version` key is excluded from the mergeable set to prevent corruption. Supported keys: `apiKeys`, `sandbox`, `memory`, `worktree`, `kanban`, `agents`, `containers`, `env`, `personality`, and `recording`.
 
 **Tool: `set_recording_title(recording_id, title)`**
 Persists a title to the `recordings` DB row for the given recording ID and renames the linked thread. Used by the `meeting-notes` bundled skill to auto-title recordings after generating notes.
@@ -703,7 +706,7 @@ Personality settings are scoped to the project (`settings.personality` in the pe
 
 ### Usage
 
-- **`agentStyle`** is injected into the agent's conversation system prompt (via `buildPersonalityPrompt`) when `settings.personality.enabled = true`, shaping how the AI assistant responds in chat.
+- **`agentStyle`** is injected into the agent's conversation system prompt (via `buildPersonalityPrompt`) when a project personality profile is set, shaping how the AI assistant responds in chat.
 - **`autopilotInstructions`** is appended to the autopilot system prompt when composing user-behalf messages, making autopilot-generated inputs match the user's actual writing style.
 
 Personality settings are accessible in their own dedicated tab/section in the Settings UI (separated from the Agents section). The `autopilotInstructions` field is also directly editable via a textarea in the `PersonalitySection` UI component (`src/renderer/components/project/sections/PersonalitySection.tsx`), allowing quick edits without re-deriving the full profile.
@@ -751,7 +754,7 @@ AgentOS supports optional Tailscale integration for exposing services running in
 
 ### Configuration
 
-Set `settings.tailscaleAuthKey` to a Tailscale auth key. Optionally set `settings.tailscaleFunnel = true` to expose a port via Tailscale Funnel.
+Set `settings.tailscale.authKey` to a Tailscale auth key. Optionally set `settings.tailscale.funnel = true` to expose a port via Tailscale Funnel.
 
 ### Container behaviour
 
@@ -837,9 +840,9 @@ Pages are stored at `<projectPath>/wiki/<pageId>.md`. The file begins with a fro
 
 **Files:** `src/renderer/components/meetings/MeetingRecorder.tsx`, `src/renderer/components/meetings/MeetingPanel.tsx`, `src/main/integrations/recordingsMcpServer.ts`, `src/main/threads/db.ts`
 
-> **Feature flag:** The meeting feature is disabled by default. It is gated by `FEATURES.MEETINGS` in `src/shared/features.ts` (compile-time flag, defaults to `false`). When disabled, the Meetings nav item is hidden from `AppSidebar` and `MeetingPanel` is not rendered by `MainContentRouter`.
+> **Feature flag:** The meeting feature is gated by `FEATURES.MEETINGS` in `src/shared/features.ts`; it currently defaults to `true`. When disabled, the Meetings nav item is hidden from `AppSidebar` and `MeetingPanel` is not rendered by `MainContentRouter`.
 
-Allows users to record meetings in the browser and generate structured AI notes automatically.
+Allows users to record meetings and generate structured AI notes automatically. It also supports continuous capture: rolling 5-minute segments can be summarized by selecting a time window.
 
 ### Auto-detect browser meetings
 
@@ -857,15 +860,24 @@ AgentOS polls the active browser tab URL at a regular interval and detects when 
 
 ### agentos-recordings MCP server
 
-**File:** `src/main/integrations/recordingsMcpServer.ts` — port **3463**
+**File:** `src/main/integrations/recordingsMcpServer.ts` — dynamic MCP port
 
-Exposes two tools to running agents:
+Exposes recording and window-transcript tools to running agents:
 
 **`get_recording_meta(recording_id)`**
 Returns metadata (title, status, created_at, thread_id) for a recording.
 
 **`get_transcript(recording_id)`**
 Returns the full transcript text for a recording.
+
+**`list_recordings(limit?, offset?)`**
+Lists manual recordings, newest first.
+
+**`list_segments(from, to)`**
+Lists continuous-capture segments overlapping a selected time window.
+
+**`get_window_transcript(from, to)`**
+Returns the merged transcript for all continuous-capture segments overlapping the selected window.
 
 ### Recording pill
 

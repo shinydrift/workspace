@@ -138,15 +138,16 @@ erDiagram
     string priority
     number dueAt "optional unix ms"
     string classOfService "expedite|standard|intangible"
-    string task_type
     string assigned_thread_id "optional"
+    string main_thread_id "optional"
     number created_at
     number updated_at
   }
 
   KANBAN_TASK_DEP {
-    string from_task_id FK
-    string to_task_id FK
+    string project_id
+    string task_id FK
+    string blocks_id FK
   }
 
   RECORDING {
@@ -285,14 +286,13 @@ Notable defaults (set in `src/main/store/index.ts`):
 | `maxLogBufferSize` | `2000` |
 | `theme` | `'dark'` |
 | `fontSize` | `14` |
-| `embeddingProvider` | `'local'` |
-| `failover.enabled` | `true` |
-| `failover.transcriptMessages` | `12` |
-| `containerPrune.idleHours` | `24` |
-| `containerPrune.maxAgeDays` | `7` |
-| `autopilot.enabled` | `false` |
-| `autopilot.maxConsecutiveTurns` | `10` |
-| `autopilot.transcriptMessages` | `25` |
+| `agents.providerOrder` | normalized provider order |
+| `agents.autopilot.enabled` | `false` |
+| `agents.autopilot.maxConsecutiveTurns` | `10` |
+| `agents.autopilot.transcriptMessages` | `25` |
+| `memory.embeddingProvider` | `'local'` |
+| `containers.pruneIdleHours` | `24` |
+| `containers.pruneMaxAgeDays` | `7` |
 
 ---
 
@@ -356,12 +356,12 @@ All file-based storage lives under `~/.agentos/` (or `$HOME/.agentos/`).
 
 Additionally, per-project memory markdown files live at:
 ```
-<memoryRootPath>/<projectId>/
+<settings.memory.rootPath>/<projectId>/
 ├── MEMORY.md                  # Top-level memory file
 └── memory/
     └── *.md                   # Additional topic memory files
 ```
-`memoryRootPath` defaults to `~/.agentos/memory/projects` (set in settings).
+`memory.rootPath` defaults to `~/.agentos/memory/projects` (set in settings).
 
 ---
 
@@ -392,7 +392,7 @@ Additionally, per-project memory markdown files live at:
 
 ### Memory markdown files
 
-- **Path:** `<memoryRootPath>/<projectId>/MEMORY.md` and `<memoryRootPath>/<projectId>/memory/*.md`
+- **Path:** `<settings.memory.rootPath>/<projectId>/MEMORY.md` and `<settings.memory.rootPath>/<projectId>/memory/*.md`
 - **Format:** Plain markdown.
 - **Written by:** `memory:save` IPC call (from UI or from agents via the `agentos-memory` MCP server's `memory_save` tool).
 - **Indexed by:** `AgentOSMemoryService.sync()` — chunked, embedded, and written to the project SQLite DB.
@@ -505,7 +505,7 @@ Typical dimensions:
 
 ### Kanban tables
 
-Kanban board data shares the per-project SQLite database. The tables are created on first access via `getProjectDb()`. Schema version 11 added the `kanban_stages` table; schema version 16 added `due_at` and `class_of_service` columns; schema version 17 added the `kanban_task_deps` table. Current schema version: **17**.
+Kanban board data shares the per-project SQLite database. The tables are created on first access via `getProjectDb()`. The memory DB now uses named migrations rather than the old integer `schema_version`; Kanban migrations include configurable stages, dependency edges, effort/reasoning columns, stage hardening indexes, removal of `task_type`, and per-stage `save_to_memory`.
 
 ```sql
 -- Kanban tasks
@@ -514,17 +514,19 @@ CREATE TABLE IF NOT EXISTS kanban_tasks (
   project_id        TEXT NOT NULL,
   title             TEXT NOT NULL,
   description       TEXT NOT NULL DEFAULT '',
-  status            TEXT NOT NULL DEFAULT 'refinement',
+  status            TEXT NOT NULL DEFAULT 'researching',
   priority          TEXT NOT NULL DEFAULT 'medium',
   progress          INTEGER NOT NULL DEFAULT 0,
   assigned_thread_id TEXT,
+  main_thread_id    TEXT,
   skill_tags        TEXT NOT NULL DEFAULT '[]',  -- JSON array
   branch            TEXT,
   worktree_path     TEXT,
-  task_type         TEXT NOT NULL DEFAULT 'dev',
+  class_of_service  TEXT NOT NULL DEFAULT 'standard',
   parent_task_id    TEXT,
-  due_at            INTEGER,                      -- unix ms; NULL = no due date (schema v16)
-  class_of_service  TEXT NOT NULL DEFAULT 'standard', -- 'expedite'|'standard'|'intangible' (schema v16)
+  due_at            INTEGER,                      -- unix ms; NULL = no due date
+  slack_channel_id  TEXT,
+  slack_thread_ts   TEXT,
   created_at        INTEGER NOT NULL,
   updated_at        INTEGER NOT NULL,
   completed_at      INTEGER,
@@ -550,22 +552,25 @@ CREATE TABLE IF NOT EXISTS kanban_wip_limits (
 
 -- Pipeline stage definitions (schema v11)
 CREATE TABLE IF NOT EXISTS kanban_stages (
-  id         TEXT PRIMARY KEY,
-  project_id TEXT NOT NULL,
-  label      TEXT NOT NULL,
-  description TEXT NOT NULL DEFAULT '',
-  agent_role TEXT NOT NULL DEFAULT '',
-  "order"    INTEGER NOT NULL DEFAULT 0
+  project_id     TEXT NOT NULL,
+  stage_order    INTEGER NOT NULL DEFAULT 0,
+  id             TEXT NOT NULL,
+  label          TEXT NOT NULL,
+  prompt         TEXT NOT NULL DEFAULT '',
+  provider       TEXT,
+  model          TEXT,
+  effort         TEXT,
+  reasoning      TEXT,
+  save_to_memory INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (project_id, id)
 );
--- Default stages seeded per-project: refining → implementing → reviewing → done
 
--- Inter-task dependency graph (schema v17)
+-- Inter-task dependency graph
 CREATE TABLE IF NOT EXISTS kanban_task_deps (
-  from_task_id TEXT NOT NULL,
-  to_task_id   TEXT NOT NULL,
-  PRIMARY KEY (from_task_id, to_task_id),
-  FOREIGN KEY (from_task_id) REFERENCES kanban_tasks(id) ON DELETE CASCADE,
-  FOREIGN KEY (to_task_id)   REFERENCES kanban_tasks(id) ON DELETE CASCADE
+  project_id TEXT NOT NULL,
+  task_id    TEXT NOT NULL REFERENCES kanban_tasks(id) ON DELETE CASCADE,
+  blocks_id  TEXT NOT NULL REFERENCES kanban_tasks(id) ON DELETE CASCADE,
+  PRIMARY KEY (project_id, task_id, blocks_id)
 );
 ```
 
@@ -577,15 +582,19 @@ Meeting recordings are stored in the global projects/threads SQLite database at 
 CREATE TABLE IF NOT EXISTS recordings (
   id               TEXT PRIMARY KEY,
   thread_id        TEXT,           -- linked AgentOS thread (created after transcription)
+  title            TEXT,
   audio_path       TEXT NOT NULL,  -- path to saved WAV file on host
   transcript_path  TEXT NOT NULL,  -- path to transcript text file on host
   duration_seconds REAL NOT NULL,
-  created_at       INTEGER NOT NULL
+  created_at       INTEGER NOT NULL,
+  kind             TEXT            -- NULL = manual recording, 'segment' = continuous-capture segment
 );
 CREATE INDEX IF NOT EXISTS idx_recordings_thread_id ON recordings(thread_id);
+CREATE INDEX IF NOT EXISTS idx_recordings_created_at ON recordings(created_at);
+CREATE INDEX IF NOT EXISTS idx_recordings_kind_created ON recordings(kind, created_at);
 ```
 
-The `recordings` table also drives a v3→v4 migration that adds a `recording_id` column to the `threads` table, linking each thread back to its originating recording for reverse lookup.
+The `recordings` table also drives migrations that add `recording_id` to `threads`, add `title`, and add `kind` for rolling 5-minute continuous-capture segments. Manual recordings have `kind IS NULL`; segment rows are excluded from the normal recordings list and are queryable by time window.
 
 ---
 
@@ -616,7 +625,7 @@ Pruning logic: containers where `last_used_at_ms < (now - idleHours * 3600 * 100
 | What | Where | TTL / Invalidation |
 |---|---|---|
 | Thread log buffer | In-memory ring buffer in `ThreadOutputManager` | Lost on app restart; preloaded from disk (last 512 KB) on startup |
-| Memory sync state | `AgentOSMemoryService.syncedProjects` Set | Invalidated when `settings.memoryRootPath` / `extraMemoryPaths` changes or file watcher fires |
+| Memory sync state | `AgentOSMemoryService.syncedProjects` Set | Invalidated when `settings.memory.rootPath` / `memory.extraPaths` changes or file watcher fires |
 | Embedding cache | `embedding_cache` SQLite table (per-project DB) | Never pruned automatically; same text+model always produces same embedding |
 | Project DB handles | `dbCache` Map in `db.ts` | Closed on `invalidateProject()`; reopened on next access |
 | Claude OAuth token | In-process `cachedToken` in `threadAuth.ts` | Refreshed automatically when within 5 min of expiry; falls back to Keychain read |
@@ -635,6 +644,6 @@ AgentOS does not run formal database migrations on the electron-store JSON. Inst
 
 ### Memory SQLite
 
-The `meta.schema_version` key tracks the schema. Schema version 11 added the `kanban_stages` table; schema version 16 added `due_at` and `class_of_service` columns to `kanban_tasks`; schema version 17 added the `kanban_task_deps` table. Current version: **17**. Migrations are handled in `getProjectDb()` by comparing the stored version against the expected version and running ALTER TABLE or data migrations.
+The legacy `meta.schema_version` key is migrated into a named migration table. Current migrations are applied by `getProjectDb()` from `src/main/memory/migrations.ts`; the baseline is pre-seeded for upgraded DBs, then named migrations run idempotently.
 
 When the embedding provider's dimensions change, `ensureVecTable()` drops and recreates `chunks_vec` automatically — this is a runtime migration, not a schema version change.

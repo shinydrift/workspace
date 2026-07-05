@@ -144,6 +144,28 @@ interface ThreadInjectionStatus {
 
 ---
 
+#### `thread:setAutopilot`
+
+Toggles autopilot for one thread.
+
+| | |
+|---|---|
+| **Input** | `{ threadId: string; enabled: boolean }` |
+| **Output** | `Thread` |
+
+---
+
+#### `thread:derivePersonality`
+
+Derives a project personality profile from recent user messages.
+
+| | |
+|---|---|
+| **Input** | `{ projectId: string }` |
+| **Output** | `PersonalitySettings` |
+
+---
+
 ### Terminal channels
 
 #### `terminal:sendInput`
@@ -465,7 +487,7 @@ Lists all `agentos-managed` Docker containers with their registry metadata.
 
 #### `sandbox:pruneContainers`
 
-Removes idle/old containers according to the `containerPrune` settings.
+Removes idle/old containers according to the `containers` prune settings.
 
 | | |
 |---|---|
@@ -498,6 +520,28 @@ Returns any accumulated assistant output not yet flushed as a complete message.
 
 ---
 
+#### `messages:clear`
+
+Clears pending assistant output for a thread.
+
+| | |
+|---|---|
+| **Input** | `{ threadId: string }` |
+| **Output** | `void` |
+
+---
+
+#### `threadPosts:list`
+
+Returns in-app Thread view posts saved by `agentos-thread` MCP (`post_update`, `ask_clarification`, uploaded-file comments).
+
+| | |
+|---|---|
+| **Input** | `{ threadId: string }` |
+| **Output** | `ThreadPost[]` |
+
+---
+
 ### Audio channels
 
 #### `audio:transcribe`
@@ -519,6 +563,44 @@ Plays text-to-speech audio for the given text.
 |---|---|
 | **Input** | `{ text: string }` |
 | **Output** | `void` |
+
+---
+
+#### `audio:modelReady`
+
+Returns whether the local transcription model is ready.
+
+| | |
+|---|---|
+| **Input** | `undefined` |
+| **Output** | `{ ready: boolean }` |
+
+---
+
+#### `audio:stopTTS`
+
+| | |
+|---|---|
+| **Input** | `undefined` |
+| **Output** | `void` |
+
+---
+
+#### `desktop:getSources`
+
+Returns Electron desktop capture sources for meeting/system-audio capture.
+
+#### Recording channels
+
+| Channel | Purpose |
+|---|---|
+| `recording:save` | Persist a manual recording or rolling segment (`kind?: 'segment'`) with transcript and audio bytes. |
+| `recording:setThread` | Link a recording to its generated thread. |
+| `recording:setTitle` | Rename a recording. |
+| `recording:delete` | Delete a recording and its files. |
+| `recording:read` | Read recording audio bytes. |
+| `recording:list` | List manual recordings. |
+| `recording:segments` | List rolling segments overlapping a time window. |
 
 ---
 
@@ -821,36 +903,33 @@ type MessageContentBlock =
 
 ```ts
 interface AppSettings {
-  claudeBinaryPath: string | null;     // null = resolve from PATH
   claudeStreamJson: boolean;           // use --output-format stream-json
   skipPermissions: boolean;            // pass --dangerously-skip-permissions
-  failover: ProviderFailoverSettings;
-  providerOrder: Provider[];           // ordered list for failover
-  queueSilenceFallbackMs?: number;     // fallback silence window for turn completion
+  agents: AgentsConfig;                // providerOrder, lastProvider, commandOverrides, autopilot
+  runOnHost?: boolean;
   maxLogBufferSize: number;            // default: 2000
+  logRetentionDays?: number;
   persistDebugLogs: boolean;
-  memoryRootPath: string | null;       // root for per-project memory dirs
+  devMode: boolean;
   theme: 'dark' | 'light' | 'system';
   fontSize: number;
-  apiKeys?: { anthropic?: string; openai?: string; google?: string; voyage?: string; mistral?: string };
-  embeddingProvider?: 'auto' | 'openai' | 'google' | 'voyage' | 'mistral' | 'local';
-  embeddingModel?: string;
-  localModelPath?: string | null;
-  memorySearch?: MemorySearchSettings;  // tuning params; in Settings UI exposed as a preset picker (not raw fields)
-  extraMemoryPaths?: string[];
-  tailscaleAuthKey?: string | null;
-  tailscaleFunnel?: boolean;
-  githubToken?: string | null;
+  webhookPort?: number;
+  apiKeys?: ApiKeys;
+  tailscale?: TailscaleSettings;
+  memory?: MemoryConfig;
   slack?: SlackSettings;
   mcpRequireAuth?: boolean;       // default: false; when true, loopback requests to MCP servers must carry bearer token
   sandbox?: SandboxSecuritySettings;
-  containerPrune?: ContainerPruneSettings;
-  worktrees?: WorktreeSettings;
-  voice?: VoiceSettings;
-  envSafelist?: string[];
+  containers?: ContainersConfig;
+  worktree?: WorktreeSettings;
+  voice?: VoiceSettings;          // TTS
+  voiceFlow?: VoiceFlowSettings;  // global hotkey transcription
+  env?: EnvConfig;
   personality?: PersonalitySettings;
-  autopilot?: AutopilotSettings;        // AutopilotSettings.enabled controls global on/off; per-thread override via Thread.autopilotEnabled
   recording?: RecordingSettings;        // global recording templates; per-project override in ProjectConfig.recording
+  meetingProjectPath?: string;
+  continuousCaptureEnabled?: boolean;
+  editor?: { label: string; command: string; args?: string };
 }
 ```
 
@@ -858,12 +937,13 @@ interface AppSettings {
 
 ```ts
 interface SlackSettings {
-  botToken?: string;
-  appToken?: string;
-  watchedChannels?: string[];
-  requireMention?: boolean;      // default: false; when true, new root-thread messages without @mention are dropped
-  postAssistantUpdates?: boolean;
-  channelWorkspaceMap?: Record<string, string>;
+  enabled: boolean;
+  botToken: string | null;
+  appToken: string | null;
+  watchedChannelIds: string[];
+  channelWorkspaceMap: Record<string, string>;
+  requireMention: boolean;       // default: false; when true, new root-thread messages without @mention are dropped
+  defaultWorkingDirectory: string | null;
   // Removed fields (were persisted but never enforced): commandPrefix, agentPrompt, postThreadStatusUpdates, mcpPort
 }
 ```

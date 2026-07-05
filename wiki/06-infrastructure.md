@@ -25,7 +25,7 @@ These variables affect the running AgentOS process. None are required for normal
 | `APPLE_ID` | No | — | Apple ID for notarization. |
 | `APPLE_APP_SPECIFIC_PASSWORD` | No | — | App-specific password for notarization. |
 | `APPLE_TEAM_ID` | No | — | Apple Developer Team ID for notarization. |
-| `TS_AUTHKEY` | No | — | Tailscale auth key; if set in `AppSettings.tailscaleAuthKey`, passed into Docker containers to join the Tailscale network. |
+| `TS_AUTHKEY` | No | — | Tailscale auth key; if set in `AppSettings.tailscale.authKey`, passed into Docker containers to join the Tailscale network. |
 
 ### Variables injected into Docker containers
 
@@ -41,8 +41,8 @@ These are set programmatically by `buildDockerRunArgs` and are not host environm
 | `AGENTOS_THREAD_ID` | Thread metadata | Passed when memory MCP is enabled |
 | `SLACK_CHANNEL_ID` | Slack context | Injected when thread was started from Slack |
 | `SLACK_THREAD_TS` | Slack context | Injected when thread was started from Slack |
-| `GH_TOKEN` | Settings `githubToken` | GitHub personal access token (if configured) |
-| `TS_AUTHKEY` | Settings | Tailscale auth key (if configured) |
+| `GH_TOKEN` | Settings `apiKeys.github` | GitHub personal access token (if configured) |
+| `TS_AUTHKEY` | Settings `tailscale.authKey` | Tailscale auth key (if configured) |
 | `TS_HOSTNAME` | Thread ID | `agentos-<threadId[:8]>` |
 | `TS_FUNNEL_PORT` | Settings | Port to expose via Tailscale Funnel (if enabled) |
 | `TS_SOCKET` | Dockerfile `ENV` | `/tmp/tailscale-run/tailscaled.sock` |
@@ -53,7 +53,7 @@ These are set programmatically by `buildDockerRunArgs` and are not host environm
 | `NO_PROXY` | `filteringProxy.envVars()` | `localhost,127.0.0.1,127.0.0.11,::1,host.docker.internal` |
 | `no_proxy` | `filteringProxy.envVars()` | Lowercase alias |
 
-Host environment variables can also be forwarded to containers via the `envSafelist` setting (a whitelist of variable names). Per-project safelists are defined in `.agentos/config.json`.
+Host environment variables can also be forwarded to containers via the `env.safelist` setting (a whitelist of variable names). Per-project safelists are defined in `.agentos/config.json`.
 
 ---
 
@@ -109,19 +109,26 @@ A project-level config file placed under the project root's `.agentos/` director
 ```json
 {
   "version": 1,
-  "provider": "claude",
-  "failover": {
-    "enabled": true,
-    "transcriptMessages": 12
+  "agents": {
+    "providerOrder": [
+      { "provider": "claude", "backend": "anthropic" },
+      { "provider": "codex", "backend": "openai" }
+    ],
+    "autopilot": {
+      "maxConsecutiveTurns": 10,
+      "transcriptMessages": 25
+    }
   },
   "sandbox": {
     "network": "bridge",
-    "pidsLimit": 256
+    "dropAllCapabilities": true,
+    "noNewPrivileges": true,
+    "tmpfs": ["/tmp", "/var/tmp"]
   },
   "memory": {
     "enabled": true
   },
-  "boot": {
+  "kanban": {
     "enabled": true
   },
   "worktree": {
@@ -133,7 +140,7 @@ A project-level config file placed under the project root's `.agentos/` director
 }
 ```
 
-`boot.enabled` controls whether `BOOT.md` from the configured project memory directory is injected as startup context when present.
+Accepted top-level keys are defined by the canonical schema in `src/shared/config/schema.ts`: `version`, `runOnHost`, `sandbox`, `kanban`, `memory`, `worktree`, `env`, `apiKeys`, `tailscale`, `agents`, `containers`, `personality`, and `recording`. The legacy `failover` key is ignored.
 
 ### `Dockerfile.agentos` (per-project, user-created or auto-generated)
 
@@ -149,7 +156,7 @@ AgentOS is a single-machine desktop application. There is no server component to
 
 ### Single-instance enforcement
 
-AgentOS uses Electron's `app.requestSingleInstanceLock()` in `src/main/index.ts`. If a second instance attempts to launch while AgentOS is already running, the new process calls `app.quit()` immediately and the existing instance brings its window to the foreground. This prevents MCP sidecar port conflicts — `agentos-slack` is bound to port 3457 and all other MCP servers bind to OS-assigned ports at startup.
+AgentOS uses Electron's `app.requestSingleInstanceLock()` in `src/main/index.ts`. If a second instance attempts to launch while AgentOS is already running, the new process calls `app.quit()` immediately and the existing instance brings its window to the foreground. MCP sidecars bind to OS-assigned ports at startup and are injected into container MCP configs per thread.
 
 ### Local development
 
@@ -439,14 +446,14 @@ The following Electron Fuses are enabled:
 
 - **Claude OAuth:** Read from macOS Keychain (`security find-generic-password -s "Claude Code-credentials"`) at container start time; passed as `CLAUDE_CODE_OAUTH_TOKEN` env var.
 - **API keys:** Stored in `AppSettings.apiKeys` within electron-store (encrypted by the OS user-data directory's file permissions, not application-level encryption).
-- **Tailscale auth key:** Stored in `AppSettings.tailscaleAuthKey`; not committed to version control.
-- **Host env vars:** Only forwarded to containers if the variable name is in `envSafelist` (settings or per-project config).
+- **Tailscale auth key:** Stored in `AppSettings.tailscale.authKey`; not committed to version control.
+- **Host env vars:** Only forwarded to containers if the variable name is in `env.safelist` (settings or per-project config).
 
 ### MCP server authentication
 
 **File:** `src/main/mcp/mcpAuth.ts`
 
-All AgentOS-internal MCP servers (memory, Slack, thread, kanban) share a single app-lifetime bearer token generated at startup with `crypto.randomBytes(32)`. The token is injected into every Docker container via the `Authorization` header in the MCP client config. Each MCP server validates incoming requests with `validateMcpAuth(req)`, rejecting any call that does not carry the correct `Bearer <token>`. This ensures only containers started by AgentOS can call back into AgentOS's MCP servers.
+All AgentOS-internal MCP servers (memory, thread, council, kanban, recordings, autopilot) share a single app-lifetime bearer token generated at startup with `crypto.randomBytes(32)`. The token is injected into every Docker container via the `Authorization` header in the MCP client config. Each MCP server validates incoming requests with `validateMcpAuth(req)`, rejecting any call that does not carry the correct `Bearer <token>`. This ensures only containers started by AgentOS can call back into AgentOS's MCP servers.
 
 **Localhost auth bypass:** By default, requests originating from loopback addresses (`127.0.0.1`, `::1`, `localhost`) skip bearer-token validation. This allows tools like `curl` and direct local testing to reach the MCP servers without a token. The bypass is controlled by `AppSettings.mcpRequireAuth` (default `false`). Set `mcpRequireAuth = true` to enforce token validation on all requests including loopback. The setting is live-updated — changes take effect without restarting MCP servers.
 

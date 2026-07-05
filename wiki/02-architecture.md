@@ -43,10 +43,10 @@ graph TB
 
       subgraph MCPServers["MCP Servers (HTTP, host)"]
         MemMCP["agentos-memory MCP\n(dynamic)"]
-        SlackMCP["agentos-slack MCP\n(:3457)"]
         ThreadMCP["agentos-thread MCP\n(dynamic)"]
         RecMCP["agentos-recordings MCP\n(dynamic)"]
         KanbanMCP["agentos-kanban MCP\n(dynamic)"]
+        AutoPilotMCP["agentos-autopilot MCP\n(dynamic)"]
         ExecLogMCP["execution-log MCP\n(dynamic)"]
         CouncilMCP["agentos-council MCP\n(dynamic)"]
       end
@@ -90,7 +90,6 @@ graph TB
   Container -- "HTTPS" --> Google
 
   Container -- "HTTP MCP" --> MemMCP
-  Container -- "HTTP MCP" --> SlackMCP
   Container -- "HTTP MCP" --> ThreadMCP
   Container -- "HTTP MCP" --> RecMCP
   Container -- "HTTP MCP" --> KanbanMCP
@@ -98,7 +97,7 @@ graph TB
   Container -- "HTTP_PROXY" --> FProxy
 
   MemMCP --> MemSvc
-  SlackMCP --> SlackBr
+  ThreadMCP --> SlackBr
   KanbanMCP --> KanbanCoord
 
   SlackBr -- "Socket Mode" --> SlackAPI
@@ -143,7 +142,7 @@ A thin wrapper around `node-pty` that represents one running Docker container pr
 
 #### TurnExecutor (`src/main/sessions/turnExecution.ts`)
 
-Manages per-turn execution for both interactive (PTY) and headless (`docker exec`) modes, and handles provider failover.
+Manages per-turn execution for both interactive (PTY) and headless (`docker exec`) modes, and handles narrow provider fallback cases.
 
 **Key responsibilities:**
 - `runTurn` — executes a single turn; mid-conversation provider failover has been removed (startup plain-text fallback within the same provider remains)
@@ -201,7 +200,7 @@ Hybrid vector + keyword search over project markdown files and session JSONL log
 **Key responsibilities:**
 - `init(homeDir)` — initialises DB directory, sets up file watchers
 - `search(params)` — lazy-syncs project files, runs cosine + BM25 query, applies temporal decay, applies MMR re-ranking, returns `MemorySearchHit[]`
-- `save(params)` — writes to `<memoryRootPath>/<projectId>/` markdown files (default root: `~/.agentos/memory/projects/`)
+- `save(params)` — writes to `<settings.memory.rootPath>/<projectId>/` markdown files (default root: `~/.agentos/memory/projects/`)
 - `status`, `reindex`, `doctor` — diagnostics and forced re-indexing
 - `get(params)` — reads a specific entry by ID or path
 
@@ -222,16 +221,16 @@ Connects to the Slack API using Socket Mode and routes inbound messages to threa
 | Server | File | Port | Tools exposed to agents |
 |---|---|---|---|
 | `agentos-memory` | `integrations/memoryMcpServer.ts` | dynamic (OS-assigned) | `memory_search`, `memory_get`, `memory_status`, `memory_save`, `memory_save_chunk`, `memory_link`, `memory_graph_query`, `memory_delete`, `memory_pin`, `memory_add_observation`, `memory_list_projects` |
-| `agentos-slack` | `integrations/slackMcpServer.ts` | 3457 (`SLACK_MCP_PORT`) | `post_update`, `ask_clarification` |
-| `agentos-thread` | `integrations/threadMcpServer.ts` | dynamic | `set_autopilot`, `update_personality`, `get_app_settings`, `update_app_settings`, `get_project_config`, `update_project_config`, `set_recording_title`, `list_project_messages` |
-| `agentos-recordings` | `integrations/recordingsMcpServer.ts` | dynamic | `get_recording_meta`, `get_transcript` |
-| `agentos-kanban` | `kanban/mcpServer.ts` | dynamic | `list_tasks`, `move_task`, `create_task`, `assign_task`, `update_progress`, `add_note`, `archive_task`, `list_stages`, `update_stage`, `list_overdue_tasks`, `add_dependency`, `get_blocked_tasks`, `spawn_stage_worker`, `report_stage_result` |
+| `agentos-thread` | `integrations/threadMcpServer.ts` | dynamic | `post_update`, `ask_clarification`, `upload_file`, `set_autopilot`, `update_personality`, `get_app_settings`, `update_app_settings`, `get_project_config`, `update_project_config`, `set_recording_title`, `list_project_messages`, `test_webhook` |
+| `agentos-recordings` | `integrations/recordingsMcpServer.ts` | dynamic | `get_recording_meta`, `get_transcript`, `list_recordings`, `list_segments`, `get_window_transcript` |
+| `agentos-kanban` | `kanban/mcpServer.ts` | dynamic | `get_task`, `list_tasks`, `move_task`, `archive_task`, `create_task`, `update_task`, `list_subtasks`, `update_progress`, `add_note`, `list_stages`, `update_stage`, `spawn_stage_worker`, `report_stage_result`, dependency and due-date tools |
 | `execution-log` | `automations/executionLogMcpServer.ts` | dynamic | `log_execution` |
-| `agentos-council` | `mcp/councilMcpServer.ts` | dynamic | `council_submit_outcome` (exposed to coordinator/judge thread) |
+| `agentos-council` | `integrations/councilMcpServer.ts` | dynamic | `council_list_configs`, `council_upsert_config`, `council_dispatch`, `council_read_outcomes`, `council_await_completion` |
+| `agentos-autopilot` | `integrations/autopilotMcpServer.ts` | dynamic | `get_transcript`, `submit_autopilot_decision` (planner-only) |
 
 All servers use `@modelcontextprotocol/sdk` with a `StreamableHTTPServerTransport`.
 
-**Port allocation:** All MCP servers except `agentos-slack` use OS-assigned ports (bound to `:0`). The actual port is resolved at thread-start time via `resolveMcpPort()` in `threadStartup.ts` and injected into the container's MCP client config. `agentos-slack` remains at the hardcoded `SLACK_MCP_PORT` (3457) constant exported from `slackMcpServer.ts`.
+**Port allocation:** MCP servers use OS-assigned ports (bound to `:0`). The actual port is resolved at thread-start time via `resolveMcpPort()` in `threadStartup.ts` and injected into the container's MCP client config. Thread-view messaging and Slack echoing now live on `agentos-thread`.
 
 **Localhost auth bypass:** By default, requests to any MCP server from a loopback address (`127.0.0.1`, `::1`, `localhost`) skip bearer-token validation. This can be disabled by setting `AppSettings.mcpRequireAuth = true`.
 
@@ -267,8 +266,8 @@ Provides multi-agent project orchestration via a Kanban board.
 | `db.ts` | SQLite CRUD for `kanban_tasks`, `kanban_task_notes`, `kanban_wip_limits` (in the per-project memory DB) |
 | `service.ts` | Business logic: `create`, `move`, `assign`, `updateProgress`, `addNote`, `setWipLimit`, `list` |
 | `eventRouter.ts` | Listens to `kanban:taskMoved` internal bus events; routes transitions to the coordinator; prunes completed dev worktrees |
-| `mcpServer.ts` | MCP server exposing kanban tools: `list_tasks`, `create_task`, `move_task`, `assign_task`, `update_progress`, `add_note` |
-| `coordinator.ts` | Ensures a persistent coordinator thread per project; spawns/reuses specialist threads per task type |
+| `mcpServer.ts` | MCP server exposing task, stage, dependency, due-date, and stage-worker tools |
+| `taskMain.ts` / `StageWorkerService.ts` | Spawns one stage worker thread at a time and routes `report_stage_result` back to the task main thread |
 
 **Task statuses:** `backlog → researching → planning → implementing → reviewing → done` (plus `blocked` and `archived`). Stages are stored in the `kanban_stages` DB table and fully configurable per project. Task types (`dev | research | review | refine`) have been removed from the data model; all tasks are generic. The `saveToMemory` boolean on each stage replaces the old task-type-based auto-save.
 
@@ -403,16 +402,16 @@ sequenceDiagram
   participant TM as ThreadManager
   participant Q as ThreadInputQueue
   participant Docker as Docker Container
-  participant SlackMCP as agentos-slack MCP server
+  participant ThreadMCP as agentos-thread MCP server
   participant SlackAPI2 as Slack API (post)
 
   Slack-->>SB: Socket Mode message event
   SB->>SB: look up SlackThreadBinding in store
   SB->>TM: createThread() or sendInput(threadId, text, 'user')
   TM->>Q: enqueue
-  Q->>Docker: docker exec → claude --headless --append-system-prompt "...Slack context..."
-  Docker->>SlackMCP: HTTP POST /mcp → post_update(channel_id, thread_ts, message)
-  SlackMCP->>SB: post message
+  Q->>Docker: docker exec → claude --headless --append-system-prompt "...Thread view + Slack echo context..."
+  Docker->>ThreadMCP: HTTP POST /mcp → post_update(thread_id, message)
+  ThreadMCP->>SB: mirror bound update
   SB->>SlackAPI2: webClient.chat.postMessage(...)
 ```
 
@@ -468,7 +467,7 @@ The `useAppSync` hook wires IPC events to store mutations on mount. Components c
 - **ThreadManager** catches errors from `startThread`, `stopThread`, and per-turn execution and updates the thread's `status` to `'error'` in the store before broadcasting. Errors are also written to the event log.
 - **EventLogger** (`src/main/utils/eventLog.ts`) provides `debug`, `info`, `warn`, `error` methods. Entries are stored in a ring buffer (also persisted to `~/.agentos/eventlog.jsonl` when `persistDebugLogs` is true) and broadcast to the renderer as `IPC_EVENTS.LOG_ENTRY` events.
 - **Automation runner** wraps `executeRun` in try/catch; it must subscribe to `message:appended` before awaiting `sendInput()` because `sendInput()` resolves only after the turn has flushed its assistant message. `markRun(id, 'error', message)` records failures such as the 5-minute response timeout, and the job remains scheduled for the next interval.
-- **Provider failover** detects token-limit signals (`shouldFallbackToPlainClaude`, `detectTokenLimitSignal`) in raw output and transparently restarts the thread with the next provider.
+- **Provider fallback** is now narrow: mid-conversation provider failover has been removed; startup can still fall back from stream-JSON to plain Claude output inside the same provider when needed.
 
 ### Renderer process
 

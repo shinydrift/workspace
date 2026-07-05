@@ -1,5 +1,15 @@
 # Wiki Changelog
 
+## [2026-07-05]
+
+### Refresh
+- Updated documentation after code changed through `f251105` (`Guard capture playlist stale loads`).
+- Replaced stale Slack-only MCP references with the current `agentos-thread` MCP messaging/file-upload surface.
+- Refreshed meeting recording coverage for enabled feature flags, continuous 5-minute capture segments, time-window transcript tools, and recording templates.
+- Refreshed configuration docs around the canonical shared schema: `agents.providerOrder`, `agents.autopilot`, `runOnHost`, `tailscale`, `containers`, `personality`, and `recording`.
+- Updated Kanban docs for configurable stages, generic tasks, stage workers, dependencies, class of service, due dates, and `saveToMemory`.
+- Updated README metadata and MCP server inventory.
+
 ## [2026-05-22]
 
 ### Baseline
