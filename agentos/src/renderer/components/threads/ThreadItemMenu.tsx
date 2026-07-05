@@ -1,7 +1,16 @@
 import React from 'react';
 import type { Thread } from '../../../shared/types';
 import { useUIStore } from '../../store/uiStore';
-import { DotsThreeVertical } from '@phosphor-icons/react';
+import {
+  Archive,
+  ChatCircleText,
+  Check,
+  DotsThreeVertical,
+  PencilSimple,
+  StopCircle,
+  Terminal,
+  TextAlignLeft,
+} from '@phosphor-icons/react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -21,6 +30,7 @@ interface Props {
 
 export function ThreadItemMenu({ thread, onOpenChange, onStop, onStartRename, onArchive }: Props) {
   const { threadView, setThreadView } = useUIStore();
+  const activeIcon = <Check className="h-3.5 w-3.5 text-emerald-500" weight="bold" />;
 
   return (
     <DropdownMenu onOpenChange={onOpenChange}>
@@ -31,21 +41,33 @@ export function ThreadItemMenu({ thread, onOpenChange, onStop, onStartRename, on
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-40">
         <DropdownMenuItem onSelect={() => setThreadView('thread')}>
-          <span className="w-3 text-xs">{threadView === 'thread' ? '✓' : ''}</span>
+          <span className="flex w-4 items-center justify-center">{threadView === 'thread' ? activeIcon : null}</span>
+          <TextAlignLeft className="text-muted-foreground" />
           Thread
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={() => setThreadView('chat')}>
-          <span className="w-3 text-xs">{threadView === 'chat' ? '✓' : ''}</span>
+          <span className="flex w-4 items-center justify-center">{threadView === 'chat' ? activeIcon : null}</span>
+          <ChatCircleText className="text-muted-foreground" />
           Chat
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={() => setThreadView('terminal')}>
-          <span className="w-3 text-xs">{threadView === 'terminal' ? '✓' : ''}</span>
+          <span className="flex w-4 items-center justify-center">{threadView === 'terminal' ? activeIcon : null}</span>
+          <Terminal className="text-muted-foreground" />
           Terminal
         </DropdownMenuItem>
         <DropdownMenuSeparator />
-        {thread.status === 'running' && <DropdownMenuItem onSelect={onStop}>Stop</DropdownMenuItem>}
-        <DropdownMenuItem onSelect={onStartRename}>Rename</DropdownMenuItem>
+        {thread.status === 'running' && (
+          <DropdownMenuItem onSelect={onStop}>
+            <StopCircle className="text-muted-foreground" />
+            Stop
+          </DropdownMenuItem>
+        )}
+        <DropdownMenuItem onSelect={onStartRename}>
+          <PencilSimple className="text-muted-foreground" />
+          Rename
+        </DropdownMenuItem>
         <DropdownMenuItem onSelect={onArchive} className="text-destructive focus:text-destructive">
+          <Archive />
           Archive
         </DropdownMenuItem>
       </DropdownMenuContent>
