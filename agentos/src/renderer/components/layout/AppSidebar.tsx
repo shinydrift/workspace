@@ -1,6 +1,6 @@
 import React from 'react';
 import { cn } from '@/lib/utils';
-import { NotePencil, Clock, ChartBar, Funnel, Microphone } from '@phosphor-icons/react';
+import { PlusIcon, ClockIcon, ChartBarIcon, FunnelIcon, MicrophoneIcon } from '@phosphor-icons/react';
 import { Button } from '@/components/ui/button';
 import { NavButton } from '@/components/ui/nav-button';
 import { DragHandle } from '../../hooks/useDragResize';
@@ -8,10 +8,10 @@ import { ThreadList } from '../threads/ThreadList';
 import type { Thread } from '../../../shared/types';
 
 const BASE_NAV_ITEMS = [
-  { key: 'new-thread' as const, label: 'New thread', Icon: NotePencil },
-  { key: 'automations' as const, label: 'Automations', Icon: Clock },
-  { key: 'usage' as const, label: 'Usage', Icon: ChartBar },
-  { key: 'meetings' as const, label: 'Meetings', Icon: Microphone },
+  { key: 'new-thread' as const, label: 'New thread', Icon: PlusIcon },
+  { key: 'automations' as const, label: 'Automations', Icon: ClockIcon },
+  { key: 'usage' as const, label: 'Usage', Icon: ChartBarIcon },
+  { key: 'meetings' as const, label: 'Meetings', Icon: MicrophoneIcon },
 ];
 
 interface Props {
@@ -73,7 +73,7 @@ export function AppSidebar({
             title="Filter"
             aria-label="Filter"
           >
-            <Funnel className={cn('h-4 w-4', hasActiveThreadFilter ? 'text-foreground' : '')} />
+            <FunnelIcon className={cn('h-4 w-4', hasActiveThreadFilter ? 'text-foreground' : '')} />
           </Button>
         </div>
       </div>
