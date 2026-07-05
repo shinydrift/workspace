@@ -57,8 +57,12 @@ test('normalizeTerminalText strips BELL characters', () => {
 
 // ── cleanupLines ──────────────────────────────────────────────────────────────
 
-test('cleanupLines removes blank lines', () => {
-  assert.deepEqual(cleanupLines('hello\n\nworld\n\n'), ['hello', 'world']);
+test('cleanupLines preserves a single blank line between paragraphs, drops leading/trailing', () => {
+  assert.deepEqual(cleanupLines('hello\n\nworld\n\n'), ['hello', '', 'world']);
+});
+
+test('cleanupLines collapses runs of blank lines and trims leading blanks', () => {
+  assert.deepEqual(cleanupLines('\n\nhello\n\n\n\nworld'), ['hello', '', 'world']);
 });
 
 test('cleanupLines strips trailing whitespace from lines', () => {

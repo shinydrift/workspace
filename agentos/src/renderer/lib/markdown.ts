@@ -34,6 +34,7 @@ const SANITIZE_TAGS = [
   'a',
   'b',
   'blockquote',
+  'br',
   'button',
   'code',
   'del',
