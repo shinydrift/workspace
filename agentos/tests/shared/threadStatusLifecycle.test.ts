@@ -113,6 +113,13 @@ test('live: autopilot settled (stopped/blocked) → null (terminal ✅ takes ove
   assert.equal(deriveLiveThreadPostStatus('idle', true, 'blocked', false), null);
 });
 
+test('live: startup states (building/stopped) with autopilot → null, not 🤖 (no flash before 👀)', () => {
+  // The between-turns 🤖 is for the armed idle loop only; a queued user turn spinning up must not
+  // flash 🤖 during stopped→building before it reaches running and resolves to 👀.
+  assert.equal(deriveLiveThreadPostStatus('building', true, 'idle', false), null);
+  assert.equal(deriveLiveThreadPostStatus('stopped', true, 'idle', false), null);
+});
+
 test('live: council pending → council, with or without autopilot', () => {
   assert.equal(deriveLiveThreadPostStatus('running', false, undefined, true), 'council');
   assert.equal(deriveLiveThreadPostStatus('idle', false, undefined, true), 'council');
@@ -204,8 +211,14 @@ test('reconcile: status goes quiet → KEEP a settled ✅/❌ (a later stopped/a
   assert.deepEqual(reconcileReaction('x', null), {});
 });
 
-test('reconcile: a new turn replaces a settled ✅ with the live badge', () => {
-  assert.deepEqual(reconcileReaction('white_check_mark', 'eyes'), { remove: 'white_check_mark', add: 'eyes' });
+test('reconcile: a settled ✅/❌ is sticky — a transient must not downgrade it', () => {
+  assert.deepEqual(reconcileReaction('white_check_mark', 'eyes'), {});
+  assert.deepEqual(reconcileReaction('white_check_mark', 'robot_face'), {});
+  assert.deepEqual(reconcileReaction('x', 'classical_building'), {});
+});
+
+test('reconcile: a terminal→terminal change (✅→❌) still applies', () => {
+  assert.deepEqual(reconcileReaction('white_check_mark', 'x'), { remove: 'white_check_mark', add: 'x' });
 });
 
 // ── Notifications (deriveStatusNotification) ──────────────────────────────────

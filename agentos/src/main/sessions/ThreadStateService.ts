@@ -107,13 +107,17 @@ export class ThreadStateService {
   // Generic broadcast with optional overrides
   broadcastCurrentStatus(threadId: string, overrides?: { provider?: Provider; exitCode?: number }): void {
     const thread = threadStore.getThread(threadId);
+    const queueDepth = this.getQueueDepth(threadId);
     broadcastStatus({
       threadId,
-      status: thread?.status ?? 'stopped',
+      // Normalize like broadcastAutopilotStatus: a headless thread's DB status stays 'running' while its
+      // container keeper is alive even with no active turn, so the raw status would re-derive 👀 working
+      // and clobber a settled ✅ on Slack (the thread view is immune — its terminal post status is locked).
+      status: this.effectiveStatusForLifecycle(threadId, thread?.status ?? 'stopped', queueDepth),
       provider: overrides?.provider ?? thread?.provider,
       pid: this.getPid(threadId),
       exitCode: overrides?.exitCode,
-      queueDepth: this.getQueueDepth(threadId),
+      queueDepth,
       autopilotEnabled: thread?.autopilotEnabled,
       autopilotState: thread?.autopilotState,
       sessionStartedAt: this.store.sessionStartedAts.get(threadId),

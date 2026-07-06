@@ -14,6 +14,7 @@ import type {
 import { IPC_EVENTS } from '../../shared/types';
 import { slackBridge } from '../integrations/slackBridge';
 import { emitMessageAppended, emitThreadIdle } from '../events';
+import { eventLogger } from '../utils/eventLog';
 import { threadPostsStore } from './threadPostsStore';
 import { deriveThreadDisplayStatus, deriveStatusNotification } from '../../shared/threadStatusLifecycle';
 import { councilService } from '../council/service';
@@ -43,6 +44,18 @@ export function broadcastStatus(payload: ThreadStatusEvent): void {
   // render it as-is — and persist it on the thread so it survives an app restart.
   const councilPending = councilService.hasPendingRunForThread(payload.threadId);
   const event: ThreadStatusEvent = { ...payload, reaction: deriveThreadDisplayStatus(payload, councilPending) };
+  // DEBUG(autopilot-reaction): trace the derivation inputs so we can see why 🤖 precedes 👀 when
+  // autopilot is on — which broadcast fires with what status/autopilotState and what it resolves to.
+  if (payload.autopilotEnabled) {
+    eventLogger.info('thread', 'DEBUG autopilot reaction derivation', {
+      threadId: payload.threadId,
+      status: payload.status,
+      autopilotState: payload.autopilotState,
+      councilPending,
+      queueDepth: payload.queueDepth,
+      reaction: event.reaction,
+    });
+  }
   const existing = threadStore.getThread(event.threadId);
   if (existing) {
     // Compare against the previously-persisted reaction before overwriting it — the notification
@@ -80,6 +93,9 @@ export function broadcastThreadPostAppended(payload: ThreadPostAppendedEvent): v
 }
 
 export function broadcastThreadPostUpdated(payload: ThreadPostUpdatedEvent): void {
+  // Slack terminal reactions (✅/❌) mirror the post's persisted status from here — the single source of
+  // truth — instead of being re-derived from status events (see slackBridge.onThreadStatus).
+  slackBridge.onThreadPostUpdated(payload);
   broadcastToWindows(IPC_EVENTS.THREAD_POST_UPDATED, payload);
 }
 

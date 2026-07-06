@@ -2,7 +2,13 @@ import { SocketModeClient } from '@slack/socket-mode';
 import { WebClient } from '@slack/web-api';
 import { open } from 'fs/promises';
 import { getErrorMessage } from '../../shared/utils/errorMessage';
-import type { AppSettings, Message, SlackChannelOption, ThreadStatusEvent } from '../../shared/types';
+import type {
+  AppSettings,
+  Message,
+  SlackChannelOption,
+  ThreadStatusEvent,
+  ThreadPostUpdatedEvent,
+} from '../../shared/types';
 import { DEFAULT_SLACK_SETTINGS, parseAutopilotDecision } from '../../shared/types';
 import { getStore, setSettings } from '../store/index';
 import { BaseBridge } from './BaseBridge';
@@ -204,8 +210,29 @@ class SlackBridge extends BaseBridge<SlackBridgeDeps> {
    */
   onThreadStatus(payload: ThreadStatusEvent): void {
     if (!this.readSlackSettings().enabled) return;
+    // Terminal reactions (✅/❌) are driven by onThreadPostUpdated from the post's persisted status — the
+    // same source of truth the thread view renders — so here we only project the transient indicator
+    // (👀/🤖/🏛️) or clear it. Skipping terminal events keeps Slack from independently re-deriving the
+    // settled icon; the in-flight transient stays until the post resolves and onThreadPostUpdated lands ✅.
     const emoji = payload.reaction ? THREAD_STATUS_SLACK_EMOJI[payload.reaction] : null;
+    if (emoji && TERMINAL_THREAD_REACTION_EMOJI.has(emoji)) return;
     for (const binding of this.workspaceManager.bindingsForThread(payload.threadId)) {
+      if (!binding.lastInboundTs) continue;
+      this.projectReaction(binding.key, binding.channelId, binding.lastInboundTs, emoji);
+    }
+  }
+
+  /**
+   * Terminal reactions (✅ done / ❌ error) mirror the thread-view prompt post's persisted status — the
+   * single source of truth — rather than being re-derived from status events. Fired whenever a prompt
+   * post resolves (threadPostsStore.setStatus → broadcastThreadPostUpdated).
+   */
+  onThreadPostUpdated(payload: ThreadPostUpdatedEvent): void {
+    if (!this.readSlackSettings().enabled) return;
+    const { threadId, post } = payload;
+    if (post.kind !== 'prompt' || !post.status) return;
+    const emoji = THREAD_STATUS_SLACK_EMOJI[post.status];
+    for (const binding of this.workspaceManager.bindingsForThread(threadId)) {
       if (!binding.lastInboundTs) continue;
       this.projectReaction(binding.key, binding.channelId, binding.lastInboundTs, emoji);
     }

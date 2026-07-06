@@ -57,10 +57,12 @@ export function deriveTerminalThreadPostStatus(payload: ThreadStatusEvent): Thre
  * and never sticks across a restart or interrupt.
  *
  * A running turn shows 👀 unless autopilot queued it (thinking/sent) — 🤖 marks autopilot's own
- * activity, not merely that the toggle is on. Between turns, an enabled autopilot holds 🤖 rather
- * than resolving to ✅: the loop may run many turns, and ✅ only lands once it settles
- * (stopped/blocked) — that path is terminal (see deriveTerminalThreadPostStatus) and wins in display.
- * A pending council run overrides everything: 🏛️ is the working indicator while members deliberate.
+ * activity, not merely that the toggle is on. Between turns (the thread sits at `idle` with the loop
+ * armed), an enabled autopilot holds 🤖 rather than resolving to ✅: the loop may run many turns, and ✅
+ * only lands once it settles (stopped/blocked) — that path is terminal (see
+ * deriveTerminalThreadPostStatus) and wins in display. The `idle` guard matters: transient startup
+ * states (`building`/`stopped` while a user turn is queued) must not flash 🤖 before the turn reaches
+ * `running` and resolves to 👀. A pending council run overrides everything: 🏛️ while members deliberate.
  */
 export function deriveLiveThreadPostStatus(
   status: ThreadStatus,
@@ -72,7 +74,8 @@ export function deriveLiveThreadPostStatus(
   if (status === 'running') {
     return autopilotState === 'thinking' || autopilotState === 'sent' ? 'autopilot' : 'working';
   }
-  if (autopilotEnabled && autopilotState !== 'stopped' && autopilotState !== 'blocked') return 'autopilot';
+  if (status === 'idle' && autopilotEnabled && autopilotState !== 'stopped' && autopilotState !== 'blocked')
+    return 'autopilot';
   return null;
 }
 
@@ -140,9 +143,10 @@ export function deriveThreadReactionEmoji(payload: ThreadStatusEvent, councilPen
 
 /**
  * Decides how the reaction on a single message should change, given what's currently shown (`prev`)
- * and what the live status now wants (`desired`, null = no reaction). A settled ✅/❌ is kept when the
- * status goes quiet (`desired === null`) — the in-app badge keeps the persisted terminal too, so a
- * later idle/stopped/archived broadcast must not erase it. Pure so the reaction projection is testable.
+ * and what the live status now wants (`desired`, null = no reaction). A settled ✅/❌ is sticky: it is
+ * kept when the status goes quiet (`desired === null`) AND never downgraded by a transient 👀/🤖/🏛️ —
+ * this mirrors the frozen terminal status on the thread-view post, so Slack can't drift back to working
+ * after a turn settles. A terminal→terminal change (✅→❌) still applies. Pure so it stays testable.
  */
 export function reconcileReaction(prev: string | undefined, desired: string | null): { remove?: string; add?: string } {
   if (!desired) {
@@ -150,5 +154,6 @@ export function reconcileReaction(prev: string | undefined, desired: string | nu
     return {};
   }
   if (prev === desired) return {};
+  if (prev && TERMINAL_THREAD_REACTION_EMOJI.has(prev) && !TERMINAL_THREAD_REACTION_EMOJI.has(desired)) return {};
   return { ...(prev ? { remove: prev } : {}), add: desired };
 }

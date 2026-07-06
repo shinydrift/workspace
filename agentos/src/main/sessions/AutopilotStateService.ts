@@ -72,6 +72,7 @@ export class AutopilotStateService {
     const thread = threadStore.getThread(threadId);
     if (!thread) throw new Error(`Thread ${threadId} not found`);
 
+    const enabledChanged = thread.autopilotEnabled !== enabled;
     const patch = {
       autopilotEnabled: enabled,
       autopilotState: (enabled ? 'idle' : 'stopped') as Thread['autopilotState'],
@@ -79,7 +80,10 @@ export class AutopilotStateService {
       autopilotConsecutiveTurns: 0,
     };
     threadStore.updateThread(threadId, patch);
-    this.broadcastAutopilotStatus(threadId, { ...thread, ...patch });
+    // Broadcast only on an actual enable/disable transition. A redundant re-enable — every Slack reply
+    // fires this while the channel default keeps autopilot on — would otherwise flash an armed-idle 🤖 a
+    // frame before the queued user turn resolves to 👀 (and churn the Slack reaction).
+    if (enabledChanged) this.broadcastAutopilotStatus(threadId, { ...thread, ...patch });
 
     if (enabled && options?.triggerAfterTurn !== false) {
       const lastMsg = this.listMessages(threadId).at(-1);
