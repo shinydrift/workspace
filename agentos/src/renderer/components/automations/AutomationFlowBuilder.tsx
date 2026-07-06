@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useRef } from 'react';
-import { ContentCard } from '@/components/ui/content-card';
 import { Textarea } from '@/components/ui/textarea';
 import { useDragResize, DragHandle } from '../../hooks/useDragResize';
 import type { AutomationJob, SavedProject } from '../../../shared/types';
@@ -75,7 +74,7 @@ export function AutomationFlowBuilder({
   const nextRunLabel = computedNextRun && !NON_TIME_NEXT_RUN.includes(computedNextRun) ? computedNextRun : null;
 
   return (
-    <ContentCard>
+    <div className="flex h-full flex-col overflow-hidden bg-card">
       <FlowBuilderHeader
         name={editing.name}
         enabled={editing.enabled}
@@ -93,12 +92,12 @@ export function AutomationFlowBuilder({
         <div className="relative flex-1 min-h-0">
           <ScrollFade />
           <ScrollArea className="h-full">
-            <div className="flex flex-col px-12 py-8 relative">
+            <div className="flex flex-col min-h-full px-12 py-8 relative">
               <Textarea
                 value={editing.instructions}
                 onChange={(e) => patch('instructions', e.target.value)}
                 placeholder="Add prompt e.g. look for crashes in $sentry"
-                className="w-full border-none bg-transparent shadow-none focus-visible:ring-0 rounded-none resize-none text-sm leading-relaxed min-h-[300px] px-0 py-0"
+                className="w-full flex-1 border-none bg-transparent shadow-none focus-visible:ring-0 rounded-none resize-none text-sm leading-relaxed px-0 py-0"
               />
             </div>
           </ScrollArea>
@@ -109,6 +108,6 @@ export function AutomationFlowBuilder({
           <RightPanel editing={editing} patch={patch} job={job} projects={projects} />
         </ScrollArea>
       </div>
-    </ContentCard>
+    </div>
   );
 }
