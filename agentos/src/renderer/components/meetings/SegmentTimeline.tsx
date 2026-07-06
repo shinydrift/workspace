@@ -13,7 +13,8 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
 const WINDOW_MS = 7 * DAY_MS;
 const DEFAULT_SELECTION_MS = HOUR_MS;
-const TIMELINE_HEIGHT = 3024; // 18px/hour across the retention window.
+const HOUR_PX = 48; // Calendar-legible hour height.
+const TIMELINE_HEIGHT = (WINDOW_MS / HOUR_MS) * HOUR_PX; // Hourly grid across the retention window.
 const MERGE_GAP_MS = 90 * 1000; // Bridge tiny gaps so captured audio reads as one continuous stretch.
 const TIMELINE_LANE_CLASS = 'inset-x-2';
 
@@ -37,6 +38,16 @@ function fmtRange(from: number, to: number): string {
 
 function fmtDay(ts: number): string {
   return new Date(ts).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+}
+
+function fmtHour(ts: number): string {
+  return new Date(ts).toLocaleTimeString('en-US', { hour: 'numeric' });
+}
+
+// Compact clock range shown inside the selection block, e.g. "6:30 PM – 7:30 PM".
+function fmtClockRange(from: number, to: number): string {
+  const opts: Intl.DateTimeFormatOptions = { hour: 'numeric', minute: '2-digit' };
+  return `${new Date(from).toLocaleTimeString('en-US', opts)} – ${new Date(to).toLocaleTimeString('en-US', opts)}`;
 }
 
 function clampFrac(value: number): number {
@@ -357,7 +368,10 @@ export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps
 
   if (!active && segments.length === 0) return null;
 
-  const dayLines = Array.from({ length: 8 }, (_, i) => from + i * DAY_MS);
+  const hourMarks: Array<{ ts: number; isDay: boolean }> = [];
+  for (let ts = Math.ceil(from / HOUR_MS) * HOUR_MS; ts <= now; ts += HOUR_MS) {
+    hourMarks.push({ ts, isDay: new Date(ts).getHours() === 0 });
+  }
 
   return (
     <>
@@ -405,17 +419,17 @@ export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps
               <div className="p-5">
                 <div className="flex gap-2" style={{ height: TIMELINE_HEIGHT }}>
                   <div className="relative w-20 shrink-0">
-                    {dayLines.map((ts, i) =>
-                      i >= 1 ? (
-                        <span
-                          key={ts}
-                          className="absolute right-1.5 translate-y-0.5 whitespace-nowrap text-[11px] font-medium text-muted-foreground/80"
-                          style={{ top: `${posFromFrac(i / 7)}%` }}
-                        >
-                          {i === 7 ? 'Today' : fmtDay(ts)}
-                        </span>
-                      ) : null
-                    )}
+                    {hourMarks.map(({ ts, isDay }) => (
+                      <span
+                        key={ts}
+                        className={`absolute right-1.5 -translate-y-1/2 whitespace-nowrap text-[11px] ${
+                          isDay ? 'font-semibold text-foreground/80' : 'text-muted-foreground/70'
+                        }`}
+                        style={{ top: `${posFromFrac((ts - from) / WINDOW_MS)}%` }}
+                      >
+                        {isDay ? fmtDay(ts) : fmtHour(ts)}
+                      </span>
+                    ))}
                   </div>
                   <div
                     ref={trackRef}
@@ -428,11 +442,11 @@ export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps
                       else setStartFrac(Math.min(frac, endFrac - 0.002));
                     }}
                   >
-                    {dayLines.map((ts, i) => (
+                    {hourMarks.map(({ ts, isDay }) => (
                       <div
                         key={ts}
-                        className="absolute inset-x-0 border-t border-border/50"
-                        style={{ top: `${posFromFrac(i / 7)}%` }}
+                        className={`absolute inset-x-0 border-t ${isDay ? 'border-border' : 'border-border/40'}`}
+                        style={{ top: `${posFromFrac((ts - from) / WINDOW_MS)}%` }}
                       />
                     ))}
 
@@ -451,9 +465,13 @@ export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps
                     })}
 
                     <div
-                      className={`absolute ${TIMELINE_LANE_CLASS} rounded-md border border-blue-400/70 bg-blue-400/15 pointer-events-none`}
+                      className={`absolute ${TIMELINE_LANE_CLASS} overflow-hidden rounded-md border border-blue-400/70 bg-blue-400/20 pointer-events-none`}
                       style={{ top: `${posFromFrac(endFrac)}%`, height: `${(endFrac - startFrac) * 100}%` }}
-                    />
+                    >
+                      <p className="whitespace-nowrap px-2 py-1 text-[11px] font-medium text-foreground/90">
+                        {fmtClockRange(selFrom, selTo)}
+                      </p>
+                    </div>
 
                     {(['start', 'end'] as const).map((which) => (
                       <div
@@ -472,6 +490,15 @@ export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps
                         <div className="h-1 rounded-full bg-blue-400 shadow-sm" />
                       </div>
                     ))}
+
+                    <div
+                      className="pointer-events-none absolute inset-x-0 z-20 -translate-y-1/2"
+                      style={{ top: `${posFromFrac(1)}%` }}
+                    >
+                      <div className="relative h-0.5 bg-red-500">
+                        <span className="absolute left-0 top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-red-500" />
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
