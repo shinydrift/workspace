@@ -263,7 +263,9 @@ export class TurnExecutor {
       } else {
         this.autopilot.maybeRunAfterTurn(threadId, source);
       }
-      if (!wasThisTurnInterrupted && this.store.ptys.has(threadId) && this.inputQueue.queueDepth(threadId) === 0) {
+      // queueDepth includes the still-executing turn (spliced off only after this callback returns),
+      // so "no pending follow-up" means depth <= 1, not === 0.
+      if (!wasThisTurnInterrupted && this.store.ptys.has(threadId) && this.inputQueue.queueDepth(threadId) <= 1) {
         this.stateService.broadcastIdle(threadId);
       }
     } catch (error) {
@@ -274,9 +276,10 @@ export class TurnExecutor {
         this.store.threadPostTurnIds.delete(threadId);
       }
     }
-    if (wasThisTurnInterrupted) {
-      throw new Error('Interrupted by user input');
-    }
+    // Interruption by the user's next message is expected, not a failure. The interrupting message is
+    // already persisted and displayed, and the queue advances to it regardless — so resolve cleanly
+    // instead of throwing, which would reject the interrupted message's IPC call and surface a spurious
+    // "Interrupted by user input" error to the renderer.
   }
 
   // ---------------------------------------------------------------------------

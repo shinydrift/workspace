@@ -1,3 +1,4 @@
+import { execFile } from 'child_process';
 import * as threadStore from '../threads/threadStore';
 import { eventLogger } from '../utils/eventLog';
 import { emitTurnEnded } from '../events';
@@ -105,6 +106,41 @@ export class ThreadInputService {
     this.output.clearPendingOutput(threadId);
 
     activeTurn.cancel();
+    // cancel() kills only the host-side `docker exec` client; Docker does not forward that to the agent
+    // CLI running inside the container, so it keeps executing — an orphaned process that runs concurrently
+    // with the next turn and writes the same resumed session. Kill the in-container process directly,
+    // matching this turn's unique turn id so the next turn's process is left untouched.
+    const orphanTurnId = this.store.threadPostTurnIds.get(threadId);
+    if (activeTurn.kind === 'headless' && orphanTurnId) {
+      // The sandbox image has no procps (no pkill/pgrep/ps), so scan /proc directly. The turn id is
+      // passed via env ($T), not the script text, so the scanning shell's own cmdline can't self-match;
+      // $$ is skipped as belt-and-suspenders. Uses only /bin/sh, grep, and the kill builtin.
+      execFile(
+        'docker',
+        [
+          'exec',
+          '-e',
+          `T=${orphanTurnId}`,
+          `agentos-session-${threadId}`,
+          'sh',
+          '-c',
+          'for p in /proc/[0-9]*; do [ "${p#/proc/}" = "$$" ] && continue; ' +
+            'grep -qa "$T" "$p/cmdline" 2>/dev/null && kill -9 "${p#/proc/}" 2>/dev/null; done',
+        ],
+        { encoding: 'utf8' },
+        (err) => {
+          // The scan exits 1 when the final /proc entry doesn't match (benign) — only surface real
+          // failures (container gone, sh missing, etc.).
+          if (err && err.code !== 1) {
+            eventLogger.warn('thread', 'Failed to kill orphaned in-container turn', {
+              threadId,
+              orphanTurnId,
+              error: String(err),
+            });
+          }
+        }
+      );
+    }
     this.store.activeTurns.delete(threadId);
     this.store.activeTurnProcs.delete(threadId);
     this.store.threadPostTurnIds.delete(threadId);
