@@ -76,7 +76,7 @@ end tell'`,
       { timeout: 1500, killSignal: 'SIGKILL' },
       (err, stdout, stderr) => {
         if (err) {
-          // Almost always a missing "Automation → System Events" grant (or timeout). Log the
+          // osascript failed — permission denial, timeout, or a script compile error. Log the
           // details so a null frontmostApp (which silently routes to a new thread) is diagnosable.
           eventLogger.warn(LOG, 'checkFrontmostApp osascript failed', {
             message: err.message,
@@ -89,7 +89,9 @@ end tell'`,
         const sep = stdout.indexOf('\x1f');
         const name = sep > 0 ? stdout.slice(0, sep) : null;
         const role = sep >= 0 ? stdout.slice(sep + 1).trim() : '';
-        eventLogger.info(LOG, 'checkFrontmostApp resolved', {
+        // debug level: gated behind persistDebugLogs so it doesn't write on every push-to-talk,
+        // but stays available for on-device diagnosis when that setting is enabled.
+        eventLogger.debug(LOG, 'checkFrontmostApp resolved', {
           name,
           role,
           isTextField: TEXT_FIELD_ROLES.has(role),
