@@ -75,8 +75,14 @@ function checkFrontmostApp(): Promise<FrontmostAppInfo> {
   return n & (ASCII character 31) & r
 end tell'`,
       { timeout: 1500, killSignal: 'SIGKILL' },
-      (err, stdout) => {
+      (err, stdout, stderr) => {
         if (err) {
+          // Almost always a missing "Automation → System Events" grant (or timeout). Log the
+          // details so a null frontmostApp (which silently routes to a new thread) is diagnosable.
+          eventLogger.warn(LOG, 'checkFrontmostApp osascript failed', {
+            message: err.message,
+            stderr: (stderr || '').trim(),
+          });
           resolve({ name: null, isTextField: false });
           return;
         }
@@ -84,6 +90,11 @@ end tell'`,
         const sep = stdout.indexOf('\x1f');
         const name = sep > 0 ? stdout.slice(0, sep) : null;
         const role = sep >= 0 ? stdout.slice(sep + 1).trim() : '';
+        eventLogger.info(LOG, 'checkFrontmostApp resolved', {
+          name,
+          role,
+          isTextField: TEXT_FIELD_ROLES.has(role),
+        });
         resolve({ name, isTextField: TEXT_FIELD_ROLES.has(role) });
       }
     );
