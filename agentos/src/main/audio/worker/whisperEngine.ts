@@ -8,7 +8,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { initWhisper, type WhisperContext } from '@fugood/whisper.node';
-import { downloadModel, modelFilePath, resolveModel } from '../whisperModels';
+import { downloadModel, modelFilePath, resolveModel, whisperLanguage } from '../whisperModels';
 
 export interface WhisperEngineHooks {
   onDownloadProgress: (model: string, percent: number) => void;
@@ -65,7 +65,7 @@ export class WhisperEngine {
       const tmpWav = path.join(tmpDir, 'input.wav');
       await fs.promises.writeFile(tmpWav, audio);
       const { promise } = ctx.transcribeFile(tmpWav, {
-        language: 'auto',
+        language: whisperLanguage(model),
         onNewSegments: (result) => {
           // Use result.result (full accumulated text) rather than joining new
           // segments to avoid double-spacing from the STT engine's leading-space convention.
@@ -110,7 +110,7 @@ export class WhisperEngine {
       }
     }
     try {
-      const { promise } = ctx.transcribeFile(wavPath, { language: 'auto', onNewSegments: () => {} });
+      const { promise } = ctx.transcribeFile(wavPath, { language: whisperLanguage(model), onNewSegments: () => {} });
       const result = await promise;
       return (result.result ?? '').trim();
     } finally {

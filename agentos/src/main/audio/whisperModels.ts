@@ -29,6 +29,15 @@ export function resolveModel(model: string | undefined | null): VoiceModel {
   return model && ALLOWED_MODELS.has(model as VoiceModel) ? (model as VoiceModel) : DEFAULT_MODEL;
 }
 
+/**
+ * Language to pass to whisper for a model. English-only (`*.en`) models were not trained for
+ * language detection — running it (`language: 'auto'`) makes them pick a random language token
+ * at ~1/99 confidence and decode gibberish — so pin them to English. Multilingual models auto-detect.
+ */
+export function whisperLanguage(model: string | undefined | null): 'en' | 'auto' {
+  return resolveModel(model).endsWith('.en') ? 'en' : 'auto';
+}
+
 export function modelsDir(userDataPath: string): string {
   return path.join(userDataPath, 'whisper-models');
 }
