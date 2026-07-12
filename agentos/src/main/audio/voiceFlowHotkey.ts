@@ -67,10 +67,9 @@ function checkFrontmostApp(): Promise<FrontmostAppInfo> {
       `osascript -e 'tell application "System Events"
   set p to first process whose frontmost is true
   set n to name of p
+  set r to ""
   try
-    set r to role of focused UI element of front window of p
-  on error
-    set r to ""
+    set r to value of attribute "AXRole" of (value of attribute "AXFocusedUIElement" of p)
   end try
   return n & (ASCII character 31) & r
 end tell'`,
