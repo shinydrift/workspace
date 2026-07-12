@@ -293,13 +293,18 @@ export function registerMiscHandlers(): void {
           const activateScript = targetApp
             ? `tell application "System Events" to set frontmost of process "${targetApp}" to true`
             : '';
+          // The trailing `delay 0.2` keeps the transcript on the clipboard until the target app
+          // has actually consumed the Cmd+V. osascript returns as soon as it POSTS the keystroke,
+          // but the app reads the clipboard a beat later from its own run loop — without this delay
+          // the finally-block below restores the previous clipboard first and the app pastes that
+          // stale content instead of the transcript.
           const script = activateScript
             ? `${activateScript}
 delay 0.1
-tell application "System Events" to tell process "${targetApp}" to key code 51
-tell application "System Events" to tell process "${targetApp}" to keystroke "v" using command down`
-            : `tell application "System Events" to key code 51
-tell application "System Events" to keystroke "v" using command down`;
+tell application "System Events" to tell process "${targetApp}" to keystroke "v" using command down
+delay 0.2`
+            : `tell application "System Events" to keystroke "v" using command down
+delay 0.2`;
           await execFileAsync('osascript', ['-e', script], { timeout: 3000, killSignal: 'SIGKILL' });
         }
       } finally {
