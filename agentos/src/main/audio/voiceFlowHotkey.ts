@@ -67,16 +67,21 @@ function checkFrontmostApp(): Promise<FrontmostAppInfo> {
       `osascript -e 'tell application "System Events"
   set p to first process whose frontmost is true
   set n to name of p
+  set r to ""
   try
-    set r to role of focused UI element of front window of p
-  on error
-    set r to ""
+    set r to value of attribute "AXRole" of (value of attribute "AXFocusedUIElement" of p)
   end try
   return n & (ASCII character 31) & r
 end tell'`,
       { timeout: 1500, killSignal: 'SIGKILL' },
-      (err, stdout) => {
+      (err, stdout, stderr) => {
         if (err) {
+          // osascript failed — permission denial, timeout, or a script compile error. Log the
+          // details so a null frontmostApp (which silently routes to a new thread) is diagnosable.
+          eventLogger.warn(LOG, 'checkFrontmostApp osascript failed', {
+            message: err.message,
+            stderr: (stderr || '').trim(),
+          });
           resolve({ name: null, isTextField: false });
           return;
         }
@@ -84,6 +89,13 @@ end tell'`,
         const sep = stdout.indexOf('\x1f');
         const name = sep > 0 ? stdout.slice(0, sep) : null;
         const role = sep >= 0 ? stdout.slice(sep + 1).trim() : '';
+        // debug level: gated behind persistDebugLogs so it doesn't write on every push-to-talk,
+        // but stays available for on-device diagnosis when that setting is enabled.
+        eventLogger.debug(LOG, 'checkFrontmostApp resolved', {
+          name,
+          role,
+          isTextField: TEXT_FIELD_ROLES.has(role),
+        });
         resolve({ name, isTextField: TEXT_FIELD_ROLES.has(role) });
       }
     );
