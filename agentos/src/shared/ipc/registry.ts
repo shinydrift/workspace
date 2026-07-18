@@ -206,6 +206,7 @@ export type IPCMap = {
     output: void;
   };
   'shell:openAttachment': { input: { name: string; data: ArrayBuffer }; output: void };
+  'shell:openPath': { input: { path: string }; output: void };
 
   // Analytics
   'analytics:getSessionMetrics': { input: { threadId: string }; output: SessionMetrics | null };
@@ -446,6 +447,7 @@ export const TYPED_CHANNEL_SET: ReadonlySet<string> = new Set<IPCChannel>([
   'shell:openInEditor',
   'shell:openFolderTarget',
   'shell:openAttachment',
+  'shell:openPath',
   'log:getHistory',
   'health:run',
   'audio:transcribe',

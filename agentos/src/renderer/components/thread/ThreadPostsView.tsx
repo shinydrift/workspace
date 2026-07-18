@@ -71,10 +71,15 @@ const PostRow = memo(function PostRow({ post, live }: { post: ThreadPost; live: 
           dangerouslySetInnerHTML={{ __html: html }}
         />
         {post.attachment && (
-          <div className="mt-1 inline-flex items-center gap-1.5 rounded-md border border-border/60 px-2 py-1 text-xs text-muted-foreground">
-            <Paperclip className="h-3.5 w-3.5" />
+          <button
+            type="button"
+            onClick={() => window.electronAPI.shell.openPath(post.attachment!.path)}
+            title={`Open ${post.attachment.filename}`}
+            className="mt-1 inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border/60 px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
+          >
+            <Paperclip className="h-3.5 w-3.5 shrink-0" />
             <span className="truncate">{post.attachment.filename}</span>
-          </div>
+          </button>
         )}
       </div>
     </div>
