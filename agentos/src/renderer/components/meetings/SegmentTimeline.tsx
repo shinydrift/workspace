@@ -16,24 +16,33 @@ const DEFAULT_SELECTION_MS = HOUR_MS;
 const HOUR_PX = 48; // Calendar-legible hour height.
 const TIMELINE_HEIGHT = (WINDOW_MS / HOUR_MS) * HOUR_PX; // Hourly grid across the retention window.
 const MERGE_GAP_MS = 90 * 1000; // Bridge tiny gaps so captured audio reads as one continuous stretch.
+const SNAP_MS = 5 * 60 * 1000; // Drag snaps to 5-minute marks; nudges and keyboard steps move by the same unit.
+const MIN_GAP_FRAC = SNAP_MS / WINDOW_MS; // Shortest slot you can drag (5 min) — matches the smallest preset.
+const NOW_TICK_MS = 30 * 1000; // Keep the "now" edge live while the picker is open.
 const TIMELINE_LANE_CLASS = 'inset-x-2';
 
-type DragTarget = 'start' | 'end' | null;
+type DragTarget = 'start' | 'end' | 'block' | null;
 
-const PRESETS: Array<{ label: string; ms?: number; today?: boolean }> = [
-  { label: '15m', ms: 15 * 60 * 1000 },
-  { label: '30m', ms: 30 * 60 * 1000 },
-  { label: '1h', ms: HOUR_MS },
-  { label: '3h', ms: 3 * HOUR_MS },
-  { label: 'Today', today: true },
+const PRESETS: Array<{ label: string; title: string; ms?: number; today?: boolean; lastSession?: boolean }> = [
+  { label: '15m', title: 'Last 15 minutes', ms: 15 * 60 * 1000 },
+  { label: '30m', title: 'Last 30 minutes', ms: 30 * 60 * 1000 },
+  { label: '1h', title: 'Last hour', ms: HOUR_MS },
+  { label: '3h', title: 'Last 3 hours', ms: 3 * HOUR_MS },
+  { label: 'Today', title: 'Since midnight', today: true },
+  { label: 'Last', title: 'Most recent recorded stretch', lastSession: true },
 ];
 
 function fmtRange(from: number, to: number): string {
   const f = new Date(from);
   const t = new Date(to);
-  const day = f.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  const opts: Intl.DateTimeFormatOptions = { hour: 'numeric', minute: '2-digit' };
-  return `${day}, ${f.toLocaleTimeString('en-US', opts)}-${t.toLocaleTimeString('en-US', opts)}`;
+  const dayOpts: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' };
+  const timeOpts: Intl.DateTimeFormatOptions = { hour: 'numeric', minute: '2-digit' };
+  const fDay = f.toLocaleDateString('en-US', dayOpts);
+  const fTime = f.toLocaleTimeString('en-US', timeOpts);
+  const tTime = t.toLocaleTimeString('en-US', timeOpts);
+  if (f.toDateString() === t.toDateString()) return `${fDay}, ${fTime}-${tTime}`;
+  // Slot spans midnight — show the day on both ends so the range stays unambiguous.
+  return `${fDay} ${fTime} - ${t.toLocaleDateString('en-US', dayOpts)} ${tTime}`;
 }
 
 function fmtDay(ts: number): string {
@@ -44,14 +53,23 @@ function fmtHour(ts: number): string {
   return new Date(ts).toLocaleTimeString('en-US', { hour: 'numeric' });
 }
 
+function fmtClock(ts: number): string {
+  return new Date(ts).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+}
+
 // Compact clock range shown inside the selection block, e.g. "6:30 PM – 7:30 PM".
 function fmtClockRange(from: number, to: number): string {
-  const opts: Intl.DateTimeFormatOptions = { hour: 'numeric', minute: '2-digit' };
-  return `${new Date(from).toLocaleTimeString('en-US', opts)} – ${new Date(to).toLocaleTimeString('en-US', opts)}`;
+  return `${fmtClock(from)} – ${fmtClock(to)}`;
 }
 
 function clampFrac(value: number): number {
   return Math.min(1, Math.max(0, value));
+}
+
+// Snap a window fraction to the nearest 5-minute mark, keeping it in range.
+function snapFracToGrid(frac: number, from: number): number {
+  const snapped = Math.round((from + frac * WINDOW_MS) / SNAP_MS) * SNAP_MS;
+  return clampFrac((snapped - from) / WINDOW_MS);
 }
 
 function overlaps(segment: RecordingRecord, from: number, to: number): boolean {
@@ -80,13 +98,7 @@ interface SegmentTimelineProps {
   active: boolean;
 }
 
-function SelectionPlayer({
-  segments,
-  onFocusSegment,
-}: {
-  segments: RecordingRecord[];
-  onFocusSegment: (segment: RecordingRecord) => void;
-}) {
+function SelectionPlayer({ segments }: { segments: RecordingRecord[] }) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const urlRef = useRef<string | null>(null);
   const loadTokenRef = useRef(0);
@@ -127,7 +139,6 @@ function SelectionPlayer({
       setCurrent(startAt);
       setLoading(true);
       setError('');
-      onFocusSegment(segment);
       try {
         const { data } = await window.electronAPI.files.readRecording({ recordingId: segment.id });
         if (token !== loadTokenRef.current) return;
@@ -160,7 +171,7 @@ function SelectionPlayer({
         if (token === loadTokenRef.current) setLoading(false);
       }
     },
-    [cleanupAudio, onFocusSegment, segments]
+    [cleanupAudio, segments]
   );
 
   useEffect(() => {
@@ -259,10 +270,15 @@ export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps
   const { upsertThread } = useDomainStore();
   const { setSelectedThread } = useUIStore();
   const trackRef = useRef<HTMLDivElement>(null);
+  const viewportRef = useRef<HTMLDivElement>(null);
   const dragging = useRef<DragTarget>(null);
+  const blockAnchor = useRef<{ grabFrac: number; startFrac: number; endFrac: number } | null>(null);
+  const didScroll = useRef(false);
 
   const [open, setOpen] = useState(false);
   const [now, setNow] = useState(() => Date.now());
+  const nowRef = useRef(now);
+  nowRef.current = now;
   const [segments, setSegments] = useState<RecordingRecord[]>([]);
   const [startFrac, setStartFrac] = useState(1 - DEFAULT_SELECTION_MS / WINDOW_MS);
   const [endFrac, setEndFrac] = useState(1);
@@ -279,7 +295,12 @@ export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps
   );
   const selectedDuration = Math.max(0, Math.round((selTo - selFrom) / 1000));
   const availability = useMemo(() => mergeAvailability(segments), [segments]);
-  const hasAudio = selectedSegments.length > 0;
+  // Enable Create whenever the slot overlaps captured audio, using the same merged ranges the
+  // timeline shades — so a slot sitting inside a bridged gap no longer shows blue yet stays disabled.
+  const hasAudio = useMemo(
+    () => availability.some((r) => selFrom < r.to && selTo > r.from),
+    [availability, selFrom, selTo]
+  );
 
   const load = useCallback(async () => {
     const t = Date.now();
@@ -294,11 +315,22 @@ export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps
 
   useEffect(() => {
     void load();
-  }, [active, load]);
+  }, [active, open, load]);
 
+  // Keep the "now" edge live while the picker is open. The window slides forward, but the user's
+  // chosen absolute times stay put (an end pinned to "now" keeps tracking now).
   useEffect(() => {
-    if (open) void load();
-  }, [load, open]);
+    if (!open) return;
+    const id = setInterval(() => {
+      const next = Date.now();
+      const shift = (next - nowRef.current) / WINDOW_MS;
+      if (shift <= 0) return;
+      setNow(next);
+      setStartFrac((f) => clampFrac(f - shift));
+      setEndFrac((f) => (f >= 1 ? 1 : clampFrac(f - shift)));
+    }, NOW_TICK_MS);
+    return () => clearInterval(id);
+  }, [open]);
 
   // Vertical position on the newest-first axis: top of the track is now, bottom is 7 days ago.
   const posFromFrac = useCallback((frac: number): number => (1 - frac) * 100, []);
@@ -312,12 +344,25 @@ export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps
   useEffect(() => {
     function onMove(e: PointerEvent) {
       if (!dragging.current) return;
-      const frac = timeFracFromEvent(e.clientY);
-      if (dragging.current === 'start') setStartFrac(Math.min(frac, endFrac - 0.002));
-      else setEndFrac(Math.max(frac, startFrac + 0.002));
+      const rawFrac = timeFracFromEvent(e.clientY);
+      if (dragging.current === 'block') {
+        const anchor = blockAnchor.current;
+        if (!anchor) return;
+        const len = anchor.endFrac - anchor.startFrac;
+        const nextStart = clampFrac(
+          Math.min(snapFracToGrid(anchor.startFrac + (rawFrac - anchor.grabFrac), from), 1 - len)
+        );
+        setStartFrac(nextStart);
+        setEndFrac(nextStart + len);
+        return;
+      }
+      const frac = snapFracToGrid(rawFrac, from);
+      if (dragging.current === 'start') setStartFrac(Math.min(frac, endFrac - MIN_GAP_FRAC));
+      else setEndFrac(Math.max(frac, startFrac + MIN_GAP_FRAC));
     }
     function onUp() {
       dragging.current = null;
+      blockAnchor.current = null;
     }
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
@@ -325,9 +370,32 @@ export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
     };
-  }, [endFrac, startFrac, timeFracFromEvent]);
+  }, [endFrac, from, startFrac, timeFracFromEvent]);
+
+  // On open, jump the timeline to the newest captured audio so recent recordings are in view
+  // without scrolling the full retention window. Runs once per open.
+  useEffect(() => {
+    if (!open) {
+      didScroll.current = false;
+      return;
+    }
+    if (didScroll.current || loading || !availability.length) return;
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    const newest = availability[availability.length - 1];
+    const topPct = posFromFrac(clampFrac((newest.to - from) / WINDOW_MS)) / 100;
+    viewport.scrollTop = Math.max(0, topPct * TIMELINE_HEIGHT - 60);
+    didScroll.current = true;
+  }, [open, loading, availability, from, posFromFrac]);
 
   function applyPreset(preset: (typeof PRESETS)[number]) {
+    if (preset.lastSession) {
+      const last = availability[availability.length - 1];
+      if (!last) return;
+      setStartFrac(clampFrac((last.from - from) / WINDOW_MS));
+      setEndFrac(clampFrac((last.to - from) / WINDOW_MS));
+      return;
+    }
     const startOfToday = new Date(now);
     startOfToday.setHours(0, 0, 0, 0);
     const nextFrom = preset.today ? Math.max(from, startOfToday.getTime()) : now - (preset.ms ?? DEFAULT_SELECTION_MS);
@@ -337,8 +405,8 @@ export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps
 
   function nudge(which: 'start' | 'end', deltaMs: number) {
     const delta = deltaMs / WINDOW_MS;
-    if (which === 'start') setStartFrac((v) => Math.min(clampFrac(v + delta), endFrac - 0.002));
-    else setEndFrac((v) => Math.max(clampFrac(v + delta), startFrac + 0.002));
+    if (which === 'start') setStartFrac((v) => Math.min(clampFrac(v + delta), endFrac - MIN_GAP_FRAC));
+    else setEndFrac((v) => Math.max(clampFrac(v + delta), startFrac + MIN_GAP_FRAC));
   }
 
   async function createMeeting() {
@@ -415,7 +483,7 @@ export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps
           </div>
 
           <div className="grid min-h-0 flex-1 grid-cols-[minmax(360px,1fr)_320px] overflow-hidden">
-            <ScrollArea className="min-h-0 border-r border-border">
+            <ScrollArea viewportRef={viewportRef} className="min-h-0 border-r border-border">
               <div className="p-5">
                 <div className="flex gap-2" style={{ height: TIMELINE_HEIGHT }}>
                   <div className="relative w-20 shrink-0">
@@ -435,11 +503,11 @@ export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps
                     ref={trackRef}
                     className="relative flex-1 rounded-md border border-border bg-muted/20"
                     onDoubleClick={(e) => {
-                      const frac = timeFracFromEvent(e.clientY);
+                      const frac = snapFracToGrid(timeFracFromEvent(e.clientY), from);
                       const distanceToStart = Math.abs(frac - startFrac);
                       const distanceToEnd = Math.abs(frac - endFrac);
-                      if (distanceToEnd < distanceToStart) setEndFrac(Math.max(frac, startFrac + 0.002));
-                      else setStartFrac(Math.min(frac, endFrac - 0.002));
+                      if (distanceToEnd < distanceToStart) setEndFrac(Math.max(frac, startFrac + MIN_GAP_FRAC));
+                      else setStartFrac(Math.min(frac, endFrac - MIN_GAP_FRAC));
                     }}
                   >
                     {hourMarks.map(({ ts, isDay }) => (
@@ -456,16 +524,30 @@ export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps
                       const top = posFromFrac(topFrac);
                       const height = Math.max(6, (topFrac - botFrac) * TIMELINE_HEIGHT);
                       return (
-                        <div
+                        <button
+                          type="button"
                           key={range.from}
-                          className={`absolute ${TIMELINE_LANE_CLASS} rounded-sm border border-blue-400/15 bg-blue-400/10 pointer-events-none`}
+                          title="Select this recorded stretch"
+                          onClick={() => {
+                            setStartFrac(clampFrac((range.from - from) / WINDOW_MS));
+                            setEndFrac(clampFrac((range.to - from) / WINDOW_MS));
+                          }}
+                          onDoubleClick={(e) => e.stopPropagation()}
+                          className={`absolute ${TIMELINE_LANE_CLASS} cursor-pointer rounded-sm border border-blue-400/15 bg-blue-400/10 transition-colors hover:bg-blue-400/20`}
                           style={{ top: `${top}%`, height }}
                         />
                       );
                     })}
 
                     <div
-                      className={`absolute ${TIMELINE_LANE_CLASS} overflow-hidden rounded-md border border-blue-400/70 bg-blue-400/20 pointer-events-none`}
+                      role="button"
+                      aria-label="Move meeting slot"
+                      onPointerDown={(e) => {
+                        e.preventDefault();
+                        dragging.current = 'block';
+                        blockAnchor.current = { grabFrac: timeFracFromEvent(e.clientY), startFrac, endFrac };
+                      }}
+                      className={`absolute ${TIMELINE_LANE_CLASS} cursor-grab overflow-hidden rounded-md border border-blue-400/70 bg-blue-400/20 active:cursor-grabbing`}
                       style={{ top: `${posFromFrac(endFrac)}%`, height: `${(endFrac - startFrac) * 100}%` }}
                     >
                       <p className="whitespace-nowrap px-2 py-1 text-[11px] font-medium text-foreground/90">
@@ -478,8 +560,21 @@ export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps
                         key={which}
                         role="slider"
                         aria-label={which === 'end' ? 'Meeting end' : 'Meeting start'}
+                        aria-valuemin={0}
+                        aria-valuemax={100}
                         aria-valuenow={Math.round((which === 'start' ? startFrac : endFrac) * 100)}
+                        aria-valuetext={fmtClock(which === 'start' ? selFrom : selTo)}
                         tabIndex={0}
+                        onKeyDown={(e) => {
+                          const step = (e.shiftKey ? 1 : 5) * 60 * 1000;
+                          if (e.key === 'ArrowUp') {
+                            e.preventDefault();
+                            nudge(which, step);
+                          } else if (e.key === 'ArrowDown') {
+                            e.preventDefault();
+                            nudge(which, -step);
+                          }
+                        }}
                         onPointerDown={(e) => {
                           e.preventDefault();
                           dragging.current = which;
@@ -509,13 +604,15 @@ export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps
                 <div className="space-y-3 p-3">
                   <div className="space-y-1.5">
                     <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Quick length</p>
-                    <div className="grid grid-cols-5 gap-1">
+                    <div className="grid grid-cols-3 gap-1">
                       {PRESETS.map((preset) => (
                         <Button
                           key={preset.label}
                           type="button"
                           size="sm"
                           variant="secondary"
+                          title={preset.title}
+                          disabled={preset.lastSession && !availability.length}
                           className="h-7 px-1.5 text-xs"
                           onClick={() => applyPreset(preset)}
                         >
@@ -576,7 +673,7 @@ export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps
                     </div>
                   </div>
 
-                  <SelectionPlayer segments={selectedSegments} onFocusSegment={() => {}} />
+                  <SelectionPlayer segments={selectedSegments} />
                   {!hasAudio && (
                     <p className="rounded-md border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground">
                       No captured audio in this slot yet.
