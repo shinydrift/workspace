@@ -26,6 +26,7 @@ const OpenAttachmentSchema = z.object({
   name: z.string().min(1),
   data: z.union([z.instanceof(ArrayBuffer), z.instanceof(Uint8Array)]),
 });
+const OpenPathSchema = z.object({ path: z.string().min(1) });
 
 function splitArgs(raw?: string): string[] {
   return raw?.trim() ? raw.trim().split(/\s+/) : [];
@@ -192,6 +193,14 @@ export function registerMiscHandlers(): void {
       const filePath = join(dir, basename(name));
       await writeFile(filePath, data instanceof Uint8Array ? data : new Uint8Array(data));
       await shell.openPath(filePath);
+    })
+  );
+
+  ipcMain.handle(IPC_CHANNELS.SHELL_OPEN_PATH, (_e, raw) =>
+    handleIpc(async () => {
+      // Agent attachments already live on disk (ThreadPostAttachment.path); hand the path to the OS.
+      const { path } = OpenPathSchema.parse(raw);
+      await shell.openPath(path);
     })
   );
 
