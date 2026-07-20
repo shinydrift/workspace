@@ -16,7 +16,7 @@ import { getProvider, embedChunks } from './embedding/cache';
 import { enqueueEmbed } from './sync/embedQueue';
 import { createSnippet } from './utils';
 import { hashText } from './sync/core';
-import { MEMORY_SECTION_MAX_CHARS } from './chunking';
+import { MEMORY_SAVE_SECTION_MAX_CHARS } from './chunking';
 import { markMerkleRootDirty } from './integrity';
 import type { SyncScope } from './sync/core';
 import type { MemoryEntryRecord, MemoryListResult } from '../../shared/types';
@@ -161,9 +161,9 @@ export class MemoryContentService {
     const sections = nextContent.split(/\n---\n/);
     for (let i = 0; i < sections.length; i++) {
       const section = sections[i]!.trim();
-      if (section.length > MEMORY_SECTION_MAX_CHARS) {
+      if (section.length > MEMORY_SAVE_SECTION_MAX_CHARS) {
         throw new Error(
-          `Section ${i + 1} exceeds the ${MEMORY_SECTION_MAX_CHARS} character limit (got ${section.length}). Split it with --- before saving.`
+          `Section ${i + 1} exceeds the ${MEMORY_SAVE_SECTION_MAX_CHARS} character limit (got ${section.length}). Split it with --- before saving.`
         );
       }
     }

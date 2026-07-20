@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 // (avoids TypeScript compilation in pure node:test runs)
 
 const MEMORY_SECTION_MAX_CHARS = 1400;
+const MEMORY_SAVE_SECTION_MAX_CHARS = 2000;
 
 function splitMemoryByDelimiters(text, filename) {
   const parts = text.split(/\n---\n/);
@@ -109,9 +110,9 @@ function validateSections(content) {
   const sections = content.split(/\n---\n/);
   for (let i = 0; i < sections.length; i++) {
     const section = sections[i].trim();
-    if (section.length > MEMORY_SECTION_MAX_CHARS) {
+    if (section.length > MEMORY_SAVE_SECTION_MAX_CHARS) {
       throw new Error(
-        `Section ${i + 1} exceeds the ${MEMORY_SECTION_MAX_CHARS} character limit (got ${section.length}). Split it with --- before saving.`
+        `Section ${i + 1} exceeds the ${MEMORY_SAVE_SECTION_MAX_CHARS} character limit (got ${section.length}). Split it with --- before saving.`
       );
     }
   }
@@ -125,18 +126,18 @@ test('validateSections passes for multiple sections each under limit', () => {
   assert.doesNotThrow(() => validateSections('section one\n---\nsection two'));
 });
 
-test('validateSections throws for section over 1400 chars', () => {
-  const big = 'x'.repeat(1401);
-  assert.throws(() => validateSections(big), /Section 1 exceeds the 1400 character limit \(got 1401\)/);
+test('validateSections throws for section over 2000 chars', () => {
+  const big = 'x'.repeat(2001);
+  assert.throws(() => validateSections(big), /Section 1 exceeds the 2000 character limit \(got 2001\)/);
 });
 
 test('validateSections throws with correct section number', () => {
-  const big = 'x'.repeat(1401);
+  const big = 'x'.repeat(2001);
   const content = 'ok section\n---\n' + big;
   assert.throws(() => validateSections(content), /Section 2 exceeds/);
 });
 
-test('validateSections passes for section exactly at 1400 chars', () => {
-  const exact = 'x'.repeat(1400);
+test('validateSections passes for section exactly at 2000 chars', () => {
+  const exact = 'x'.repeat(2000);
   assert.doesNotThrow(() => validateSections(exact));
 });
