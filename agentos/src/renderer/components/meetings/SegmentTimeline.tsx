@@ -13,6 +13,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
 const WINDOW_MS = 7 * DAY_MS;
 const DEFAULT_SELECTION_MS = HOUR_MS;
+const NEW_SELECTION_MS = 30 * 60 * 1000; // Clicking an empty area drops a fresh 30-minute slot you can drag to extend.
 const HOUR_PX = 48; // Calendar-legible hour height.
 const TIMELINE_HEIGHT = (WINDOW_MS / HOUR_MS) * HOUR_PX; // Hourly grid across the retention window.
 const MERGE_GAP_MS = 90 * 1000; // Bridge tiny gaps so captured audio reads as one continuous stretch.
@@ -21,16 +22,7 @@ const MIN_GAP_FRAC = SNAP_MS / WINDOW_MS; // Shortest slot you can drag (5 min) 
 const NOW_TICK_MS = 30 * 1000; // Keep the "now" edge live while the picker is open.
 const TIMELINE_LANE_CLASS = 'inset-x-2';
 
-type DragTarget = 'start' | 'end' | 'block' | null;
-
-const PRESETS: Array<{ label: string; title: string; ms?: number; today?: boolean; lastSession?: boolean }> = [
-  { label: '15m', title: 'Last 15 minutes', ms: 15 * 60 * 1000 },
-  { label: '30m', title: 'Last 30 minutes', ms: 30 * 60 * 1000 },
-  { label: '1h', title: 'Last hour', ms: HOUR_MS },
-  { label: '3h', title: 'Last 3 hours', ms: 3 * HOUR_MS },
-  { label: 'Today', title: 'Since midnight', today: true },
-  { label: 'Last', title: 'Most recent recorded stretch', lastSession: true },
-];
+type DragTarget = 'start' | 'end' | 'block' | 'new' | null;
 
 function fmtRange(from: number, to: number): string {
   const f = new Date(from);
@@ -108,6 +100,10 @@ function SelectionPlayer({ segments }: { segments: RecordingRecord[] }) {
   const [error, setError] = useState('');
   const [current, setCurrent] = useState(0);
 
+  // The parent hands us a fresh array on every drag tick and every "now" tick, even when the
+  // overlapping recordings are unchanged. Key resets on the recording identity so playback keeps
+  // running while you drag, and only tears down when the underlying saved recordings actually change.
+  const segmentKey = useMemo(() => segments.map((s) => s.id).join('|'), [segments]);
   const totalDuration = useMemo(() => segments.reduce((sum, s) => sum + s.durationSeconds, 0), [segments]);
   const elapsedBefore = useMemo(
     () => segments.slice(0, index).reduce((sum, s) => sum + s.durationSeconds, 0),
@@ -179,7 +175,8 @@ function SelectionPlayer({ segments }: { segments: RecordingRecord[] }) {
     setCurrent(0);
     setPlaying(false);
     cleanupAudio(true);
-  }, [cleanupAudio, segments]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cleanupAudio, segmentKey]);
 
   useEffect(() => () => cleanupAudio(true), [cleanupAudio]);
 
@@ -273,6 +270,8 @@ export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps
   const viewportRef = useRef<HTMLDivElement>(null);
   const dragging = useRef<DragTarget>(null);
   const blockAnchor = useRef<{ grabFrac: number; startFrac: number; endFrac: number } | null>(null);
+  const newAnchor = useRef<number | null>(null);
+  const newDragged = useRef(false);
   const didScroll = useRef(false);
 
   const [open, setOpen] = useState(false);
@@ -293,7 +292,6 @@ export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps
     () => segments.filter((s) => overlaps(s, selFrom, selTo)),
     [segments, selFrom, selTo]
   );
-  const selectedDuration = Math.max(0, Math.round((selTo - selFrom) / 1000));
   const availability = useMemo(() => mergeAvailability(segments), [segments]);
   // Enable Create whenever the slot overlaps captured audio, using the same merged ranges the
   // timeline shades — so a slot sitting inside a bridged gap no longer shows blue yet stays disabled.
@@ -345,6 +343,15 @@ export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps
     function onMove(e: PointerEvent) {
       if (!dragging.current) return;
       const rawFrac = timeFracFromEvent(e.clientY);
+      if (dragging.current === 'new') {
+        const anchor = newAnchor.current;
+        if (anchor == null) return;
+        const frac = snapFracToGrid(rawFrac, from);
+        if (Math.abs(frac - anchor) >= MIN_GAP_FRAC) newDragged.current = true;
+        setStartFrac(Math.min(anchor, frac));
+        setEndFrac(Math.max(anchor, frac));
+        return;
+      }
       if (dragging.current === 'block') {
         const anchor = blockAnchor.current;
         if (!anchor) return;
@@ -361,8 +368,17 @@ export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps
       else setEndFrac(Math.max(frac, startFrac + MIN_GAP_FRAC));
     }
     function onUp() {
+      if (dragging.current === 'new' && !newDragged.current && newAnchor.current != null) {
+        // A plain click (no meaningful drag) drops a default 30-minute slot at the clicked time.
+        const len = NEW_SELECTION_MS / WINDOW_MS;
+        const nextStart = clampFrac(Math.min(newAnchor.current, 1 - len));
+        setStartFrac(nextStart);
+        setEndFrac(nextStart + len);
+      }
       dragging.current = null;
       blockAnchor.current = null;
+      newAnchor.current = null;
+      newDragged.current = false;
     }
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
@@ -387,21 +403,6 @@ export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps
     viewport.scrollTop = Math.max(0, topPct * TIMELINE_HEIGHT - 60);
     didScroll.current = true;
   }, [open, loading, availability, from, posFromFrac]);
-
-  function applyPreset(preset: (typeof PRESETS)[number]) {
-    if (preset.lastSession) {
-      const last = availability[availability.length - 1];
-      if (!last) return;
-      setStartFrac(clampFrac((last.from - from) / WINDOW_MS));
-      setEndFrac(clampFrac((last.to - from) / WINDOW_MS));
-      return;
-    }
-    const startOfToday = new Date(now);
-    startOfToday.setHours(0, 0, 0, 0);
-    const nextFrom = preset.today ? Math.max(from, startOfToday.getTime()) : now - (preset.ms ?? DEFAULT_SELECTION_MS);
-    setStartFrac(clampFrac((nextFrom - from) / WINDOW_MS));
-    setEndFrac(1);
-  }
 
   function nudge(which: 'start' | 'end', deltaMs: number) {
     const delta = deltaMs / WINDOW_MS;
@@ -501,13 +502,17 @@ export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps
                   </div>
                   <div
                     ref={trackRef}
-                    className="relative flex-1 rounded-md border border-border bg-muted/20"
-                    onDoubleClick={(e) => {
-                      const frac = snapFracToGrid(timeFracFromEvent(e.clientY), from);
-                      const distanceToStart = Math.abs(frac - startFrac);
-                      const distanceToEnd = Math.abs(frac - endFrac);
-                      if (distanceToEnd < distanceToStart) setEndFrac(Math.max(frac, startFrac + MIN_GAP_FRAC));
-                      else setStartFrac(Math.min(frac, endFrac - MIN_GAP_FRAC));
+                    className="relative flex-1 cursor-crosshair rounded-md border border-border bg-muted/20"
+                    onPointerDown={(e) => {
+                      // Press on an empty area starts a fresh selection; drag to size it, or release
+                      // without dragging for a default 30-minute slot.
+                      e.preventDefault();
+                      const anchor = snapFracToGrid(timeFracFromEvent(e.clientY), from);
+                      newAnchor.current = anchor;
+                      newDragged.current = false;
+                      dragging.current = 'new';
+                      setStartFrac(anchor);
+                      setEndFrac(anchor);
                     }}
                   >
                     {hourMarks.map(({ ts, isDay }) => (
@@ -528,11 +533,11 @@ export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps
                           type="button"
                           key={range.from}
                           title="Select this recorded stretch"
+                          onPointerDown={(e) => e.stopPropagation()}
                           onClick={() => {
                             setStartFrac(clampFrac((range.from - from) / WINDOW_MS));
                             setEndFrac(clampFrac((range.to - from) / WINDOW_MS));
                           }}
-                          onDoubleClick={(e) => e.stopPropagation()}
                           className={`absolute ${TIMELINE_LANE_CLASS} cursor-pointer rounded-sm border border-blue-400/15 bg-blue-400/10 transition-colors hover:bg-blue-400/20`}
                           style={{ top: `${top}%`, height }}
                         />
@@ -544,6 +549,7 @@ export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps
                       aria-label="Move meeting slot"
                       onPointerDown={(e) => {
                         e.preventDefault();
+                        e.stopPropagation();
                         dragging.current = 'block';
                         blockAnchor.current = { grabFrac: timeFracFromEvent(e.clientY), startFrac, endFrac };
                       }}
@@ -577,6 +583,7 @@ export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps
                         }}
                         onPointerDown={(e) => {
                           e.preventDefault();
+                          e.stopPropagation();
                           dragging.current = which;
                         }}
                         className={`absolute ${TIMELINE_LANE_CLASS} z-10 -mt-2 h-4 cursor-ns-resize`}
@@ -602,77 +609,6 @@ export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps
             <div className="flex min-h-0 flex-col">
               <ScrollArea className="min-h-0 flex-1">
                 <div className="space-y-3 p-3">
-                  <div className="space-y-1.5">
-                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Quick length</p>
-                    <div className="grid grid-cols-3 gap-1">
-                      {PRESETS.map((preset) => (
-                        <Button
-                          key={preset.label}
-                          type="button"
-                          size="sm"
-                          variant="secondary"
-                          title={preset.title}
-                          disabled={preset.lastSession && !availability.length}
-                          className="h-7 px-1.5 text-xs"
-                          onClick={() => applyPreset(preset)}
-                        >
-                          {preset.label}
-                        </Button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="rounded-md border border-border/70 bg-muted/10 p-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="text-xs font-medium text-foreground">Meeting slot</p>
-                        <p className="mt-1 truncate text-xs text-muted-foreground">{fmtRange(selFrom, selTo)}</p>
-                      </div>
-                      <div className="shrink-0 text-right">
-                        <p className="text-[11px] text-muted-foreground">Length</p>
-                        <p className="mt-1 tabular-nums text-xs text-foreground">{formatSeconds(selectedDuration)}</p>
-                      </div>
-                    </div>
-                    <div className="mt-3 grid grid-cols-2 gap-1">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="secondary"
-                        className="h-7 justify-start px-2 text-xs"
-                        onClick={() => nudge('start', -5 * 60 * 1000)}
-                      >
-                        Start -5m
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="secondary"
-                        className="h-7 justify-start px-2 text-xs"
-                        onClick={() => nudge('start', 5 * 60 * 1000)}
-                      >
-                        Start +5m
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="secondary"
-                        className="h-7 justify-start px-2 text-xs"
-                        onClick={() => nudge('end', -5 * 60 * 1000)}
-                      >
-                        End -5m
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="secondary"
-                        className="h-7 justify-start px-2 text-xs"
-                        onClick={() => nudge('end', 5 * 60 * 1000)}
-                      >
-                        End +5m
-                      </Button>
-                    </div>
-                  </div>
-
                   <SelectionPlayer segments={selectedSegments} />
                   {!hasAudio && (
                     <p className="rounded-md border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground">
