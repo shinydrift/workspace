@@ -590,10 +590,10 @@ export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps
                           e.stopPropagation();
                           dragging.current = which;
                         }}
-                        className={`absolute ${TIMELINE_LANE_CLASS} z-10 -mt-2 h-4 cursor-ns-resize`}
+                        className={`absolute ${TIMELINE_LANE_CLASS} z-10 -mt-2 flex h-4 items-center cursor-ns-resize`}
                         style={{ top: `${posFromFrac(which === 'start' ? startFrac : endFrac)}%` }}
                       >
-                        <div className="h-1 rounded-full bg-blue-400 shadow-sm" />
+                        <div className="h-1 w-full rounded-full bg-blue-400 shadow-sm" />
                       </div>
                     ))}
 
