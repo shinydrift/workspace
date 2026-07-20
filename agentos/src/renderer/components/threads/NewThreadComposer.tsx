@@ -52,6 +52,9 @@ export function NewThreadComposer() {
     reasoning,
     setReasoning,
     clearProviderTouch,
+    runOnHost,
+    setRunOnHostSelection,
+    sandboxEnabled,
     autopilotEnabled,
     setAutopilotEnabled,
     creating,
@@ -106,6 +109,7 @@ export function NewThreadComposer() {
     model,
     effort,
     reasoning,
+    runOnHost,
     projectName,
     provider,
     setAttachedFiles,
@@ -187,6 +191,9 @@ export function NewThreadComposer() {
               onSubmit={() => void submit()}
               onToggleAutopilot={() => setAutopilotEnabled((value) => !value)}
               provider={provider}
+              runOnHost={runOnHost}
+              sandboxEnabled={sandboxEnabled}
+              onToggleRunOnHost={() => setRunOnHostSelection(!runOnHost)}
               recording={recording}
               recordingSeconds={recordingSeconds}
               setProviderSelection={setProviderSelection}

@@ -1,4 +1,14 @@
-import { ArrowUp, FolderOpen, Microphone, MicrophoneSlash, Paperclip, Robot, Stop } from '@phosphor-icons/react';
+import {
+  ArrowUp,
+  FolderOpen,
+  Microphone,
+  MicrophoneSlash,
+  Paperclip,
+  Robot,
+  Shield,
+  ShieldWarning,
+  Stop,
+} from '@phosphor-icons/react';
 import type { Provider, SavedProject } from '../../../shared/types';
 import type { ClaudeEffort, CodexReasoning } from '../../../shared/types/provider';
 import { Button } from '@/components/ui/button';
@@ -20,6 +30,9 @@ interface Props {
   onSubmit: () => void | Promise<void>;
   onToggleAutopilot: () => void;
   provider: Provider;
+  runOnHost?: boolean;
+  sandboxEnabled?: boolean;
+  onToggleRunOnHost?: () => void;
   recording: boolean;
   recordingSeconds: number;
   setProviderSelection: (provider: Provider) => void;
@@ -46,6 +59,9 @@ export function ComposerToolbar({
   onSubmit,
   onToggleAutopilot,
   provider,
+  runOnHost,
+  sandboxEnabled,
+  onToggleRunOnHost,
   recording,
   recordingSeconds,
   setProviderSelection,
@@ -111,6 +127,22 @@ export function ComposerToolbar({
 
       <div className="ml-auto flex shrink-0 items-center gap-1.5">
         {recording && <span className="text-xs tabular-nums text-destructive">{formatSeconds(recordingSeconds)}</span>}
+
+        {sandboxEnabled && onToggleRunOnHost && (
+          <Button
+            onClick={onToggleRunOnHost}
+            variant="ghost"
+            size="icon"
+            title={runOnHost ? 'Sandbox off — running on host. Click to sandbox' : 'Sandbox on — click to run on host'}
+            aria-label={runOnHost ? 'Sandbox off — running on host' : 'Sandbox on'}
+            className={cn(
+              'h-7 w-7 shrink-0',
+              runOnHost ? 'text-amber-500 hover:text-amber-400' : 'text-emerald-500 hover:text-emerald-400'
+            )}
+          >
+            {runOnHost ? <ShieldWarning className="h-4 w-4" /> : <Shield className="h-4 w-4" weight="fill" />}
+          </Button>
+        )}
 
         <ProviderModelBadges
           provider={provider}

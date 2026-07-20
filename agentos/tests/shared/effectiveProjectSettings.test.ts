@@ -10,6 +10,7 @@ import {
   getEffectiveAutopilotSettings,
   getEffectiveWorktreeSettings,
   getEffectiveContainerPruneSettings,
+  getEffectiveRunOnHost,
 } from '../../src/shared/effectiveProjectSettings';
 import type { AppSettings } from '../../src/shared/config/schema';
 
@@ -72,4 +73,13 @@ test('container prune: project wins, renamed + clamped to >= 0 and floored', () 
   assert.equal(eff.maxAgeDays, 0);
   // Falls back to app values when project absent.
   assert.deepEqual(getEffectiveContainerPruneSettings(APP, null), { idleHours: 24, maxAgeDays: 7 });
+});
+
+test('runOnHost: project overrides app; defaults to sandboxed (false)', () => {
+  // Project wins over app in both directions.
+  assert.equal(getEffectiveRunOnHost({ ...APP, runOnHost: false }, { runOnHost: true }), true);
+  assert.equal(getEffectiveRunOnHost({ ...APP, runOnHost: true }, { runOnHost: false }), false);
+  // Falls back to app when project absent, then to sandboxed default.
+  assert.equal(getEffectiveRunOnHost({ ...APP, runOnHost: true }, null), true);
+  assert.equal(getEffectiveRunOnHost(APP, null), false);
 });

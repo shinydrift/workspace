@@ -23,6 +23,7 @@ import { RecordingSection } from './sections/RecordingSection';
 import { DangerSection } from './sections/DangerSection';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { FEATURES } from '../../../shared/features';
+import { getEffectiveRunOnHost } from '../../../shared/effectiveProjectSettings';
 
 export interface Props {
   projectPath: string;
@@ -65,6 +66,7 @@ export function ProjectSettingsPanel({
 
   const sandbox: Partial<SandboxSecuritySettings> = config.sandbox ?? {};
   const sb = { ...DEFAULT_SANDBOX_SETTINGS, ...(appSettings?.sandbox ?? {}), ...sandbox };
+  const runOnHost = appSettings ? getEffectiveRunOnHost(appSettings, config) : (config.runOnHost ?? false);
   const memory = config.memory ?? {};
   const kanban = config.kanban ?? {};
   const appWorktreeAutoCreate = appSettings?.worktree?.autoCreate ?? DEFAULT_WORKTREE_SETTINGS.autoCreate;
@@ -122,8 +124,15 @@ export function ProjectSettingsPanel({
           {section === 'sandbox' && (
             <SandboxSection
               sb={sb}
+              runOnHost={runOnHost}
               savingKey={savingKey}
               onPatch={(patch) => void updateConfig('sandbox', { ...sb, ...patch })}
+              onRunOnHostChange={(v) => {
+                // Delete the override (inherit the app setting) when the choice matches the app
+                // default; otherwise pin an explicit boolean on the project.
+                const appDefault = appSettings?.runOnHost ?? false;
+                void updateConfig('runOnHost', { _value: v === appDefault ? null : v });
+              }}
             />
           )}
           {section === 'env' && (

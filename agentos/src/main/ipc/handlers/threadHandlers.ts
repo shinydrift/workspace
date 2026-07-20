@@ -14,6 +14,7 @@ const CreateThreadSchema = z.object({
   model: z.string().max(200).optional(),
   effort: z.enum(['low', 'medium', 'high', 'extra-high', 'max']).optional(),
   reasoning: z.enum(['low', 'medium', 'high', 'extra-high']).optional(),
+  runOnHost: z.boolean().optional(),
   createWorktree: z.boolean().optional(),
   projectName: shortName.optional(),
   subdir: z.string().optional(),

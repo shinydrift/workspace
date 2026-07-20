@@ -31,6 +31,7 @@ export interface CreateThreadRequest {
   model?: string;
   effort?: ClaudeEffort;
   reasoning?: CodexReasoning;
+  runOnHost?: boolean;
   createWorktree?: boolean;
   projectName?: string;
   projectPath?: string;

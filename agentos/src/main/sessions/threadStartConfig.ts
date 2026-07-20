@@ -19,7 +19,11 @@ import { resolveInjectionPayload } from '../utils/memoryInjection';
 import { readBundledSkillsPrompt } from '../utils/claudePlugins';
 import { buildPersonalityPrompt } from '../personality/styleProfile';
 import { eventLogger } from '../utils/eventLog';
-import { getEffectiveBackendForProvider, getEffectiveBaseUrlForProvider } from '../../shared/effectiveProjectSettings';
+import {
+  getEffectiveBackendForProvider,
+  getEffectiveBaseUrlForProvider,
+  getEffectiveRunOnHost,
+} from '../../shared/effectiveProjectSettings';
 import type { Thread, Provider, AppSettings, ProjectConfigLookup, SandboxSecuritySettings } from '../../shared/types';
 import { DEFAULT_SANDBOX_SETTINGS } from '../../shared/types';
 
@@ -77,8 +81,8 @@ export async function resolveStartConfig(
       ]),
     ],
   };
-  // Project config overrides the app-level toggle; defaults to sandboxed (false).
-  const runOnHost = projectConfigResult.config?.runOnHost ?? settings.runOnHost ?? false;
+  // Per-thread snapshot wins; otherwise project config overrides the app-level toggle; defaults to sandboxed (false).
+  const runOnHost = stored.runOnHost ?? getEffectiveRunOnHost(settings, projectConfigResult.config);
   const memoryEnabled = projectConfigResult.config?.memory?.enabled ?? true;
   const bootEnabled = true;
 

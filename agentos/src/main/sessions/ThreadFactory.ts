@@ -2,7 +2,7 @@ import { promises as fsPromises } from 'fs';
 import path from 'path';
 import { nanoid } from 'nanoid';
 import type { Thread, CreateThreadRequest } from '../../shared/types';
-import { getEffectiveWorktreeSettings } from '../../shared/effectiveProjectSettings';
+import { getEffectiveRunOnHost, getEffectiveWorktreeSettings } from '../../shared/effectiveProjectSettings';
 import { getStore } from '../store/index';
 import * as threadStore from '../threads/threadStore';
 import {
@@ -53,6 +53,7 @@ export class ThreadFactory {
       provider === 'codex'
         ? (req.reasoning ?? resolveEffectiveReasoning(projectConfigResult.config, settings))
         : undefined;
+    const runOnHost = req.runOnHost ?? getEffectiveRunOnHost(settings, projectConfigResult.config);
 
     let workingDirectory = callerManagedWorktree ? req.workingDirectory : projectPath;
     let usingWorktree = callerManagedWorktree;
@@ -81,6 +82,7 @@ export class ThreadFactory {
       model,
       effort,
       reasoning,
+      runOnHost,
       status: 'stopped',
       createdAt: now,
       lastActiveAt: now,
