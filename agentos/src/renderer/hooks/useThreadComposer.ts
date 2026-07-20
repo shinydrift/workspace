@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { type Provider, type SavedProject } from '../../shared/types';
 import type { ClaudeEffort, CodexReasoning } from '../../shared/types/provider';
-import { getEffectivePrimaryProviderEntry } from '../../shared/effectiveProjectSettings';
+import { getEffectivePrimaryProviderEntry, getEffectiveRunOnHost } from '../../shared/effectiveProjectSettings';
 
 /**
  * Shared state and logic for ThreadCreateModal and NewThreadComposer.
@@ -16,6 +16,11 @@ export function useThreadComposer(projects: SavedProject[]) {
   const [effort, setEffort] = useState<ClaudeEffort | undefined>(undefined);
   const [reasoning, setReasoning] = useState<CodexReasoning | undefined>(undefined);
   const providerTouchedRef = useRef(false);
+  // Per-thread sandbox override. sandboxEnabled drives whether the toggle is shown at all —
+  // we hide it when the project already runs on host (sandbox off), per product decision.
+  const [runOnHost, setRunOnHost] = useState(false);
+  const [sandboxEnabled, setSandboxEnabled] = useState(false);
+  const runOnHostTouchedRef = useRef(false);
   const [autopilotEnabled, setAutopilotEnabled] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState('');
@@ -35,7 +40,11 @@ export function useThreadComposer(projects: SavedProject[]) {
             ? window.electronAPI.project.getConfig(projectPath).catch((): null => null)
             : Promise.resolve(null),
         ]);
-        if (cancelled || providerTouchedRef.current) return;
+        if (cancelled) return;
+        const effectiveRunOnHost = getEffectiveRunOnHost(settings, lookup?.config ?? null);
+        setSandboxEnabled(!effectiveRunOnHost);
+        if (!runOnHostTouchedRef.current) setRunOnHost(effectiveRunOnHost);
+        if (providerTouchedRef.current) return;
         const primary = getEffectivePrimaryProviderEntry(settings, lookup?.config ?? null);
         setProvider(primary.provider);
         setModel(primary.model);
@@ -68,6 +77,12 @@ export function useThreadComposer(projects: SavedProject[]) {
 
   function clearProviderTouch() {
     providerTouchedRef.current = false;
+    runOnHostTouchedRef.current = false;
+  }
+
+  function setRunOnHostSelection(next: boolean) {
+    runOnHostTouchedRef.current = true;
+    setRunOnHost(next);
   }
 
   return {
@@ -84,6 +99,9 @@ export function useThreadComposer(projects: SavedProject[]) {
     reasoning,
     setReasoning,
     clearProviderTouch,
+    runOnHost,
+    setRunOnHostSelection,
+    sandboxEnabled,
     autopilotEnabled,
     setAutopilotEnabled,
     creating,

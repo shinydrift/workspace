@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useThreadForm } from '../../hooks/useThreadForm';
+import { ToggleRow } from '@/components/ui/toggle-row';
 import { ProviderModelBadges } from './ProviderModelBadges';
 import { ProjectPickerStep } from './ProjectPickerStep';
 
@@ -34,6 +35,9 @@ export function ThreadCreateModal({ onClose }: Props) {
     setEffort,
     reasoning,
     setReasoning,
+    runOnHost,
+    setRunOnHostSelection,
+    sandboxEnabled,
     creating,
     error,
     matchedProject,
@@ -134,6 +138,15 @@ export function ThreadCreateModal({ onClose }: Props) {
                 onReasoningChange={setReasoning}
               />
             </div>
+
+            {sandboxEnabled && (
+              <ToggleRow
+                label="Sandbox"
+                description="Run this thread in a Docker sandbox. Turn off to run directly on the host for this thread only."
+                checked={!runOnHost}
+                onCheckedChange={(v) => setRunOnHostSelection(!v)}
+              />
+            )}
 
             {error && <p className="text-destructive">{error}</p>}
 

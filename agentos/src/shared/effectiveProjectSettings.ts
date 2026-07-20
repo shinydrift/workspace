@@ -106,6 +106,12 @@ export function getEffectiveReasoningForProvider(
   return getAppProviderOrder(settings).find((e) => e.provider === 'codex')?.reasoning;
 }
 
+// Precedence: project config > app settings. Defaults to sandboxed (false).
+// "Sandbox enabled" for a project is the inverse of this.
+export function getEffectiveRunOnHost(settings: AppSettings, projectConfig?: ProjectConfig | null): boolean {
+  return projectConfig?.runOnHost ?? settings.runOnHost ?? false;
+}
+
 // Non-provider accessors derive from the single generic merge (project-wins). Provider-order
 // resolution stays in the five getEffective*ForProvider accessors above — see merge.ts for why.
 export function getEffectiveQueueSilenceFallbackMs(

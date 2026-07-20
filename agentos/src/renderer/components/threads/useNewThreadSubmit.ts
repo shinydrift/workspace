@@ -13,6 +13,7 @@ interface SubmitOptions {
   model: string | undefined;
   effort?: ClaudeEffort | undefined;
   reasoning?: CodexReasoning | undefined;
+  runOnHost?: boolean;
   projectName: string;
   provider: Provider;
   setAttachedFiles: (files: AttachedFile[]) => void;
@@ -32,6 +33,7 @@ export function useNewThreadSubmit({
   model,
   effort,
   reasoning,
+  runOnHost,
   projectName,
   provider,
   setAttachedFiles,
@@ -64,6 +66,7 @@ export function useNewThreadSubmit({
         model,
         effort,
         reasoning,
+        runOnHost,
         createWorktree: true,
         projectName: projectName.trim() || undefined,
       });
@@ -114,6 +117,7 @@ export function useNewThreadSubmit({
     model,
     effort,
     reasoning,
+    runOnHost,
     projectName,
     provider,
     setAttachedFiles,

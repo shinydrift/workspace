@@ -65,6 +65,7 @@ export function ProjectSettingsPanel({
 
   const sandbox: Partial<SandboxSecuritySettings> = config.sandbox ?? {};
   const sb = { ...DEFAULT_SANDBOX_SETTINGS, ...(appSettings?.sandbox ?? {}), ...sandbox };
+  const runOnHost = config.runOnHost ?? appSettings?.runOnHost ?? false;
   const memory = config.memory ?? {};
   const kanban = config.kanban ?? {};
   const appWorktreeAutoCreate = appSettings?.worktree?.autoCreate ?? DEFAULT_WORKTREE_SETTINGS.autoCreate;
@@ -122,8 +123,10 @@ export function ProjectSettingsPanel({
           {section === 'sandbox' && (
             <SandboxSection
               sb={sb}
+              runOnHost={runOnHost}
               savingKey={savingKey}
               onPatch={(patch) => void updateConfig('sandbox', { ...sb, ...patch })}
+              onRunOnHostChange={(v) => void updateConfig('runOnHost', { _value: v })}
             />
           )}
           {section === 'env' && (
