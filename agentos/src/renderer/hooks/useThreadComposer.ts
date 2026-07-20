@@ -16,11 +16,12 @@ export function useThreadComposer(projects: SavedProject[]) {
   const [effort, setEffort] = useState<ClaudeEffort | undefined>(undefined);
   const [reasoning, setReasoning] = useState<CodexReasoning | undefined>(undefined);
   const providerTouchedRef = useRef(false);
-  // Per-thread sandbox override. sandboxEnabled drives whether the toggle is shown at all —
-  // we hide it when the project already runs on host (sandbox off), per product decision.
-  const [runOnHost, setRunOnHost] = useState(false);
+  // Per-thread sandbox override. `undefined` means "inherit the project/app setting" — the main
+  // process resolves it fresh at thread start (matching model/effort/reasoning). We only send an
+  // explicit boolean once the user toggles. sandboxEnabled drives whether the toggle shows at all —
+  // hidden when the project already runs on host (sandbox off), per product decision.
+  const [runOnHost, setRunOnHost] = useState<boolean | undefined>(undefined);
   const [sandboxEnabled, setSandboxEnabled] = useState(false);
-  const runOnHostTouchedRef = useRef(false);
   const [autopilotEnabled, setAutopilotEnabled] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState('');
@@ -41,9 +42,7 @@ export function useThreadComposer(projects: SavedProject[]) {
             : Promise.resolve(null),
         ]);
         if (cancelled) return;
-        const effectiveRunOnHost = getEffectiveRunOnHost(settings, lookup?.config ?? null);
-        setSandboxEnabled(!effectiveRunOnHost);
-        if (!runOnHostTouchedRef.current) setRunOnHost(effectiveRunOnHost);
+        setSandboxEnabled(!getEffectiveRunOnHost(settings, lookup?.config ?? null));
         if (providerTouchedRef.current) return;
         const primary = getEffectivePrimaryProviderEntry(settings, lookup?.config ?? null);
         setProvider(primary.provider);
@@ -77,11 +76,11 @@ export function useThreadComposer(projects: SavedProject[]) {
 
   function clearProviderTouch() {
     providerTouchedRef.current = false;
-    runOnHostTouchedRef.current = false;
+    // Reset the per-thread override back to "inherit" when the project changes.
+    setRunOnHost(undefined);
   }
 
   function setRunOnHostSelection(next: boolean) {
-    runOnHostTouchedRef.current = true;
     setRunOnHost(next);
   }
 
