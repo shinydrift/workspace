@@ -347,7 +347,9 @@ export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps
         const anchor = newAnchor.current;
         if (anchor == null) return;
         const frac = snapFracToGrid(rawFrac, from);
-        if (Math.abs(frac - anchor) >= MIN_GAP_FRAC) newDragged.current = true;
+        // Track (don't latch) whether this is a real drag, so dragging back onto the anchor falls
+        // through to the 30-minute default on release instead of committing a zero-length slot.
+        newDragged.current = Math.abs(frac - anchor) >= MIN_GAP_FRAC;
         setStartFrac(Math.min(anchor, frac));
         setEndFrac(Math.max(anchor, frac));
         return;
@@ -505,7 +507,9 @@ export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps
                     className="relative flex-1 cursor-crosshair rounded-md border border-border bg-muted/20"
                     onPointerDown={(e) => {
                       // Press on an empty area starts a fresh selection; drag to size it, or release
-                      // without dragging for a default 30-minute slot.
+                      // without dragging for a default 30-minute slot. Ignore non-primary buttons so a
+                      // right- or middle-click doesn't discard the current selection.
+                      if (e.button !== 0) return;
                       e.preventDefault();
                       const anchor = snapFracToGrid(timeFracFromEvent(e.clientY), from);
                       newAnchor.current = anchor;
