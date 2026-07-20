@@ -5,7 +5,7 @@ import { hashText, memoryChunkId } from '../utils';
 import type { Thread } from '../../../shared/types';
 import { getProjectDb, ensureVecTable } from '../db';
 import type { EmbeddingProvider } from '../embedding/provider';
-import { splitMemoryByDelimiters, MEMORY_SECTION_MAX_CHARS } from '../chunking';
+import { splitMemoryByDelimiters, MEMORY_SAVE_SECTION_MAX_CHARS } from '../chunking';
 import { listCodeFiles, splitCodeBySymbols } from '../codeChunking';
 import { embedChunks } from '../embedding/cache';
 import { runtimeLogger as eventLogger } from '../runtime';
@@ -252,12 +252,12 @@ export async function syncProject(scope: SyncScope, provider: EmbeddingProvider 
 
   const collectChunks = (content: string, chunkPath: string) => {
     for (const chunk of splitMemoryByDelimiters(content, chunkPath)) {
-      if (chunk.text.length > MEMORY_SECTION_MAX_CHARS) {
+      if (chunk.text.length > MEMORY_SAVE_SECTION_MAX_CHARS) {
         eventLogger.warn('memory', 'Oversized memory section — split with --- to enforce the limit', {
           path: chunkPath,
           line: chunk.startLine,
           chars: chunk.text.length,
-          limit: MEMORY_SECTION_MAX_CHARS,
+          limit: MEMORY_SAVE_SECTION_MAX_CHARS,
         });
       }
       const contextHeader = chunk.contextHeader ?? '';
