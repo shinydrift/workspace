@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { type Provider, type SavedProject } from '../../shared/types';
 import type { ClaudeEffort, CodexReasoning } from '../../shared/types/provider';
-import { getEffectivePrimaryProviderEntry, getEffectiveRunOnHost } from '../../shared/effectiveProjectSettings';
+import {
+  getEffectivePrimaryProviderEntry,
+  getEffectiveRunOnHost,
+  getEffectiveWorktreeSettings,
+} from '../../shared/effectiveProjectSettings';
 
 /**
  * Shared state and logic for ThreadCreateModal and NewThreadComposer.
@@ -22,6 +26,12 @@ export function useThreadComposer(projects: SavedProject[]) {
   // hidden when the project already runs on host (sandbox off), per product decision.
   const [runOnHost, setRunOnHost] = useState<boolean | undefined>(undefined);
   const [sandboxEnabled, setSandboxEnabled] = useState(false);
+  // Per-thread worktree override. `undefined` means "inherit the project/app auto-create setting"
+  // (resolved in the main process at thread creation). worktreeDefault mirrors that effective
+  // setting so the composer chip can show the inherited on/off state before any toggle; it stays
+  // `undefined` until the async settings load resolves so the chip is hidden rather than guessing.
+  const [createWorktree, setCreateWorktree] = useState<boolean | undefined>(undefined);
+  const [worktreeDefault, setWorktreeDefault] = useState<boolean | undefined>(undefined);
   const [autopilotEnabled, setAutopilotEnabled] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState('');
@@ -43,6 +53,7 @@ export function useThreadComposer(projects: SavedProject[]) {
         ]);
         if (cancelled) return;
         setSandboxEnabled(!getEffectiveRunOnHost(settings, lookup?.config ?? null));
+        setWorktreeDefault(getEffectiveWorktreeSettings(settings, lookup?.config ?? null).autoCreate);
         if (providerTouchedRef.current) return;
         const primary = getEffectivePrimaryProviderEntry(settings, lookup?.config ?? null);
         setProvider(primary.provider);
@@ -76,12 +87,17 @@ export function useThreadComposer(projects: SavedProject[]) {
 
   function clearProviderTouch() {
     providerTouchedRef.current = false;
-    // Reset the per-thread override back to "inherit" when the project changes.
+    // Reset the per-thread overrides back to "inherit" when the project changes.
     setRunOnHost(undefined);
+    setCreateWorktree(undefined);
   }
 
   function setRunOnHostSelection(next: boolean) {
     setRunOnHost(next);
+  }
+
+  function setCreateWorktreeSelection(next: boolean) {
+    setCreateWorktree(next);
   }
 
   return {
@@ -101,6 +117,9 @@ export function useThreadComposer(projects: SavedProject[]) {
     runOnHost,
     setRunOnHostSelection,
     sandboxEnabled,
+    createWorktree,
+    setCreateWorktreeSelection,
+    worktreeDefault,
     autopilotEnabled,
     setAutopilotEnabled,
     creating,

@@ -38,6 +38,9 @@ export function ThreadCreateModal({ onClose }: Props) {
     runOnHost,
     setRunOnHostSelection,
     sandboxEnabled,
+    createWorktree,
+    setCreateWorktreeSelection,
+    worktreeDefault,
     creating,
     error,
     matchedProject,
@@ -145,6 +148,15 @@ export function ThreadCreateModal({ onClose }: Props) {
                 description="Run this thread in a Docker sandbox. Turn off to run directly on the host for this thread only."
                 checked={!runOnHost}
                 onCheckedChange={(v) => setRunOnHostSelection(!v)}
+              />
+            )}
+
+            {(createWorktree ?? worktreeDefault) !== undefined && (
+              <ToggleRow
+                label="Worktree"
+                description="Isolate this thread in its own git worktree. Turn off to run in the project directory for this thread only."
+                checked={createWorktree ?? worktreeDefault ?? false}
+                onCheckedChange={(v) => setCreateWorktreeSelection(v)}
               />
             )}
 

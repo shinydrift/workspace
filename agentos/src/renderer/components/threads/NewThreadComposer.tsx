@@ -55,6 +55,9 @@ export function NewThreadComposer() {
     runOnHost,
     setRunOnHostSelection,
     sandboxEnabled,
+    createWorktree,
+    setCreateWorktreeSelection,
+    worktreeDefault,
     autopilotEnabled,
     setAutopilotEnabled,
     creating,
@@ -110,6 +113,7 @@ export function NewThreadComposer() {
     effort,
     reasoning,
     runOnHost,
+    createWorktree,
     projectName,
     provider,
     setAttachedFiles,
@@ -143,6 +147,10 @@ export function NewThreadComposer() {
   function onBgMouseLeave() {
     bgMouseRef.current = { x: -9999, y: -9999 };
   }
+
+  // undefined until the effective worktree default loads — keeps the chip hidden rather than
+  // rendering a guessed off/on state that could contradict the actual (inherited) outcome.
+  const worktreeOn = createWorktree ?? worktreeDefault;
 
   return (
     <div className="flex flex-col h-full bg-background p-3">
@@ -194,6 +202,8 @@ export function NewThreadComposer() {
               runOnHost={runOnHost}
               sandboxEnabled={sandboxEnabled}
               onToggleRunOnHost={() => setRunOnHostSelection(!runOnHost)}
+              worktreeOn={worktreeOn}
+              onToggleWorktree={worktreeOn === undefined ? undefined : () => setCreateWorktreeSelection(!worktreeOn)}
               recording={recording}
               recordingSeconds={recordingSeconds}
               setProviderSelection={setProviderSelection}

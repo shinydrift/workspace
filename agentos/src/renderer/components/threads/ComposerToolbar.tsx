@@ -1,6 +1,7 @@
 import {
   ArrowUp,
   FolderOpen,
+  GitBranch,
   Microphone,
   MicrophoneSlash,
   Paperclip,
@@ -33,6 +34,8 @@ interface Props {
   runOnHost?: boolean;
   sandboxEnabled?: boolean;
   onToggleRunOnHost?: () => void;
+  worktreeOn?: boolean;
+  onToggleWorktree?: () => void;
   recording: boolean;
   recordingSeconds: number;
   setProviderSelection: (provider: Provider) => void;
@@ -62,6 +65,8 @@ export function ComposerToolbar({
   runOnHost,
   sandboxEnabled,
   onToggleRunOnHost,
+  worktreeOn,
+  onToggleWorktree,
   recording,
   recordingSeconds,
   setProviderSelection,
@@ -127,6 +132,26 @@ export function ComposerToolbar({
 
       <div className="ml-auto flex shrink-0 items-center gap-1.5">
         {recording && <span className="text-xs tabular-nums text-destructive">{formatSeconds(recordingSeconds)}</span>}
+
+        {onToggleWorktree && (
+          <Button
+            onClick={onToggleWorktree}
+            variant="ghost"
+            size="icon"
+            title={
+              worktreeOn
+                ? 'Worktree on — thread runs in its own git worktree. Click to run in the project directory'
+                : 'Worktree off — running in the project directory. Click to use a git worktree'
+            }
+            aria-label={worktreeOn ? 'Worktree on' : 'Worktree off'}
+            className={cn(
+              'h-7 w-7 shrink-0',
+              worktreeOn ? 'text-emerald-500 hover:text-emerald-400' : 'text-muted-foreground'
+            )}
+          >
+            <GitBranch className="h-4 w-4" weight={worktreeOn ? 'fill' : 'regular'} />
+          </Button>
+        )}
 
         {sandboxEnabled && onToggleRunOnHost && (
           <Button
