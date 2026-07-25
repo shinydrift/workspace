@@ -59,7 +59,8 @@ export class ThreadFactory {
     let usingWorktree = callerManagedWorktree;
     if (!callerManagedWorktree) {
       const effectiveWorktree = getEffectiveWorktreeSettings(settings, projectConfigResult.config);
-      if (effectiveWorktree.autoCreate) {
+      // Per-thread override wins; otherwise fall back to the effective auto-create setting.
+      if (req.createWorktree ?? effectiveWorktree.autoCreate) {
         const worktreePath = await worktreeWorkerClient.createSessionWorktree(projectPath, req.name, id);
         if (worktreePath) {
           workingDirectory = worktreePath;

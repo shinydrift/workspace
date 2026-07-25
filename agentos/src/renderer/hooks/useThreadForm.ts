@@ -30,6 +30,9 @@ export function useThreadForm(onClose: () => void) {
     runOnHost,
     setRunOnHostSelection,
     sandboxEnabled,
+    createWorktree,
+    setCreateWorktreeSelection,
+    worktreeDefault,
     creating,
     setCreating,
     error,
@@ -145,7 +148,7 @@ export function useThreadForm(onClose: () => void) {
         effort,
         reasoning,
         runOnHost,
-        createWorktree: true,
+        createWorktree,
         projectName: projectName.trim() || undefined,
       });
       upsertThread({ ...thread, logBuffer: [] });
@@ -183,6 +186,9 @@ export function useThreadForm(onClose: () => void) {
     runOnHost,
     setRunOnHostSelection,
     sandboxEnabled,
+    createWorktree,
+    setCreateWorktreeSelection,
+    worktreeDefault,
     creating,
     error,
     matchedProject,

@@ -55,6 +55,9 @@ export function NewThreadComposer() {
     runOnHost,
     setRunOnHostSelection,
     sandboxEnabled,
+    createWorktree,
+    setCreateWorktreeSelection,
+    worktreeDefault,
     autopilotEnabled,
     setAutopilotEnabled,
     creating,
@@ -110,6 +113,7 @@ export function NewThreadComposer() {
     effort,
     reasoning,
     runOnHost,
+    createWorktree,
     projectName,
     provider,
     setAttachedFiles,
@@ -194,6 +198,8 @@ export function NewThreadComposer() {
               runOnHost={runOnHost}
               sandboxEnabled={sandboxEnabled}
               onToggleRunOnHost={() => setRunOnHostSelection(!runOnHost)}
+              worktreeOn={createWorktree ?? worktreeDefault}
+              onToggleWorktree={() => setCreateWorktreeSelection(!(createWorktree ?? worktreeDefault))}
               recording={recording}
               recordingSeconds={recordingSeconds}
               setProviderSelection={setProviderSelection}
