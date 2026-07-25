@@ -28,9 +28,10 @@ export function useThreadComposer(projects: SavedProject[]) {
   const [sandboxEnabled, setSandboxEnabled] = useState(false);
   // Per-thread worktree override. `undefined` means "inherit the project/app auto-create setting"
   // (resolved in the main process at thread creation). worktreeDefault mirrors that effective
-  // setting so the composer chip can show the inherited on/off state before any toggle.
+  // setting so the composer chip can show the inherited on/off state before any toggle; it stays
+  // `undefined` until the async settings load resolves so the chip is hidden rather than guessing.
   const [createWorktree, setCreateWorktree] = useState<boolean | undefined>(undefined);
-  const [worktreeDefault, setWorktreeDefault] = useState(false);
+  const [worktreeDefault, setWorktreeDefault] = useState<boolean | undefined>(undefined);
   const [autopilotEnabled, setAutopilotEnabled] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState('');

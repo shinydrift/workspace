@@ -151,12 +151,14 @@ export function ThreadCreateModal({ onClose }: Props) {
               />
             )}
 
-            <ToggleRow
-              label="Worktree"
-              description="Isolate this thread in its own git worktree. Turn off to run in the project directory for this thread only."
-              checked={createWorktree ?? worktreeDefault}
-              onCheckedChange={(v) => setCreateWorktreeSelection(v)}
-            />
+            {(createWorktree ?? worktreeDefault) !== undefined && (
+              <ToggleRow
+                label="Worktree"
+                description="Isolate this thread in its own git worktree. Turn off to run in the project directory for this thread only."
+                checked={createWorktree ?? worktreeDefault ?? false}
+                onCheckedChange={(v) => setCreateWorktreeSelection(v)}
+              />
+            )}
 
             {error && <p className="text-destructive">{error}</p>}
 
