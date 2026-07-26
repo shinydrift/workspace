@@ -40,9 +40,39 @@ function hasProviderLimitSignal(rawOutput) {
   return PROVIDER_LIMIT_SIGNALS.some((signal) => lower.includes(signal));
 }
 
+const KILLED_EXIT_CODES = new Set([137, 143]);
+const CLI_ERROR_EVENT_TYPES = new Set(['error', 'turn.failed']);
+
+function isCliErrorEvent(event) {
+  const type = typeof event.type === 'string' ? event.type.toLowerCase() : '';
+  if (CLI_ERROR_EVENT_TYPES.has(type)) return true;
+  return type === 'result' && (event.is_error === true || typeof event.error === 'string');
+}
+
+function cliReportedText(rawOutput, includePlainLines) {
+  const parts = [];
+  for (const rawLine of rawOutput.split('\n')) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    if (!line.startsWith('{')) {
+      if (includePlainLines) parts.push(line);
+      continue;
+    }
+    if (!line.endsWith('}')) continue;
+    let event;
+    try {
+      event = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (event && typeof event === 'object' && !Array.isArray(event) && isCliErrorEvent(event)) parts.push(line);
+  }
+  return parts.join('\n');
+}
+
 function shouldTreatAsProviderLimit(exitCode, rawOutput) {
-  void exitCode;
-  return hasProviderLimitSignal(rawOutput);
+  if (exitCode !== undefined && KILLED_EXIT_CODES.has(exitCode)) return false;
+  return hasProviderLimitSignal(cliReportedText(rawOutput, exitCode !== 0));
 }
 
 // ── each signal individually ──────────────────────────────────────────────────
@@ -146,10 +176,84 @@ test('hasProviderLimitSignal: prose mentioning a spend limit returns false', () 
   assert.equal(hasProviderLimitSignal('Check whether the spend limit is configured for the project.'), false);
 });
 
-test('shouldTreatAsProviderLimit: zero-exit Claude spend-limit output triggers provider fallback', () => {
-  assert.equal(shouldTreatAsProviderLimit(0, CLAUDE_MONTHLY_SPEND_LIMIT), true);
+// ── shouldTreatAsProviderLimit: only the CLI's own reporting counts ───────────
+
+const claudeResultEvent = (fields) => JSON.stringify({ type: 'result', subtype: 'success', ...fields });
+
+test('shouldTreatAsProviderLimit: zero-exit Claude spend-limit result event triggers provider fallback', () => {
+  const output = claudeResultEvent({ is_error: true, result: CLAUDE_MONTHLY_SPEND_LIMIT });
+  assert.equal(shouldTreatAsProviderLimit(0, output), true);
+});
+
+test('shouldTreatAsProviderLimit: zero-exit Gemini result event carrying an error triggers provider fallback', () => {
+  const output = JSON.stringify({ type: 'result', error: 'Quota exceeded for this project' });
+  assert.equal(shouldTreatAsProviderLimit(0, output), true);
+});
+
+test('shouldTreatAsProviderLimit: Codex turn.failed with a limit error triggers provider fallback', () => {
+  const output = JSON.stringify({ type: 'turn.failed', error: { message: 'rate limit exceeded' } });
+  assert.equal(shouldTreatAsProviderLimit(0, output), true);
+});
+
+test('shouldTreatAsProviderLimit: non-zero exit with a limit phrase in CLI chatter triggers provider fallback', () => {
+  assert.equal(shouldTreatAsProviderLimit(1, 'error: rate limit exceeded, retry after 60s'), true);
 });
 
 test('shouldTreatAsProviderLimit: zero-exit normal output does not trigger provider fallback', () => {
   assert.equal(shouldTreatAsProviderLimit(0, 'The command completed successfully.'), false);
+});
+
+// Regression: a thread that read headlessRunner.ts itself cascaded Claude → Codex → Gemini,
+// because the file's own signal list landed in the turn buffer inside a tool_result. The turn
+// had exited 0 — a succeeded turn's content is never a provider report.
+test('shouldTreatAsProviderLimit: limit phrases inside a tool_result do not trigger provider fallback', () => {
+  const output = JSON.stringify({
+    type: 'user',
+    message: {
+      role: 'user',
+      content: [
+        {
+          type: 'tool_result',
+          content: "const PROVIDER_LIMIT_SIGNALS = ['monthly spend limit', 'quota exceeded', 'too many requests'];",
+        },
+      ],
+    },
+  });
+  assert.equal(shouldTreatAsProviderLimit(0, output), false);
+});
+
+// Regression: a thread reading Anthropic API error docs ("| 429 | rate_limit_error | Too many
+// requests |") cascaded the same way.
+test('shouldTreatAsProviderLimit: 429 docs echoed in assistant text do not trigger provider fallback', () => {
+  const output = JSON.stringify({
+    type: 'assistant',
+    message: { role: 'assistant', content: [{ type: 'text', text: '| 429 | rate_limit_error | Too many requests |' }] },
+  });
+  assert.equal(shouldTreatAsProviderLimit(0, output), false);
+});
+
+// The assistant's own final summary rides in the result event, so a clean result must not be
+// scanned — only one flagged as an error.
+test('shouldTreatAsProviderLimit: clean result event quoting a limit phrase does not trigger fallback', () => {
+  const output = claudeResultEvent({
+    is_error: false,
+    result: 'I removed the "too many requests" signal from the list.',
+  });
+  assert.equal(shouldTreatAsProviderLimit(0, output), false);
+});
+
+// A truncated JSON line is content cut off mid-write, not CLI chatter — even on a failed turn.
+test('shouldTreatAsProviderLimit: truncated tool_result on a failed turn does not trigger fallback', () => {
+  const output = '{"type":"user","message":{"content":[{"type":"tool_result","content":"quota exceeded';
+  assert.equal(shouldTreatAsProviderLimit(1, output), false);
+});
+
+test('shouldTreatAsProviderLimit: SIGKILLed turn does not trigger provider fallback', () => {
+  assert.equal(shouldTreatAsProviderLimit(137, 'reading docs about quota exceeded errors'), false);
+});
+
+// Plain-text harnesses (pi) emit no structured events, so their prose only counts once the CLI
+// has actually failed. A limit reported on a clean exit there is missed by design.
+test('shouldTreatAsProviderLimit: plain-text limit message on a clean exit does not trigger fallback', () => {
+  assert.equal(shouldTreatAsProviderLimit(0, CLAUDE_MONTHLY_SPEND_LIMIT), false);
 });

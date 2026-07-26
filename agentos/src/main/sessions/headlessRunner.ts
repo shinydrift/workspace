@@ -2,6 +2,7 @@ import { app } from 'electron';
 import { randomUUID } from 'crypto';
 import fs from 'fs';
 import path from 'path';
+import stripAnsi from 'strip-ansi';
 import { getErrorMessage } from '../../shared/utils/errorMessage';
 import { broadcastTerminalData } from './broadcaster';
 import { buildDockerExecArgs } from '../utils/docker';
@@ -40,6 +41,66 @@ const PROVIDER_LIMIT_SIGNALS = [
 export function hasProviderLimitSignal(rawOutput: string): boolean {
   const lower = rawOutput.toLowerCase();
   return PROVIDER_LIMIT_SIGNALS.some((signal) => lower.includes(signal));
+}
+
+// SIGKILL/SIGTERM (128+9, 128+15): we killed the turn — interrupt, container stop, idle
+// teardown. Whatever sits in the buffer is an unfinished turn, never a provider report.
+const KILLED_EXIT_CODES = new Set([137, 143]);
+
+// The stream-json events a CLI uses to report its own failure: codex 'error'/'turn.failed',
+// gemini/opencode 'error', claude/gemini 'result' carrying an error. Assistant messages, tool
+// results and item.* events are model-visible content and are never inspected — a source file
+// or an API doc that quotes "too many requests" is not a limit hit.
+const CLI_ERROR_EVENT_TYPES = new Set(['error', 'turn.failed']);
+
+function isCliErrorEvent(event: Record<string, unknown>): boolean {
+  const type = typeof event.type === 'string' ? event.type.toLowerCase() : '';
+  if (CLI_ERROR_EVENT_TYPES.has(type)) return true;
+  return type === 'result' && (event.is_error === true || typeof event.error === 'string');
+}
+
+/**
+ * The text the CLI reported about itself, with model-visible content stripped out.
+ * `includePlainLines` adds the raw terminal chatter (stderr, stack traces, and the output of
+ * plain-text harnesses like pi) — only safe for a turn that already failed. Lines that open a
+ * JSON event but don't parse are truncated content, so they are dropped either way.
+ */
+function cliReportedText(rawOutput: string, includePlainLines: boolean): string {
+  const parts: string[] = [];
+  for (const rawLine of stripAnsi(rawOutput).split('\n')) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    if (!line.startsWith('{')) {
+      if (includePlainLines) parts.push(line);
+      continue;
+    }
+    if (!line.endsWith('}')) continue;
+    let event: unknown;
+    try {
+      event = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (
+      event &&
+      typeof event === 'object' &&
+      !Array.isArray(event) &&
+      isCliErrorEvent(event as Record<string, unknown>)
+    )
+      parts.push(line);
+  }
+  return parts.join('\n');
+}
+
+/**
+ * A limit phrase alone is not a limit hit: threads that read this very file, or an API doc
+ * listing HTTP 429 "Too many requests", cascaded Claude → Codex → Gemini on turns that had
+ * exited 0. Only the CLI's own reporting counts.
+ */
+export function shouldTreatAsProviderLimit(exitCode: number | undefined, rawOutput: string): boolean {
+  if (exitCode !== undefined && KILLED_EXIT_CODES.has(exitCode)) return false;
+  const failed = exitCode !== 0;
+  return hasProviderLimitSignal(cliReportedText(rawOutput, failed));
 }
 
 export class ProviderLimitError extends Error {
@@ -263,7 +324,7 @@ export async function execHeadlessTurn(
           reject(new Error(`Container exited mid-turn (exit code ${exitCode})`));
           return;
         }
-        if (hasProviderLimitSignal(outputBuffer)) {
+        if (shouldTreatAsProviderLimit(exitCode, outputBuffer)) {
           eventLogger.warn('thread', 'Provider usage limit signal detected', { threadId, provider, source, exitCode });
           reject(new ProviderLimitError(outputBuffer));
           return;
