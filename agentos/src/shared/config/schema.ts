@@ -14,7 +14,7 @@ import { z } from 'zod';
 import { normalizeProviderOrder } from '../types/provider';
 
 // ── Enums ─────────────────────────────────────────────────────────────────────
-const providerEnum = z.enum(['claude', 'claude-interactive', 'codex', 'gemini', 'pi']);
+const providerEnum = z.enum(['claude', 'claude-interactive', 'codex', 'gemini', 'pi', 'opencode']);
 const backendEnum = z.enum(['anthropic', 'openai', 'google', 'ollama', 'openrouter']);
 const effortEnum = z.enum(['low', 'medium', 'high', 'extra-high', 'max']);
 const reasoningEnum = z

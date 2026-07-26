@@ -32,6 +32,7 @@ export function persistAllSessionIds(threadId: string, rawOutput: string): strin
   let codexId: string | null = null;
   let geminiId: string | null = null;
   let piId: string | null = null;
+  let opencodeId: string | null = null;
 
   for (const line of cleaned.split('\n')) {
     const trimmed = line.trim();
@@ -42,6 +43,8 @@ export function persistAllSessionIds(threadId: string, rawOutput: string): strin
       if (!codexId && p['type'] === 'thread.started' && typeof p['thread_id'] === 'string') codexId = p['thread_id'];
       if (!geminiId && p['type'] === 'init' && typeof p['session_id'] === 'string') geminiId = p['session_id'];
       if (!piId && p['type'] === 'session' && typeof p['id'] === 'string') piId = p['id'];
+      // opencode --format json puts sessionID (ses_…) at the top level of every event line.
+      if (!opencodeId && typeof p['sessionID'] === 'string') opencodeId = p['sessionID'];
     } catch {
       // not JSON, skip
     }
@@ -62,6 +65,10 @@ export function persistAllSessionIds(threadId: string, rawOutput: string): strin
   if (piId) {
     threadStore.updateThread(threadId, { piSessionId: piId });
     eventLogger.debug('thread', 'Pi session id persisted', { threadId, sessionId: piId });
+  }
+  if (opencodeId) {
+    threadStore.updateThread(threadId, { opencodeSessionId: opencodeId });
+    eventLogger.debug('thread', 'opencode session id persisted', { threadId, sessionId: opencodeId });
   }
 
   return claudeId;

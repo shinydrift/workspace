@@ -18,7 +18,7 @@ import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
 
-const PROVIDERS: Provider[] = ['claude', 'claude-interactive', 'codex', 'gemini', 'pi'];
+const PROVIDERS: Provider[] = ['claude', 'claude-interactive', 'codex', 'gemini', 'pi', 'opencode'];
 
 interface Props {
   provider: Provider;

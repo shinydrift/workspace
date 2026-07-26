@@ -1,7 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import stripAnsi from 'strip-ansi';
 import type { Message, MessageContentBlock, Thread } from '../../shared/types';
-import { extractCodexStreamBlocks, extractGeminiStreamBlocks, extractStreamBlocks } from '../lib/streamParsers';
+import {
+  extractCodexStreamBlocks,
+  extractGeminiStreamBlocks,
+  extractOpencodeStreamBlocks,
+  extractStreamBlocks,
+} from '../lib/streamParsers';
 
 type MessagesState = {
   messages: Message[];
@@ -82,6 +87,7 @@ export function useMessages(thread: Thread | null): MessagesState {
     if (!cleaned) return [];
     if (thread?.provider === 'codex') return extractCodexStreamBlocks(cleaned);
     if (thread?.provider === 'gemini') return extractGeminiStreamBlocks(cleaned);
+    if (thread?.provider === 'opencode') return extractOpencodeStreamBlocks(cleaned);
     return extractStreamBlocks(cleaned);
   }, [streamingRaw, thread?.provider]);
 

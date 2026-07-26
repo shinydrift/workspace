@@ -232,6 +232,7 @@ export function buildDockerExecArgs(
     codexSessionId?: string;
     geminiSessionId?: string;
     piSessionId?: string;
+    opencodeSessionId?: string;
     skipPermissions?: boolean;
     systemPrompt?: string | null;
     systemPromptSuffix?: string | null;
@@ -329,6 +330,31 @@ export function buildDockerExecArgs(
       opts.extraEnv
     );
     const cliArgs = ['-p', ...modelArgs, ...(opts.piSessionId ? ['--session', opts.piSessionId] : []), prompt];
+    return wrapExec(threadId, command, prefixArgs, cliArgs, env, runOnHost);
+  }
+
+  if (opts.provider === 'opencode') {
+    // opencode has no `run` MCP-server flags (servers are configured via opencode.json), so like
+    // pi the bearer token is injected for future use but server URLs are not passed here.
+    // `--format json` emits one JSON event per line (parsed by normalizers/opencode); `--auto`
+    // auto-approves non-denied permissions; `--session` resumes the captured session id.
+    const prompt = opts.systemPrompt ? `${opts.systemPrompt}\n\n${input}` : input;
+    const env = execEnv(
+      [
+        [PROVIDER_CONFIGS.opencode.apiKeyEnvVar, opts.apiKey],
+        [AGENTOS_MCP_BEARER_TOKEN_ENV_VAR, opts.mcpBearerToken],
+      ],
+      opts.extraEnv
+    );
+    const cliArgs = [
+      'run',
+      '--format',
+      'json',
+      ...(skipPermissions ? ['--auto'] : []),
+      ...modelArgs,
+      ...(opts.opencodeSessionId ? ['--session', opts.opencodeSessionId] : []),
+      prompt,
+    ];
     return wrapExec(threadId, command, prefixArgs, cliArgs, env, runOnHost);
   }
 

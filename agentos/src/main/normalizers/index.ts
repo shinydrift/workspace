@@ -2,6 +2,7 @@ import type { Provider } from '../../shared/types';
 import { normalizeClaude, normalizeClaudeMessages } from './claude';
 import { normalizeCodex, normalizeCodexMessages } from './codex';
 import { normalizeGemini } from './gemini';
+import { normalizeOpencode } from './opencode';
 import type { NormalizedMessageInput, NormalizedMessageResult, ProviderNormalizer } from './types';
 import { buildPlainTextResult } from './types';
 
@@ -12,6 +13,7 @@ const providerNormalizers: Partial<Record<Provider, ProviderNormalizer>> = {
   'claude-interactive': normalizeClaude,
   codex: normalizeCodex,
   gemini: normalizeGemini,
+  opencode: normalizeOpencode,
 };
 
 export function normalizeMessage(input: NormalizedMessageInput): NormalizedMessageResult {

@@ -126,7 +126,7 @@ export async function prepareThreadStartup(
   // ~/.codex, ~/.gemini directly, so there is nothing to mount.
   const secondaryAuthMounts: Array<{ hostPath: string; containerPath: string; readOnly: boolean }> = [];
   if (!runOnHost) {
-    for (const p of ['claude', 'codex', 'gemini', 'pi'] as const) {
+    for (const p of ['claude', 'codex', 'gemini', 'pi', 'opencode'] as const) {
       if (p === provider) continue;
       const containerPath = PROVIDER_CONFIGS[p].sessionConfigDir;
       let hostPath: string;

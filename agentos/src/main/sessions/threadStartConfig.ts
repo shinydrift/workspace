@@ -91,7 +91,19 @@ export async function resolveStartConfig(
   const effectiveBackend = getEffectiveBackendForProvider(provider, projectConfigResult.config, settings);
   const effectiveBaseUrl = getEffectiveBaseUrlForProvider(provider, projectConfigResult.config, settings);
   const apiKey = getApiKey(provider, effectiveApiKeys, effectiveBackend);
-  const backendEnv = buildBackendEnv(provider, effectiveBackend, effectiveBaseUrl, apiKey);
+  // opencode picks its upstream provider from the model's `provider/` prefix and reads that
+  // provider's key from the environment, so inject every configured key rather than a single one.
+  const opencodeKeyEnv: Record<string, string> =
+    provider === 'opencode'
+      ? {
+          ...(effectiveApiKeys.anthropic ? { ANTHROPIC_API_KEY: effectiveApiKeys.anthropic } : {}),
+          ...(effectiveApiKeys.openai ? { OPENAI_API_KEY: effectiveApiKeys.openai } : {}),
+          ...(effectiveApiKeys.google
+            ? { GOOGLE_API_KEY: effectiveApiKeys.google, GOOGLE_GENERATIVE_AI_API_KEY: effectiveApiKeys.google }
+            : {}),
+        }
+      : {};
+  const backendEnv = { ...buildBackendEnv(provider, effectiveBackend, effectiveBaseUrl, apiKey), ...opencodeKeyEnv };
   if (effectiveBackend === 'openrouter' && !apiKey) {
     eventLogger.warn(
       'config',
@@ -109,12 +121,22 @@ export async function resolveStartConfig(
     !apiKey &&
     effectiveBackend !== 'ollama' && // Ollama doesn't require a key
     provider !== 'claude' &&
+    // opencode can auth via any of several provider keys (or `opencode auth login` creds), so it
+    // never hard-fails on a missing Anthropic key — it just needs a key for its chosen model's provider.
+    provider !== 'opencode' &&
     !(provider === 'codex' && hasHostCodexAuth) &&
     !(provider === 'gemini' && hasHostGeminiAuth)
   ) {
     const providerLabel = PROVIDER_CONFIGS[provider].displayName;
     const keyName = PROVIDER_CONFIGS[provider].apiKeyEnvVar;
     throw new Error(`${providerLabel} requires an API key. Set ${keyName} in Settings and retry.`);
+  }
+  if (provider === 'opencode' && Object.keys(opencodeKeyEnv).length === 0) {
+    eventLogger.warn(
+      'config',
+      'opencode selected but no Anthropic/OpenAI/Google API key is configured — it will fall back to `opencode auth login` creds if present, otherwise fail at first API call',
+      { threadId, provider }
+    );
   }
 
   const useHeadless = PROVIDER_CONFIGS[provider].supportsHeadless;

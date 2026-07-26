@@ -14,6 +14,7 @@ const PROVIDER_COMMAND_PROVIDERS: Array<{ provider: Provider; label: string; pla
   { provider: 'codex', label: 'Codex', placeholder: 'codex' },
   { provider: 'gemini', label: 'Gemini', placeholder: 'gemini' },
   { provider: 'pi', label: 'Pi', placeholder: 'pi' },
+  { provider: 'opencode', label: 'opencode', placeholder: 'opencode' },
 ];
 
 export function AgentsTab() {
