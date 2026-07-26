@@ -14,7 +14,10 @@ const memberSchema = z.object({
   provider: z.enum(['claude', 'claude-interactive', 'codex', 'gemini']),
   model: z.string().max(128),
   effort: z.enum(['low', 'medium', 'high', 'extra-high', 'max']).optional(),
-  reasoning: z.enum(['low', 'medium', 'high', 'extra-high']).optional(),
+  reasoning: z
+    .enum(['none', 'low', 'medium', 'high', 'xhigh', 'max', 'extra-high'])
+    .transform((value) => (value === 'extra-high' ? 'xhigh' : value))
+    .optional(),
 });
 
 const upsertConfigSchema = z.object({

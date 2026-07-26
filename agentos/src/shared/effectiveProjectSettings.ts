@@ -3,7 +3,8 @@ import {
   DEFAULT_CONTAINER_PRUNE_SETTINGS,
   DEFAULT_PROVIDER_ORDER,
   DEFAULT_WORKTREE_SETTINGS,
-  PROVIDER_MODELS,
+  isKnownProviderModel,
+  normalizeCodexReasoning,
   normalizeProviderOrder,
   type AppSettings,
   type AutopilotSettings,
@@ -101,9 +102,9 @@ export function getEffectiveReasoningForProvider(
   storedReasoning?: CodexReasoning | null
 ): CodexReasoning | undefined {
   const projectReasoning = getProjectProviderOrder(projectConfig).find((e) => e.provider === 'codex')?.reasoning;
-  if (projectReasoning) return projectReasoning;
-  if (storedReasoning) return storedReasoning;
-  return getAppProviderOrder(settings).find((e) => e.provider === 'codex')?.reasoning;
+  if (projectReasoning) return normalizeCodexReasoning(projectReasoning);
+  if (storedReasoning) return normalizeCodexReasoning(storedReasoning);
+  return normalizeCodexReasoning(getAppProviderOrder(settings).find((e) => e.provider === 'codex')?.reasoning);
 }
 
 // Precedence: project config > app settings. Defaults to sandboxed (false).
@@ -138,7 +139,7 @@ export function getEffectiveAutopilotSettings(
     plannerModel: (() => {
       const provider = autopilot.plannerProvider;
       const model = autopilot.plannerModel;
-      return provider && model && PROVIDER_MODELS[provider]?.includes(model) ? model : undefined;
+      return provider && model && isKnownProviderModel(provider, model) ? model : undefined;
     })(),
   };
 }
