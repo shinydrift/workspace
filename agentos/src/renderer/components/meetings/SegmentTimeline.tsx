@@ -12,8 +12,7 @@ import { claimRecordingPlayback, releaseRecordingPlayback } from './recordingPla
 const DAY_MS = 24 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
 const WINDOW_MS = 7 * DAY_MS;
-const DEFAULT_SELECTION_MS = HOUR_MS;
-const NEW_SELECTION_MS = 30 * 60 * 1000; // Clicking an empty area drops a fresh 30-minute slot you can drag to extend.
+const DEFAULT_SELECTION_MS = 30 * 60 * 1000; // A fresh slot — on open, or from a click on empty timeline — is 30 minutes.
 const HOUR_PX = 48; // Calendar-legible hour height.
 const TIMELINE_HEIGHT = (WINDOW_MS / HOUR_MS) * HOUR_PX; // Hourly grid across the retention window.
 const MERGE_GAP_MS = 90 * 1000; // Bridge tiny gaps so captured audio reads as one continuous stretch.
@@ -270,7 +269,7 @@ export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps
   const viewportRef = useRef<HTMLDivElement>(null);
   const dragging = useRef<DragTarget>(null);
   const blockAnchor = useRef<{ grabFrac: number; startFrac: number; endFrac: number } | null>(null);
-  const newAnchor = useRef<number | null>(null);
+  const newAnchor = useRef<{ frac: number; prevStart: number; prevEnd: number } | null>(null);
   const newDragged = useRef(false);
   const didScroll = useRef(false);
 
@@ -292,6 +291,7 @@ export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps
     () => segments.filter((s) => overlaps(s, selFrom, selTo)),
     [segments, selFrom, selTo]
   );
+  const selectedDuration = Math.max(0, Math.round((selTo - selFrom) / 1000));
   const availability = useMemo(() => mergeAvailability(segments), [segments]);
   // Enable Create whenever the slot overlaps captured audio, using the same merged ranges the
   // timeline shades — so a slot sitting inside a bridged gap no longer shows blue yet stays disabled.
@@ -342,14 +342,22 @@ export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps
   useEffect(() => {
     function onMove(e: PointerEvent) {
       if (!dragging.current) return;
+      // A pointerup delivered outside the window never reaches us, which would otherwise leave the
+      // drag latched and resizing the slot under a cursor with no button held.
+      if (e.buttons === 0) {
+        onUp();
+        return;
+      }
       const rawFrac = timeFracFromEvent(e.clientY);
       if (dragging.current === 'new') {
-        const anchor = newAnchor.current;
+        const anchor = newAnchor.current?.frac;
         if (anchor == null) return;
         const frac = snapFracToGrid(rawFrac, from);
         // Track (don't latch) whether this is a real drag, so dragging back onto the anchor falls
         // through to the 30-minute default on release instead of committing a zero-length slot.
-        newDragged.current = Math.abs(frac - anchor) >= MIN_GAP_FRAC;
+        // Both fractions are grid-snapped, so half a step is an exact-comparison-free way to ask
+        // "moved at least one step" — comparing against MIN_GAP_FRAC itself loses to float error.
+        newDragged.current = Math.abs(frac - anchor) >= MIN_GAP_FRAC / 2;
         setStartFrac(Math.min(anchor, frac));
         setEndFrac(Math.max(anchor, frac));
         return;
@@ -372,11 +380,24 @@ export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps
     function onUp() {
       if (dragging.current === 'new' && !newDragged.current && newAnchor.current != null) {
         // A plain click (no meaningful drag) drops a default 30-minute slot at the clicked time.
-        const len = NEW_SELECTION_MS / WINDOW_MS;
-        const nextStart = clampFrac(Math.min(newAnchor.current, 1 - len));
+        const len = DEFAULT_SELECTION_MS / WINDOW_MS;
+        const nextStart = clampFrac(Math.min(newAnchor.current.frac, 1 - len));
         setStartFrac(nextStart);
         setEndFrac(nextStart + len);
       }
+      clearDrag();
+    }
+    // The gesture was taken over (a touch pan, say) rather than released — put the slot back where
+    // it was, so scrolling the timeline never leaves a stray or zero-length selection behind.
+    function onCancel() {
+      const anchor = newAnchor.current;
+      if (dragging.current === 'new' && anchor) {
+        setStartFrac(anchor.prevStart);
+        setEndFrac(anchor.prevEnd);
+      }
+      clearDrag();
+    }
+    function clearDrag() {
       dragging.current = null;
       blockAnchor.current = null;
       newAnchor.current = null;
@@ -384,9 +405,11 @@ export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps
     }
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onCancel);
     return () => {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onCancel);
     };
   }, [endFrac, from, startFrac, timeFracFromEvent]);
 
@@ -472,6 +495,9 @@ export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps
               <SheetTitle>New meeting</SheetTitle>
               {loading && <CircleNotch className="h-3.5 w-3.5 animate-spin text-muted-foreground/60" />}
               <span className="text-xs text-muted-foreground truncate">{fmtRange(selFrom, selTo)}</span>
+              <span className="shrink-0 tabular-nums text-xs text-muted-foreground/70">
+                {formatSeconds(selectedDuration)}
+              </span>
             </div>
             <Button
               type="button"
@@ -504,7 +530,11 @@ export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps
                   </div>
                   <div
                     ref={trackRef}
-                    className="relative flex-1 cursor-crosshair rounded-md border border-border bg-muted/20"
+                    role="group"
+                    aria-label="Timeline — click to place a meeting slot"
+                    // pan-y keeps a touch swipe scrolling the 7-day timeline instead of dragging a
+                    // slot; the browser cancels the pointer gesture once it decides you're panning.
+                    className="relative flex-1 touch-pan-y cursor-crosshair rounded-md border border-border bg-muted/20"
                     onPointerDown={(e) => {
                       // Press on an empty area starts a fresh selection; drag to size it, or release
                       // without dragging for a default 30-minute slot. Ignore non-primary buttons so a
@@ -512,7 +542,7 @@ export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps
                       if (e.button !== 0) return;
                       e.preventDefault();
                       const anchor = snapFracToGrid(timeFracFromEvent(e.clientY), from);
-                      newAnchor.current = anchor;
+                      newAnchor.current = { frac: anchor, prevStart: startFrac, prevEnd: endFrac };
                       newDragged.current = false;
                       dragging.current = 'new';
                       setStartFrac(anchor);
