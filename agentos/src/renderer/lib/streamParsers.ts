@@ -344,3 +344,62 @@ export function extractGeminiStreamBlocks(raw: string): MessageContentBlock[] {
   }
   return blocks;
 }
+
+// Extract structured blocks from opencode `run --format json` JSONL for live rendering.
+// Text parts arrive as growing full snapshots keyed by part.id, so overwrite in place rather
+// than appending (which would duplicate the text as it streams).
+export function extractOpencodeStreamBlocks(raw: string): MessageContentBlock[] {
+  const blocks: MessageContentBlock[] = [];
+  const textBlockIndexByPartId = new Map<string, number>();
+
+  for (const rawLine of raw.split('\n')) {
+    const line = rawLine.trim();
+    if (!line.startsWith('{') || !line.endsWith('}')) continue;
+
+    let event: Record<string, unknown>;
+    try {
+      event = JSON.parse(line) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+
+    const type = typeof event.type === 'string' ? event.type : '';
+    const part =
+      event.part && typeof event.part === 'object' && !Array.isArray(event.part)
+        ? (event.part as Record<string, unknown>)
+        : null;
+    if (!part) continue;
+
+    if (type === 'text') {
+      const partId = typeof part.id === 'string' ? part.id : '';
+      const text = typeof part.text === 'string' ? part.text : '';
+      if (!text) continue;
+      const existingIdx = partId ? textBlockIndexByPartId.get(partId) : undefined;
+      if (existingIdx !== undefined) {
+        const existing = blocks[existingIdx];
+        if (existing.type === 'text') existing.text = text;
+      } else {
+        blocks.push({ type: 'text', text });
+        if (partId) textBlockIndexByPartId.set(partId, blocks.length - 1);
+      }
+      continue;
+    }
+
+    if (type === 'tool_use') {
+      const state =
+        part.state && typeof part.state === 'object' && !Array.isArray(part.state)
+          ? (part.state as Record<string, unknown>)
+          : {};
+      const callId = typeof part.callID === 'string' ? part.callID : typeof part.id === 'string' ? part.id : '';
+      if (!callId) continue;
+      const toolName = typeof part.tool === 'string' ? part.tool : 'tool';
+      blocks.push({ type: 'tool_use', id: callId, name: toolName, input: state.input ?? {} });
+      const status = typeof state.status === 'string' ? state.status : '';
+      if (status === 'completed' || status === 'error') {
+        const output = typeof state.output === 'string' ? state.output : JSON.stringify(state.output ?? '');
+        blocks.push({ type: 'tool_result', toolUseId: callId, content: output, isError: status === 'error' });
+      }
+    }
+  }
+  return blocks;
+}

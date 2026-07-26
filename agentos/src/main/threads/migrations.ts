@@ -502,6 +502,17 @@ CREATE INDEX idx_stb_thread_id ON slack_thread_bindings(thread_id);
       }
     },
   },
+  {
+    // opencode `run --session <id>` resume: persist the session id (ses_…) captured from its
+    // --format json event stream so subsequent turns continue the same conversation.
+    name: '0013_add_opencode_session_id',
+    run: (db) => {
+      const cols = db.prepare(`PRAGMA table_info(threads)`).all() as { name: string }[];
+      if (!cols.some((c) => c.name === 'opencode_session_id')) {
+        db.exec(`ALTER TABLE threads ADD COLUMN opencode_session_id TEXT`);
+      }
+    },
+  },
 ];
 
 // Derived from THREADS_MIGRATIONS so the seeding branch never goes stale.

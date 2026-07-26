@@ -10,7 +10,7 @@ import type { ThreadOutputManager } from './threadOutput';
 
 // 'archived' is intentionally excluded — archived threads are filtered out before runtime use.
 const VALID_STATUSES = new Set(['running', 'idle', 'error', 'stopped', 'building']);
-const VALID_PROVIDERS = new Set([undefined, 'claude', 'claude-interactive', 'codex', 'gemini', 'pi']);
+const VALID_PROVIDERS = new Set([undefined, 'claude', 'claude-interactive', 'codex', 'gemini', 'pi', 'opencode']);
 
 async function withConcurrency<T>(items: T[], concurrency: number, fn: (item: T) => Promise<void>): Promise<void> {
   const queue = [...items];

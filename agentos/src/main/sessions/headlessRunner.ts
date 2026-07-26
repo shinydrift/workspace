@@ -113,6 +113,9 @@ export async function execHeadlessTurn(
   const codexSessionId = provider === 'codex' ? thread.codexSessionId : undefined;
   const geminiSessionId = provider === 'gemini' ? thread.geminiSessionId : undefined;
   let piSessionId = provider === 'pi' ? thread.piSessionId : undefined;
+  // opencode stores sessions under its config dir (bind-mounted per thread), so the captured id
+  // stays valid across turns — pass it straight through with no stale-file pre-check.
+  const opencodeSessionId = provider === 'opencode' ? thread.opencodeSessionId : undefined;
 
   // Pre-validate the session file exists before passing --resume. Without this, docker exec
   // runs a full Claude invocation that immediately exits with "No conversation found with
@@ -176,6 +179,7 @@ export async function execHeadlessTurn(
     codexSessionId,
     geminiSessionId,
     piSessionId,
+    opencodeSessionId,
     systemPrompt,
     systemPromptSuffix,
     memoryMcpUrl,

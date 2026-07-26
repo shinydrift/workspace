@@ -31,11 +31,11 @@ RUN OS_CODENAME=$(. /etc/os-release && echo "${VERSION_CODENAME}") \
     && apt-get update && apt-get install -y --no-install-recommends tailscale \
     && rm -rf /var/lib/apt/lists/*
 
-# Install all three AI CLIs (always latest). The invalidation key lets AgentOS
+# Install all AI CLIs (always latest). The invalidation key lets AgentOS
 # deliberately refresh the npm install layer during scheduled image rebuilds.
 ARG SANDBOX_IMAGE_INVALIDATION_KEY=initial
 RUN echo "Sandbox image invalidation: ${SANDBOX_IMAGE_INVALIDATION_KEY}" \
-    && npm install -g @anthropic-ai/claude-code@latest @openai/codex@latest @google/gemini-cli@latest @earendil-works/pi-coding-agent@latest
+    && npm install -g @anthropic-ai/claude-code@latest @openai/codex@latest @google/gemini-cli@latest @earendil-works/pi-coding-agent@latest opencode-ai@latest
 
 COPY entrypoint.sh /usr/local/bin/agentos-entrypoint.sh
 RUN chmod +x /usr/local/bin/agentos-entrypoint.sh

@@ -1,4 +1,4 @@
-export type Provider = 'claude' | 'claude-interactive' | 'codex' | 'gemini' | 'pi';
+export type Provider = 'claude' | 'claude-interactive' | 'codex' | 'gemini' | 'pi' | 'opencode';
 
 export const PROVIDER_LABEL: Record<Provider, string> = {
   claude: 'Claude',
@@ -6,9 +6,10 @@ export const PROVIDER_LABEL: Record<Provider, string> = {
   codex: 'Codex',
   gemini: 'Gemini',
   pi: 'Pi',
+  opencode: 'opencode',
 };
 
-export const PROVIDERS: Provider[] = ['claude', 'claude-interactive', 'codex', 'gemini', 'pi'];
+export const PROVIDERS: Provider[] = ['claude', 'claude-interactive', 'codex', 'gemini', 'pi', 'opencode'];
 
 // Backend = the API server the harness CLI talks to.
 // 'anthropic' | 'openai' | 'google' are the native defaults for each harness.
@@ -30,6 +31,10 @@ export const HARNESS_BACKENDS: Record<Provider, ProviderBackend[]> = {
   codex: ['openai', 'ollama', 'openrouter'],
   gemini: ['google'],
   pi: ['anthropic'],
+  // opencode selects its upstream provider from the `provider/model` model string and reads keys
+  // from the environment, so it exposes no Backend column (single entry). Keys for whichever
+  // provider the model targets are injected at launch (see threadStartConfig).
+  opencode: ['anthropic'],
 };
 
 // Native default backend per harness — used when backend is undefined.
@@ -39,6 +44,7 @@ export const DEFAULT_BACKEND: Record<Provider, ProviderBackend> = {
   codex: 'openai',
   gemini: 'google',
   pi: 'anthropic',
+  opencode: 'anthropic',
 };
 
 // Hardcoded model lists per provider, surfaced in the Provider Priority UI.
@@ -63,6 +69,16 @@ export const PROVIDER_MODELS: Record<Provider, string[]> = {
   ],
   // Pi is model-agnostic and accepts any model string — free-text input is used in the UI.
   pi: [],
+  // opencode uses `provider/model` identifiers (AI SDK / models.dev). Curated shortlist across
+  // the providers we ship keys for; first entry is the default.
+  opencode: [
+    'anthropic/claude-opus-4-8',
+    'anthropic/claude-sonnet-4-6',
+    'anthropic/claude-haiku-4-5',
+    'openai/gpt-5.5',
+    'openai/gpt-5.4',
+    'google/gemini-3-pro',
+  ],
 };
 
 // User-friendly display names sourced from each provider's official documentation.
@@ -81,6 +97,13 @@ export const MODEL_LABEL: Record<string, string> = {
   'gemini-3-flash': 'Gemini 3 Flash',
   'gemini-2.5-pro': 'Gemini 2.5 Pro',
   'gemini-2.5-flash': 'Gemini 2.5 Flash',
+  // opencode provider/model identifiers.
+  'anthropic/claude-opus-4-8': 'Opus 4.8',
+  'anthropic/claude-sonnet-4-6': 'Sonnet 4.6',
+  'anthropic/claude-haiku-4-5': 'Haiku 4.5',
+  'openai/gpt-5.5': 'GPT-5.5',
+  'openai/gpt-5.4': 'GPT-5.4',
+  'google/gemini-3-pro': 'Gemini 3 Pro',
 };
 
 // Effort levels for Claude Code CLI (--effort flag).
@@ -130,7 +153,14 @@ export const DEFAULT_PROVIDER_ORDER: ProviderEntry[] = [
   { provider: 'gemini' },
 ];
 
-const VALID_PROVIDERS: ReadonlySet<string> = new Set(['claude', 'claude-interactive', 'codex', 'gemini', 'pi']);
+const VALID_PROVIDERS: ReadonlySet<string> = new Set([
+  'claude',
+  'claude-interactive',
+  'codex',
+  'gemini',
+  'pi',
+  'opencode',
+]);
 const VALID_CLAUDE_EFFORT: ReadonlySet<string> = new Set(CLAUDE_EFFORT_VALUES);
 const VALID_CODEX_REASONING: ReadonlySet<string> = new Set(CODEX_REASONING_VALUES);
 

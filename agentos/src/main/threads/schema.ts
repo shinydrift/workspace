@@ -47,6 +47,7 @@ export const threads = sqliteTable(
     codexSessionId: text('codex_session_id'),
     geminiSessionId: text('gemini_session_id'),
     piSessionId: text('pi_session_id'),
+    opencodeSessionId: text('opencode_session_id'),
     archivedAt: integer('archived_at'),
     agentRole: text('agent_role'),
     taskId: text('task_id'),

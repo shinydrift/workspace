@@ -55,6 +55,7 @@ export interface Thread {
   codexSessionId?: string; // persisted thread ID for codex exec resume
   geminiSessionId?: string; // persisted session ID for gemini --resume
   piSessionId?: string; // persisted session ID for pi --session resume
+  opencodeSessionId?: string; // persisted session ID (ses_…) for opencode --session resume
   archivedAt?: number; // set when thread is archived; worktree has been removed
   agentRole?: AgentRole; // kanban specialist role, if any
   taskId?: string; // kanban task this thread is currently working on

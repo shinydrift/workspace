@@ -62,6 +62,15 @@ export const PROVIDER_CONFIGS: Record<
     supportsHeadless: true,
     sessionConfigDir: '/home/agent/.pi/agent',
   },
+  opencode: {
+    binaryName: 'opencode',
+    // Nominal key var (used for the "requires a key" message); opencode reads whichever
+    // provider key its model targets from the env — all available keys are injected at launch.
+    apiKeyEnvVar: 'ANTHROPIC_API_KEY',
+    displayName: 'opencode',
+    supportsHeadless: true,
+    sessionConfigDir: '/home/agent/.local/share/opencode',
+  },
 };
 
 /**
@@ -205,6 +214,8 @@ export function buildModelArgs(provider: Provider, model?: string): string[] {
     case 'gemini':
       return ['--model', model];
     case 'pi':
+      return ['--model', model];
+    case 'opencode':
       return ['--model', model];
   }
 }

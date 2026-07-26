@@ -35,6 +35,7 @@ const PROVIDER_LABEL = {
   codex: 'Codex',
   gemini: 'Gemini',
   pi: 'Pi',
+  opencode: 'opencode',
 } satisfies Record<CouncilMember['provider'], string>;
 
 function memberLabel(m: CouncilMember): string {
