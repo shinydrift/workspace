@@ -31,8 +31,16 @@ import { worktreeWorkerClient } from '../utils/worktreeWorkerClientDefaults';
 import { analyticsService } from '../analytics/service';
 import { initAnalyticsDbDir } from '../analytics/db';
 import { initCouncilDbDir } from '../council/councilDb';
-import { initProjectsDbDir, getProject, getRecording, setRecordingTitle } from '../threads/db';
-import { getThreadsByProject } from '../threads/threadStore';
+import {
+  initProjectsDbDir,
+  getProject,
+  getProjectByPath,
+  getAllProjects,
+  getRecording,
+  setRecordingTitle,
+} from '../threads/db';
+import { getThreadsByProject, getAllThreads, updateThread } from '../threads/threadStore';
+import { ExternalSessionImporter } from '../sessions/externalImport/ExternalSessionImporter';
 import { getStore, setSettings, settingsEvents } from '../store/index';
 import { setLocalhostAuthBypass } from '../mcp/mcpAuth';
 import { TrayManager } from '../tray/trayManager';
@@ -228,6 +236,38 @@ function buildKanbanConfig(): Parameters<typeof kanbanEventRouter.init>[0] {
   };
 }
 
+function buildExternalImportDeps(homeDir: string): ConstructorParameters<typeof ExternalSessionImporter>[0] {
+  return {
+    claudeDataDir: path.join(homeDir, '.claude'),
+    isEnabled: () => getStore().get('settings').importExternalSessions?.enabled !== false,
+    listKnownClaudeSessionIds: () =>
+      new Set(getAllThreads().flatMap((t) => (t.claudeSessionId ? [t.claudeSessionId] : []))),
+    // Longest-prefix match: adopt only sessions whose cwd is (or is inside) a known project root,
+    // scoping the thread — and its memory — under that project.
+    matchProjectPath: (cwd) => {
+      const exact = getProjectByPath(cwd);
+      if (exact) return exact.path;
+      let best: string | null = null;
+      for (const project of getAllProjects()) {
+        if (cwd === project.path || cwd.startsWith(project.path + path.sep)) {
+          if (!best || project.path.length > best.length) best = project.path;
+        }
+      }
+      return best;
+    },
+    createThread: (req) => threadManager.createThread(req),
+    bindClaudeSession: (threadId, sessionId) => updateThread(threadId, { claudeSessionId: sessionId }),
+    appendImportedMessage: (threadId, role, text, raw) =>
+      threadManager.appendImportedMessage(threadId, role, text, raw),
+    distill: (threadId) => threadManager.sendInput(threadId, '/save-session-chunk\n', 'skills'),
+    onTurnStarted: (handler) => {
+      const fn = (payload: { threadId: string }): void => handler(payload.threadId);
+      internalBus.on('turn:started', fn);
+      return () => internalBus.off('turn:started', fn);
+    },
+  };
+}
+
 export function bootServices(
   mainWindow: BrowserWindow,
   opts: { homeDir: string; preloadPath: string; rendererBase: string }
@@ -339,6 +379,7 @@ export function bootServices(
   }
 
   // ── Phase 3: deferred after renderer is interactive ───────────────────────
+  const externalSessionImporter = new ExternalSessionImporter(buildExternalImportDeps(homeDir));
   let phase3Initialized = false;
   const runPhase3 = (): void => {
     if (phase3Initialized) return;
@@ -353,6 +394,8 @@ export function bootServices(
     });
     analyticsService.init();
     initProviderRateLimitRefresh(homeDir);
+    // Adopt Claude sessions started outside the app (reconcile last 24h + live watch).
+    safeInit('external-import', () => externalSessionImporter.start());
   };
   mainWindow.webContents.once('did-finish-load', runPhase3);
   // Fallback: if the renderer never fires did-finish-load (load error, blank page),
@@ -467,6 +510,7 @@ export function bootServices(
       },
     });
   if (FEATURES.MEETINGS) disposables.push({ dispose: () => meetingDetector.stop() });
+  disposables.push({ dispose: () => externalSessionImporter.dispose() });
   disposables.push(automationService);
   if (FEATURES.KANBAN) disposables.push(kanbanMcpServer);
   disposables.push(threadMcpServer);

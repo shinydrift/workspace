@@ -1,6 +1,8 @@
 import React from 'react';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
+import { ToggleRow } from '@/components/ui/toggle-row';
+import { SettingSection } from '@/components/ui/setting-section';
 import { useSettings } from '../../contexts/SettingsContext';
 import { EmbeddingProviderSection } from './EmbeddingProviderSection';
 import { SearchTuningSection } from './SearchTuningSection';
@@ -41,6 +43,15 @@ export function MemoryTab() {
         />
       </div>
 
+      {/* ── External session import ── */}
+      <SettingSection title="External sessions" className="mt-6">
+        <ToggleRow
+          label="Import sessions run outside the app"
+          description="Adopt Claude Code sessions started in a terminal (raw `claude`) as resumable threads and distill them into memory. Reconciles the last 24 hours on launch, then watches live. Only sessions whose directory is inside a known project are imported."
+          checked={memory.importExternalSessions}
+          onCheckedChange={memory.setImportExternalSessions}
+        />
+      </SettingSection>
     </>
   );
 }

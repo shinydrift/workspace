@@ -15,6 +15,11 @@ export function useMemorySettings(settings: AppSettings | null) {
     (s) => s.memory?.extraPaths ?? [],
     [] as string[]
   );
+  const [importExternalSessions, setImportExternalSessions] = useSettingsField(
+    settings,
+    (s) => s.importExternalSessions?.enabled ?? true,
+    true
+  );
   return {
     embeddingProvider,
     setEmbeddingProvider,
@@ -26,5 +31,7 @@ export function useMemorySettings(settings: AppSettings | null) {
     setMemoryConfig,
     extraMemoryPaths,
     setExtraMemoryPaths,
+    importExternalSessions,
+    setImportExternalSessions,
   };
 }

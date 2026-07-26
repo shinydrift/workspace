@@ -220,6 +220,9 @@ const appSettingsSchema = baseConfigSchema.extend({
   // Desktop (OS) notifications when a thread you're not viewing finishes/errors/needs input.
   // Off by default; the in-app toast + unread badges surface these regardless.
   notifications: z.object({ desktop: z.boolean() }).optional(),
+  // Auto-import Claude Code sessions started outside the app (raw `claude` in a terminal):
+  // adopt them as resumable threads and distill them into memory. On by default.
+  importExternalSessions: z.object({ enabled: z.boolean() }).optional(),
 });
 export type AppSettings = z.infer<typeof appSettingsSchema>;
 
