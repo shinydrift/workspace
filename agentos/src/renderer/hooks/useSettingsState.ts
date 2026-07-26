@@ -62,6 +62,7 @@ export function useSettingsState() {
           localModelPath: memory.localModelPath,
           memoryConfig: memory.memoryConfig,
           extraMemoryPaths: memory.extraMemoryPaths,
+          importExternalSessions: memory.importExternalSessions,
         },
         agents: {
           queueSilenceFallbackMs: agents.queueSilenceFallbackMs,
@@ -110,6 +111,7 @@ export function useSettingsState() {
       memory.localModelPath,
       memory.memoryConfig,
       memory.extraMemoryPaths,
+      memory.importExternalSessions,
       appearance.devMode,
       agents.queueSilenceFallbackMs,
       agents.providerOrder,
@@ -166,6 +168,7 @@ export function useSettingsState() {
           localModelPath: memory.localModelPath.trim() || null,
           extraPaths: memory.extraMemoryPaths.length > 0 ? memory.extraMemoryPaths : undefined,
         },
+        importExternalSessions: { enabled: memory.importExternalSessions },
         devMode: appearance.devMode,
         runOnHost: sandbox.runOnHost,
         sandbox: { ...DEFAULT_SANDBOX_SETTINGS, ...sandbox.security },

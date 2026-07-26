@@ -45,6 +45,7 @@ const defaults: StoreSchema = {
       pruneIdleHours: DEFAULT_CONTAINER_PRUNE_SETTINGS.idleHours,
       pruneMaxAgeDays: DEFAULT_CONTAINER_PRUNE_SETTINGS.maxAgeDays,
     },
+    importExternalSessions: { enabled: true },
   },
 };
 

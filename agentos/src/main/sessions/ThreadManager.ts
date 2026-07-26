@@ -288,6 +288,23 @@ class ThreadManager implements Disposable {
     this.output.clearMessages(threadId);
   }
 
+  /**
+   * Append a message reconstructed from an imported external Claude transcript. Assistant `text`
+   * is raw JSONL parsed by the multi-turn normalizer; side effects (token/rate-limit analytics)
+   * are skipped so a historical import doesn't pollute live metrics.
+   */
+  appendImportedMessage(threadId: string, role: 'user' | 'assistant', text: string, raw: string): void {
+    this.output.appendNormalizedMessageWithSource(
+      threadId,
+      role,
+      role === 'user' ? 'human' : undefined,
+      text,
+      raw,
+      undefined,
+      { multiTurn: role === 'assistant', skipSideEffects: true }
+    );
+  }
+
   appendAutomationMessage(threadId: string, content: string): void {
     const trimmed = content.trim();
     if (!trimmed) return;
