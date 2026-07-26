@@ -14,8 +14,8 @@ export type ModelPrice = {
 };
 
 export const TOKEN_PRICES_USD_PER_1M: Record<string, ModelPrice> = {
-  // Explicit Opus 4.7/4.8 entries override the legacy 'claude-opus-4' prefix match below.
-  // Without these, the fuzzy matcher would bill 4.7/4.8 at the legacy Opus 4 rate of $15/$75.
+  // Explicit current Opus entries override the legacy 'claude-opus-4' prefix match below.
+  'claude-opus-5': { input: 5.0, output: 25.0, cacheRead: 0.5, cacheCreation: 6.25 },
   // Fable 5 ($10/$50) is placed AFTER the cheaper Opus entries so that the fuzzy
   // matcher returns Opus pricing for short free-text prefixes like 'claude' or
   // 'claude-' (Ollama/OpenRouter model strings) instead of the more expensive Fable 5.
@@ -23,16 +23,25 @@ export const TOKEN_PRICES_USD_PER_1M: Record<string, ModelPrice> = {
   'claude-opus-4-7': { input: 5.0, output: 25.0, cacheRead: 0.5, cacheCreation: 6.25 },
   'claude-fable-5': { input: 10.0, output: 50.0, cacheRead: 1.0, cacheCreation: 12.5 },
   'claude-opus-4': { input: 15.0, output: 75.0, cacheRead: 1.5, cacheCreation: 18.75 },
+  'claude-sonnet-5': { input: 3.0, output: 15.0, cacheRead: 0.3, cacheCreation: 3.75 },
   'claude-sonnet-4-6': { input: 3.0, output: 15.0, cacheRead: 0.3, cacheCreation: 3.75 },
   'claude-haiku-4-5': { input: 1.0, output: 5.0, cacheRead: 0.1, cacheCreation: 1.25 },
   // OpenAI list prices. codex-default is the fallback for unpinned/free-text Codex models.
+  'gpt-5.6-sol': { input: 5.0, output: 30.0, cacheRead: 0.5 },
+  'gpt-5.6-terra': { input: 2.5, output: 15.0, cacheRead: 0.25 },
+  'gpt-5.6-luna': { input: 1.0, output: 6.0, cacheRead: 0.1 },
   'gpt-5.5': { input: 5.0, output: 30.0, cacheRead: 0.5 },
   'gpt-5.4': { input: 2.5, output: 15.0, cacheRead: 0.25 },
   'gpt-5.4-mini': { input: 0.75, output: 4.5, cacheRead: 0.075 },
   'codex-default': { input: 3.0, output: 12.0, cacheRead: 0.3 },
   // Gemini list prices. Cache read ≈ 25% of input on the 2.x line; Gemini 3.x dropped to 10%.
+  'gemini-3.6-flash': { input: 1.5, output: 7.5, cacheRead: 0.15 },
   'gemini-3.5-flash': { input: 1.5, output: 9.0, cacheRead: 0.15 },
+  'gemini-3.5-flash-lite': { input: 0.3, output: 2.5, cacheRead: 0.03 },
   'gemini-3.1-pro-preview': { input: 2.0, output: 12.0, cacheRead: 0.2 },
+  'gemini-3-flash-preview': { input: 0.5, output: 3.0, cacheRead: 0.05 },
+  'gemini-3.1-flash-lite': { input: 0.25, output: 1.5, cacheRead: 0.025 },
+  // Retain prices for legacy IDs that may still appear in saved settings or usage history.
   'gemini-3-pro': { input: 2.0, output: 12.0, cacheRead: 0.2 },
   'gemini-3-flash': { input: 0.5, output: 3.0, cacheRead: 0.05 },
   'gemini-2.5-pro': { input: 1.25, output: 10.0, cacheRead: 0.31 },

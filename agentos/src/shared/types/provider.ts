@@ -44,20 +44,16 @@ export const DEFAULT_BACKEND: Record<Provider, ProviderBackend> = {
 // Hardcoded model lists per provider, surfaced in the Provider Priority UI.
 // First entry is treated as the provider's default when no model is selected.
 export const PROVIDER_MODELS: Record<Provider, string[]> = {
-  claude: ['claude-fable-5', 'claude-opus-4-8', 'claude-opus-4-7', 'claude-sonnet-4-6', 'claude-haiku-4-5'],
-  'claude-interactive': [
-    'claude-fable-5',
-    'claude-opus-4-8',
-    'claude-opus-4-7',
-    'claude-sonnet-4-6',
-    'claude-haiku-4-5',
-  ],
-  codex: ['gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini'],
+  claude: ['claude-fable-5', 'claude-opus-5', 'claude-opus-4-8', 'claude-sonnet-5', 'claude-haiku-4-5'],
+  'claude-interactive': ['claude-fable-5', 'claude-opus-5', 'claude-opus-4-8', 'claude-sonnet-5', 'claude-haiku-4-5'],
+  codex: ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini'],
   gemini: [
+    'gemini-3.6-flash',
     'gemini-3.5-flash',
+    'gemini-3.5-flash-lite',
     'gemini-3.1-pro-preview',
-    'gemini-3-pro',
-    'gemini-3-flash',
+    'gemini-3-flash-preview',
+    'gemini-3.1-flash-lite',
     'gemini-2.5-pro',
     'gemini-2.5-flash',
   ],
@@ -68,20 +64,39 @@ export const PROVIDER_MODELS: Record<Provider, string[]> = {
 // User-friendly display names sourced from each provider's official documentation.
 export const MODEL_LABEL: Record<string, string> = {
   'claude-fable-5': 'Fable 5',
+  'claude-opus-5': 'Opus 5',
   'claude-opus-4-8': 'Opus 4.8',
   'claude-opus-4-7': 'Opus 4.7',
+  'claude-sonnet-5': 'Sonnet 5',
   'claude-sonnet-4-6': 'Sonnet 4.6',
   'claude-haiku-4-5': 'Haiku 4.5',
+  'gpt-5.6-sol': 'GPT-5.6 Sol',
+  'gpt-5.6-terra': 'GPT-5.6 Terra',
+  'gpt-5.6-luna': 'GPT-5.6 Luna',
   'gpt-5.5': 'GPT-5.5',
   'gpt-5.4': 'GPT-5.4',
   'gpt-5.4-mini': 'GPT-5.4 mini',
+  'gemini-3.6-flash': 'Gemini 3.6 Flash',
   'gemini-3.5-flash': 'Gemini 3.5 Flash',
+  'gemini-3.5-flash-lite': 'Gemini 3.5 Flash-Lite',
   'gemini-3.1-pro-preview': 'Gemini 3.1 Pro Preview',
-  'gemini-3-pro': 'Gemini 3 Pro',
-  'gemini-3-flash': 'Gemini 3 Flash',
+  'gemini-3-flash-preview': 'Gemini 3 Flash Preview',
+  'gemini-3.1-flash-lite': 'Gemini 3.1 Flash-Lite',
   'gemini-2.5-pro': 'Gemini 2.5 Pro',
   'gemini-2.5-flash': 'Gemini 2.5 Flash',
 };
+
+// Models removed from new-selection menus but retained so saved app/project settings
+// continue launching without silently falling back to the provider default.
+const LEGACY_PROVIDER_MODELS: Partial<Record<Provider, readonly string[]>> = {
+  claude: ['claude-opus-4-7', 'claude-sonnet-4-6'],
+  'claude-interactive': ['claude-opus-4-7', 'claude-sonnet-4-6'],
+  gemini: ['gemini-3-pro', 'gemini-3-flash'],
+};
+
+export function isKnownProviderModel(provider: Provider, model: string): boolean {
+  return PROVIDER_MODELS[provider].includes(model) || LEGACY_PROVIDER_MODELS[provider]?.includes(model) === true;
+}
 
 // Effort levels for Claude Code CLI (--effort flag).
 export type ClaudeEffort = 'low' | 'medium' | 'high' | 'extra-high' | 'max';
@@ -96,17 +111,26 @@ export const CLAUDE_EFFORT_LABEL: Record<ClaudeEffort, string> = {
 
 export const CLAUDE_EFFORT_VALUES: ClaudeEffort[] = ['low', 'medium', 'high', 'extra-high', 'max'];
 
-// Reasoning levels for Codex CLI (--reasoning flag).
-export type CodexReasoning = 'low' | 'medium' | 'high' | 'extra-high';
+// Reasoning levels for Codex CLI's model_reasoning_effort config.
+export type CodexReasoning = 'none' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
 export const CODEX_REASONING_LABEL: Record<CodexReasoning, string> = {
+  none: 'None',
   low: 'Low',
   medium: 'Medium',
   high: 'High',
-  'extra-high': 'Extra High',
+  xhigh: 'Extra High',
+  max: 'Max',
 };
 
-export const CODEX_REASONING_VALUES: CodexReasoning[] = ['low', 'medium', 'high', 'extra-high'];
+export const CODEX_REASONING_VALUES: CodexReasoning[] = ['none', 'low', 'medium', 'high', 'xhigh', 'max'];
+
+export function normalizeCodexReasoning(raw: unknown): CodexReasoning | undefined {
+  if (raw === 'extra-high') return 'xhigh';
+  return typeof raw === 'string' && (CODEX_REASONING_VALUES as string[]).includes(raw)
+    ? (raw as CodexReasoning)
+    : undefined;
+}
 
 export interface ProviderEntry {
   provider: Provider;
@@ -132,7 +156,6 @@ export const DEFAULT_PROVIDER_ORDER: ProviderEntry[] = [
 
 const VALID_PROVIDERS: ReadonlySet<string> = new Set(['claude', 'claude-interactive', 'codex', 'gemini', 'pi']);
 const VALID_CLAUDE_EFFORT: ReadonlySet<string> = new Set(CLAUDE_EFFORT_VALUES);
-const VALID_CODEX_REASONING: ReadonlySet<string> = new Set(CODEX_REASONING_VALUES);
 
 // Accepts both the legacy `Provider[]` shape and the new `ProviderEntry[]` shape.
 // Returns a fresh array of valid entries. Unknown providers, backends, effort, and reasoning values are dropped.
@@ -167,7 +190,7 @@ export function normalizeProviderOrder(raw: unknown): ProviderEntry[] {
       const isOpenBackend = backend === 'ollama' || backend === 'openrouter' || provider === 'pi';
       const model =
         typeof obj.model === 'string' && obj.model.length > 0
-          ? isOpenBackend || PROVIDER_MODELS[provider].includes(obj.model)
+          ? isOpenBackend || isKnownProviderModel(provider, obj.model)
             ? obj.model
             : undefined
           : undefined;
@@ -180,10 +203,7 @@ export function normalizeProviderOrder(raw: unknown): ProviderEntry[] {
         VALID_CLAUDE_EFFORT.has(obj.effort)
           ? (obj.effort as ClaudeEffort)
           : undefined;
-      const reasoning =
-        provider === 'codex' && typeof obj.reasoning === 'string' && VALID_CODEX_REASONING.has(obj.reasoning)
-          ? (obj.reasoning as CodexReasoning)
-          : undefined;
+      const reasoning = provider === 'codex' ? normalizeCodexReasoning(obj.reasoning) : undefined;
       out.push({ provider, backend, model, baseUrl, effort, reasoning });
     }
   }

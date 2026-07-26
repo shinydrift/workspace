@@ -64,6 +64,13 @@ test('app patch schema parses a partial patch', () => {
   assert.equal(parsed.devMode, true);
 });
 
+test('app patch schema migrates legacy Codex extra-high reasoning to xhigh', () => {
+  const parsed = appSettingsPatchSchema.parse({
+    agents: { providerOrder: [{ provider: 'codex', reasoning: 'extra-high' }] },
+  });
+  assert.equal(parsed.agents?.providerOrder[0]?.reasoning, 'xhigh');
+});
+
 test('app patch schema THROWS on unknown top-level key', () => {
   assert.throws(() => appSettingsPatchSchema.parse({ bogusKey: 1 }));
 });

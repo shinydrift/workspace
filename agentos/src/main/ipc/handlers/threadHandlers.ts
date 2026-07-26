@@ -13,7 +13,10 @@ const CreateThreadSchema = z.object({
   provider: z.string().max(64).optional(),
   model: z.string().max(200).optional(),
   effort: z.enum(['low', 'medium', 'high', 'extra-high', 'max']).optional(),
-  reasoning: z.enum(['low', 'medium', 'high', 'extra-high']).optional(),
+  reasoning: z
+    .enum(['none', 'low', 'medium', 'high', 'xhigh', 'max', 'extra-high'])
+    .transform((value) => (value === 'extra-high' ? 'xhigh' : value))
+    .optional(),
   runOnHost: z.boolean().optional(),
   createWorktree: z.boolean().optional(),
   projectName: shortName.optional(),
@@ -82,7 +85,10 @@ export function registerThreadHandlers(): void {
     provider: z.string().min(1).max(64),
     model: z.string().max(200).optional(),
     effort: z.enum(['low', 'medium', 'high', 'extra-high', 'max']).optional(),
-    reasoning: z.enum(['low', 'medium', 'high', 'extra-high']).optional(),
+    reasoning: z
+      .enum(['none', 'low', 'medium', 'high', 'xhigh', 'max', 'extra-high'])
+      .transform((value) => (value === 'extra-high' ? 'xhigh' : value))
+      .optional(),
   });
 
   ipcMain.handle(IPC_CHANNELS.THREAD_SET_PROVIDER_MODEL, (_e, raw) =>

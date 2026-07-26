@@ -17,7 +17,9 @@ import { normalizeProviderOrder } from '../types/provider';
 const providerEnum = z.enum(['claude', 'claude-interactive', 'codex', 'gemini', 'pi']);
 const backendEnum = z.enum(['anthropic', 'openai', 'google', 'ollama', 'openrouter']);
 const effortEnum = z.enum(['low', 'medium', 'high', 'extra-high', 'max']);
-const reasoningEnum = z.enum(['low', 'medium', 'high', 'extra-high']);
+const reasoningEnum = z
+  .enum(['none', 'low', 'medium', 'high', 'xhigh', 'max', 'extra-high'])
+  .transform((value) => (value === 'extra-high' ? 'xhigh' : value));
 const embeddingProviderEnum = z.enum(['auto', 'openai', 'google', 'voyage', 'mistral', 'local']);
 export type EmbeddingProvider = z.infer<typeof embeddingProviderEnum>;
 

@@ -4,7 +4,7 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import type { ClaudeEffort, CodexReasoning, Provider, SandboxSecuritySettings } from '../../../shared/types';
 import { DEFAULT_SANDBOX_SETTINGS } from '../../../shared/types';
-import { PROVIDER_CONFIGS, resolveProviderCommand } from '../providerConfig';
+import { buildReasoningArgs, PROVIDER_CONFIGS, resolveProviderCommand } from '../providerConfig';
 import { CLAUDE_CODE_OAUTH_TOKEN_ENV } from '../../sessions/threadAuth';
 import { eventLogger } from '../eventLog';
 import { AGENTOS_MCP_BEARER_TOKEN_ENV_VAR, getMcpAuthHeaders } from '../../mcp/mcpAuth';
@@ -277,7 +277,7 @@ export function buildDockerExecArgs(
       ...mcpFlags,
     ];
     const subcommand = opts.codexSessionId ? ['exec', 'resume', opts.codexSessionId, prompt] : ['exec', prompt];
-    const reasoningArgs: string[] = opts.reasoning ? ['--reasoning', opts.reasoning] : [];
+    const reasoningArgs = buildReasoningArgs(opts.reasoning);
     const env = execEnv(
       [
         [PROVIDER_CONFIGS.codex.apiKeyEnvVar, opts.apiKey],

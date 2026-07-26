@@ -10,7 +10,10 @@ const memberSchema = z.object({
   provider: providerEnum,
   model: z.string().min(1).max(128),
   effort: z.enum(['low', 'medium', 'high', 'extra-high', 'max']).optional(),
-  reasoning: z.enum(['low', 'medium', 'high', 'extra-high']).optional(),
+  reasoning: z
+    .enum(['none', 'low', 'medium', 'high', 'xhigh', 'max', 'extra-high'])
+    .transform((value) => (value === 'extra-high' ? 'xhigh' : value))
+    .optional(),
 });
 
 export function registerCouncilHandlers(): void {

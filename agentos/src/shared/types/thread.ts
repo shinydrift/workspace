@@ -34,7 +34,7 @@ export interface Thread {
   provider?: Provider;
   model?: string; // optional CLI --model override; resolved at thread creation from providerOrder
   effort?: ClaudeEffort; // optional per-thread --effort override for Claude
-  reasoning?: CodexReasoning; // optional per-thread --reasoning override for Codex
+  reasoning?: CodexReasoning; // optional per-thread model_reasoning_effort override for Codex
   runOnHost?: boolean; // optional per-thread override of sandbox/host launch mode; snapshot at creation
   status: ThreadStatus;
   createdAt: number;

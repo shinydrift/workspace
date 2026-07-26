@@ -214,9 +214,9 @@ export function buildEffortArgs(effort?: ClaudeEffort): string[] {
   return effort ? ['--effort', effort] : [];
 }
 
-/** Build the CLI argv for Codex's --reasoning flag. Returns [] when unset. */
+/** Build the CLI argv for Codex's model_reasoning_effort config. Returns [] when unset. */
 export function buildReasoningArgs(reasoning?: CodexReasoning): string[] {
-  return reasoning ? ['--reasoning', reasoning] : [];
+  return reasoning ? ['-c', `model_reasoning_effort="${reasoning}"`] : [];
 }
 
 export function resolveEffectiveEffort(
