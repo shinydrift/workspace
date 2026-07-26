@@ -112,8 +112,9 @@ export class ExternalSessionImporter {
       .sort((a, b) => a.mtimeMs - b.mtimeMs); // oldest first, so the newest thread is most-recently-active
 
     for (const info of candidates) {
-      // Re-check per-item: a live mirror may have adopted a sibling and shifted state.
-      if (this.adopting.has(info.sessionId)) continue;
+      // Re-check per-item: AgentOS may have claimed this ID after the scan snapshot (for
+      // example, while a new in-app Claude turn was launching).
+      if (this.deps.listKnownClaudeSessionIds().has(info.sessionId) || this.adopting.has(info.sessionId)) continue;
       this.adopting.add(info.sessionId);
       try {
         await this.adopt(info);

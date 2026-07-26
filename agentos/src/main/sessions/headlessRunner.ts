@@ -1,4 +1,5 @@
 import { app } from 'electron';
+import { randomUUID } from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { getErrorMessage } from '../../shared/utils/errorMessage';
@@ -110,6 +111,7 @@ export async function execHeadlessTurn(
   const agentRole = thread.agentRole ?? null;
   const disallowedTools = agentRole ? resolveDisallowedTools() : [];
   let claudeSessionId = provider === 'claude' ? thread.claudeSessionId : undefined;
+  let claudeNewSessionId: string | undefined;
   const codexSessionId = provider === 'codex' ? thread.codexSessionId : undefined;
   const geminiSessionId = provider === 'gemini' ? thread.geminiSessionId : undefined;
   let piSessionId = provider === 'pi' ? thread.piSessionId : undefined;
@@ -136,6 +138,14 @@ export async function execHeadlessTurn(
       threadStore.updateThread(threadId, { claudeSessionId: null });
       claudeSessionId = undefined;
     }
+  }
+
+  // Claim new Claude sessions before launching the CLI. The external-session importer watches
+  // the same ~/.claude/projects tree, so waiting for Claude's final result envelope to persist
+  // the generated ID leaves a window where an in-app session looks external and gets adopted.
+  if (provider === 'claude' && !claudeSessionId) {
+    claudeNewSessionId = randomUUID();
+    threadStore.updateThread(threadId, { claudeSessionId: claudeNewSessionId });
   }
 
   if (piSessionId) {
@@ -176,6 +186,7 @@ export async function execHeadlessTurn(
   const execArgs = buildDockerExecArgs(threadId, input, {
     provider: provider as Parameters<typeof buildDockerExecArgs>[2]['provider'],
     claudeSessionId,
+    claudeNewSessionId,
     codexSessionId,
     geminiSessionId,
     piSessionId,

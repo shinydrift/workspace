@@ -204,6 +204,8 @@ function buildDockerExecArgs(threadId, input, opts) {
 
   if (opts.claudeSessionId) {
     args.push('--resume', opts.claudeSessionId);
+  } else if (opts.claudeNewSessionId) {
+    args.push('--session-id', opts.claudeNewSessionId);
   }
 
   if (opts.systemPrompt) {
@@ -450,6 +452,17 @@ test('buildDockerExecArgs claude: resume flag added when sessionId provided', ()
   const resumeIdx = args.indexOf('--resume');
   assert.ok(resumeIdx >= 0);
   assert.equal(args[resumeIdx + 1], 'sess-abc');
+});
+
+test('buildDockerExecArgs claude: preallocated new session uses --session-id', () => {
+  const { args } = buildDockerExecArgs('t1', 'hello', {
+    provider: 'claude',
+    claudeNewSessionId: 'new-sess-abc',
+  });
+  const sessionIdx = args.indexOf('--session-id');
+  assert.ok(sessionIdx >= 0);
+  assert.equal(args[sessionIdx + 1], 'new-sess-abc');
+  assert.equal(args.includes('--resume'), false);
 });
 
 test('buildDockerExecArgs claude: system prompt appended', () => {

@@ -228,7 +228,10 @@ export function buildDockerExecArgs(
   input: string,
   opts: McpOpts & {
     provider: Provider;
+    /** Existing Claude session to resume. */
     claudeSessionId?: string;
+    /** Preallocated Claude session ID for a new in-app session. */
+    claudeNewSessionId?: string;
     codexSessionId?: string;
     geminiSessionId?: string;
     piSessionId?: string;
@@ -377,6 +380,8 @@ export function buildDockerExecArgs(
 
   if (opts.claudeSessionId) {
     cliArgs.push('--resume', opts.claudeSessionId);
+  } else if (opts.claudeNewSessionId) {
+    cliArgs.push('--session-id', opts.claudeNewSessionId);
   }
 
   if (opts.systemPrompt) {
