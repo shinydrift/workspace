@@ -123,6 +123,7 @@ export class AnalyticsTracker {
     outputTokens,
     cacheReadTokens = 0,
     cacheCreationTokens = 0,
+    skipDailyRollup = false,
   }: TokenUsageEvent): void {
     const db = safeDb();
     if (!db) return;
@@ -227,25 +228,29 @@ export class AnalyticsTracker {
           );
         }
 
-        // Use the session's start date so turns that complete after midnight are
-        // still attributed to the day the session was initiated.
-        const sessionStart = existing?.started_at ?? thread?.createdAt ?? Date.now();
-        const date = localDateString(new Date(sessionStart));
-        // Count the session on the first real token event. A stub row created by
-        // onAssistantMessage has provider='' and has not been counted yet.
-        const sessionCount = !existing || existing.provider === '' ? 1 : 0;
+        // Imported/historical turns update the thread's session_metrics above but skip the
+        // project/global daily rollup — their tokens belong to a past day, not today's live totals.
+        if (!skipDailyRollup) {
+          // Use the session's start date so turns that complete after midnight are
+          // still attributed to the day the session was initiated.
+          const sessionStart = existing?.started_at ?? thread?.createdAt ?? Date.now();
+          const date = localDateString(new Date(sessionStart));
+          // Count the session on the first real token event. A stub row created by
+          // onAssistantMessage has provider='' and has not been counted yet.
+          const sessionCount = !existing || existing.provider === '' ? 1 : 0;
 
-        stmts.rollup.run(
-          date,
-          projectId,
-          model ?? '',
-          uniqueDeltaInput,
-          deltaOutput,
-          deltaCost,
-          deltaCacheRead,
-          deltaCacheCreation,
-          sessionCount
-        );
+          stmts.rollup.run(
+            date,
+            projectId,
+            model ?? '',
+            uniqueDeltaInput,
+            deltaOutput,
+            deltaCost,
+            deltaCacheRead,
+            deltaCacheCreation,
+            sessionCount
+          );
+        }
       })();
 
       this.onCacheInvalidate();

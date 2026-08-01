@@ -11,6 +11,8 @@ export interface ExternalSessionInfo {
   /** The cwd the external `claude` ran in, read from the transcript itself (see probeCwd). */
   cwd: string | null;
   mtimeMs: number;
+  /** Current transcript size in bytes — compared against a thread's importedByteOffset to detect growth. */
+  size: number;
 }
 
 // The cwd is recorded on every transcript entry, so it is almost always on the first line.
@@ -66,13 +68,19 @@ export function scanExternalSessions(claudeDataDir: string): ExternalSessionInfo
     }
     for (const file of files) {
       const jsonlPath = path.join(abs, file);
-      let mtimeMs: number;
+      let stat: fs.Stats;
       try {
-        mtimeMs = fs.statSync(jsonlPath).mtimeMs;
+        stat = fs.statSync(jsonlPath);
       } catch {
         continue;
       }
-      out.push({ sessionId: path.basename(file, '.jsonl'), jsonlPath, cwd: probeCwd(jsonlPath), mtimeMs });
+      out.push({
+        sessionId: path.basename(file, '.jsonl'),
+        jsonlPath,
+        cwd: probeCwd(jsonlPath),
+        mtimeMs: stat.mtimeMs,
+        size: stat.size,
+      });
     }
   }
   return out;

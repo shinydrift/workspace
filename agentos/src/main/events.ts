@@ -52,6 +52,9 @@ export type TokenUsageEvent = {
   outputTokens: number;
   cacheReadTokens?: number;
   cacheCreationTokens?: number;
+  // Set for historical/imported turns: record the thread's session_metrics but skip the
+  // project/global daily rollup so a back-dated import doesn't inflate today's live aggregates.
+  skipDailyRollup?: boolean;
 };
 
 export type ThreadIdleEvent = {

@@ -63,6 +63,7 @@ export interface Thread {
   parentThreadId?: string; // set on council sub-threads — they collapse under this parent
   councilRunId?: string; // set on council sub-threads — links them to a CouncilRun
   recordingId?: string; // set when thread was created from a meeting recording
+  importedByteOffset?: number; // for externally-imported Claude sessions: transcript bytes already ingested (drives live re-ingestion)
   sessionStartedAt?: number; // unix ms when current PTY session started; in-memory only, not persisted
   personalityOverride?: Partial<PersonalitySettings>; // merged on top of project personality at boot
 }

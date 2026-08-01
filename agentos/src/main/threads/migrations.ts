@@ -513,6 +513,18 @@ CREATE INDEX idx_stb_thread_id ON slack_thread_bindings(thread_id);
       }
     },
   },
+  {
+    // External session import: how many transcript bytes AgentOS has already ingested for an
+    // adopted Claude session. Lets `reconcile` re-attach the live mirror from this offset when the
+    // external session resumes and the file grows — importing only the delta, across restarts too.
+    name: '0014_add_imported_byte_offset',
+    run: (db) => {
+      const cols = db.prepare(`PRAGMA table_info(threads)`).all() as { name: string }[];
+      if (!cols.some((c) => c.name === 'imported_byte_offset')) {
+        db.exec(`ALTER TABLE threads ADD COLUMN imported_byte_offset INTEGER`);
+      }
+    },
+  },
 ];
 
 // Derived from THREADS_MIGRATIONS so the seeding branch never goes stale.
