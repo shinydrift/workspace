@@ -26,10 +26,11 @@ export interface ExternalSessionImporterDeps {
   /** Persist how many transcript bytes have been ingested for a thread (drives live re-ingestion). */
   setImportOffset: (threadId: string, offset: number) => void;
   /**
-   * The adopted thread + ingested offset for an already-imported session, or null when no thread
-   * owns this session as an import (native in-app claude-interactive threads never carry an offset).
+   * All live (non-archived) imported sessions, keyed by claudeSessionId → { threadId, ingested
+   * offset }. Native in-app claude-interactive threads carry no offset and are excluded, so they
+   * are never re-ingested. Built once per reconcile to avoid an O(sessions × threads) scan.
    */
-  getImportState: (sessionId: string) => { threadId: string; offset: number } | null;
+  getImportStates: () => Map<string, { threadId: string; offset: number }>;
   /** True while the thread is running an in-app turn — its own pipeline owns transcript writes then. */
   isThreadRunning: (threadId: string) => boolean;
   /** Inject /save-session-chunk on the adopted thread so its work lands in memory. */
@@ -152,7 +153,8 @@ export class ExternalSessionImporter {
       }
     }
 
-    for (const info of recent) this.reingestIfGrown(info);
+    const importStates = this.deps.getImportStates();
+    for (const info of recent) this.reingestIfGrown(info, importStates);
   }
 
   /**
@@ -161,8 +163,11 @@ export class ExternalSessionImporter {
    * are already mirroring, or are being driven by an in-app turn (that turn's own pipeline handles
    * its writes; markAgentWritesIngested advances the offset once it ends).
    */
-  private reingestIfGrown(info: ExternalSessionInfo): void {
-    const state = this.deps.getImportState(info.sessionId);
+  private reingestIfGrown(
+    info: ExternalSessionInfo,
+    importStates: Map<string, { threadId: string; offset: number }>
+  ): void {
+    const state = importStates.get(info.sessionId);
     if (!state) return;
     // Remember the path even if we don't re-ingest now, so a later turn:ended on this thread can
     // advance the offset past AgentOS-written bytes (matters right after a restart, before any mirror).
@@ -247,9 +252,13 @@ export class ExternalSessionImporter {
     const emitter = this.makeEmitter(thread.id);
     for (const entry of entries) emitter.push(entry);
 
-    // Mark the snapshot as ingested up front so a crash mid-mirror re-ingests only the delta on the
-    // next run rather than re-importing the whole file.
-    const startPos = Buffer.byteLength(text, 'utf8');
+    // Start the mirror at the last newline boundary, not the raw end: if the snapshot was captured
+    // mid-write its final line is an unterminated partial (Claude terminates every entry with \n, so
+    // a no-\n tail is always incomplete and was skipped by parseTranscriptLines). Resuming from the
+    // boundary lets the mirror re-read that line once it completes instead of dropping it.
+    const nl = text.lastIndexOf('\n');
+    const startPos = nl === -1 ? 0 : Buffer.byteLength(text.slice(0, nl + 1), 'utf8');
+    // Persist up front so a crash mid-mirror re-ingests only the delta rather than the whole file.
     this.importedPaths.set(thread.id, info.jsonlPath);
     this.deps.setImportOffset(thread.id, startPos);
 
@@ -262,6 +271,7 @@ export class ExternalSessionImporter {
     let pos = startPos;
     let tail = '';
     let idleTimer: NodeJS.Timeout | null = null;
+    let ingested = 0; // transcript entries this mirror actually parsed (gates the distill on stop)
     // Byte offset of the end of the last complete line consumed (pos minus the retained partial
     // line). This is the resume point: re-reading from here re-reads that partial line in full.
     const committed = (): number => pos - Buffer.byteLength(tail, 'utf8');
@@ -277,7 +287,10 @@ export class ExternalSessionImporter {
       }
       emitter.flush();
       this.deps.setImportOffset(threadId, committed());
-      if (distill) this.enqueueDistill(threadId);
+      // Only distill when this mirror ingested something. A re-attach that reads nothing but a
+      // partial/late line (e.g. an agent write the offset-advance just missed) must not distill —
+      // that is what keeps a re-ingest from perpetuating itself.
+      if (distill && ingested > 0) this.enqueueDistill(threadId);
     };
 
     const armIdle = (): void => {
@@ -310,6 +323,7 @@ export class ExternalSessionImporter {
           continue;
         }
         emitter.push(entry);
+        ingested++;
       }
       // Persist the newline-aligned offset so a restart (or re-ingest) resumes exactly here.
       this.deps.setImportOffset(threadId, committed());

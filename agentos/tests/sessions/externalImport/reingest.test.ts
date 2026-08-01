@@ -30,6 +30,7 @@ function makeHarness() {
   const sessionToThread = new Map<string, string>();
   const offsets = new Map<string, number>();
   const appended: { role: string; text: string }[] = [];
+  let running = false;
 
   const importer = new ExternalSessionImporter({
     claudeDataDir,
@@ -43,24 +44,37 @@ function makeHarness() {
     },
     appendImportedMessage: (_tid, role, text) => appended.push({ role, text }),
     setImportOffset: (tid, offset) => offsets.set(tid, offset),
-    getImportState: (sid) => {
-      const tid = sessionToThread.get(sid);
-      if (!tid || !offsets.has(tid)) return null;
-      return { threadId: tid, offset: offsets.get(tid)! };
+    getImportStates: () => {
+      const map = new Map<string, { threadId: string; offset: number }>();
+      for (const [sid, tid] of sessionToThread) {
+        if (offsets.has(tid)) map.set(sid, { threadId: tid, offset: offsets.get(tid)! });
+      }
+      return map;
     },
-    isThreadRunning: () => false,
+    isThreadRunning: () => running,
     distill: async () => undefined,
     onTurnStarted: () => () => undefined,
     onTurnEnded: () => () => undefined,
   });
 
-  return { importer, claudeDataDir, jsonlPath, threadId, offsets, appended };
+  return {
+    importer,
+    claudeDataDir,
+    jsonlPath,
+    threadId,
+    offsets,
+    appended,
+    setRunning: (v: boolean) => (running = v),
+  };
 }
 
 const reconcile = (importer: ExternalSessionImporter) =>
   (importer as unknown as { reconcile: (maxAgeMs: number) => Promise<void> }).reconcile(60_000);
 const stopMirror = (importer: ExternalSessionImporter, threadId: string) =>
   (importer as unknown as { stopMirror: (id: string) => void }).stopMirror(threadId);
+// start() wires onTurnEnded → markAgentWritesIngested; call the handler directly here.
+const fireTurnEnded = (importer: ExternalSessionImporter, threadId: string) =>
+  (importer as unknown as { markAgentWritesIngested: (id: string) => void }).markAgentWritesIngested(threadId);
 
 test('re-ingests only the appended delta after an imported session grows', async (t) => {
   const h = makeHarness();
@@ -110,4 +124,52 @@ test('does not re-ingest when the file has not grown', async (t) => {
   const before = h.appended.length;
   await reconcile(h.importer);
   assert.equal(h.appended.length, before, 'nothing new to ingest');
+});
+
+test('does not re-ingest while an in-app turn is running on the thread', async (t) => {
+  const h = makeHarness();
+  t.after(() => {
+    h.importer.dispose();
+    fs.rmSync(h.claudeDataDir, { recursive: true, force: true });
+  });
+
+  await reconcile(h.importer);
+  stopMirror(h.importer, h.threadId);
+  fs.appendFileSync(h.jsonlPath, USER('during-turn') + '\n' + ASSISTANT('m2') + '\n');
+
+  // While a turn runs, the in-app pipeline owns transcript writes — re-ingestion must stand down.
+  h.setRunning(true);
+  let before = h.appended.length;
+  await reconcile(h.importer);
+  assert.equal(h.appended.length, before, 'must not re-ingest while running');
+
+  // Once the turn is done, the delta flows in again.
+  h.setRunning(false);
+  before = h.appended.length;
+  await reconcile(h.importer);
+  assert.ok(
+    h.appended.slice(before).some((m) => m.text === 'during-turn'),
+    'delta re-ingests after the turn ends'
+  );
+});
+
+test('turn:ended advances the offset past agent-written bytes so they are not re-ingested', async (t) => {
+  const h = makeHarness();
+  t.after(() => {
+    h.importer.dispose();
+    fs.rmSync(h.claudeDataDir, { recursive: true, force: true });
+  });
+
+  await reconcile(h.importer);
+  stopMirror(h.importer, h.threadId);
+
+  // An in-app turn (a /save-session-chunk distill, or a user takeover) appends its own messages to
+  // the same transcript. turn:ended must mark those bytes ingested so they are never re-imported.
+  fs.appendFileSync(h.jsonlPath, USER('agent-write') + '\n' + ASSISTANT('m2') + '\n');
+  fireTurnEnded(h.importer, h.threadId);
+  assert.equal(h.offsets.get(h.threadId), fs.statSync(h.jsonlPath).size, 'offset jumps to end of file');
+
+  const before = h.appended.length;
+  await reconcile(h.importer);
+  assert.equal(h.appended.length, before, 'agent-written bytes must not be re-ingested');
 });
