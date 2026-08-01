@@ -264,3 +264,34 @@ test('recordAutomationRun: missing session_metrics row → no crash, cost is 0',
   assert.ok(run, 'automation_runs row should still be inserted with zeros');
   assert.equal(run.cost_usd_micro, 0);
 });
+
+// ── onTokenUsage: skipDailyRollup (external session import) ────────────────────
+
+test('onTokenUsage: skipDailyRollup records session_metrics but not the daily rollup', () => {
+  const tracker = freshTracker();
+  tracker.onTokenUsage({
+    threadId: 't-import',
+    projectId: 'p1',
+    provider: 'claude',
+    model: 'claude-sonnet-4-6',
+    inputTokens: 1280,
+    outputTokens: 7687,
+    cacheReadTokens: 778057,
+    cacheCreationTokens: 33686,
+    skipDailyRollup: true,
+  });
+
+  // The thread's own metrics ARE written — this is what makes the insights panel load.
+  const session = adapter
+    .prepare('SELECT input_tokens, output_tokens, cost_usd_micro FROM session_metrics WHERE thread_id = ?')
+    .get('t-import') as { input_tokens: number; output_tokens: number; cost_usd_micro: number } | undefined;
+  assert.ok(session, 'session_metrics row must exist');
+  assert.equal(session.input_tokens, 1280);
+  assert.equal(session.output_tokens, 7687);
+  assert.ok(session.cost_usd_micro > 0);
+
+  // The project/global daily aggregates are left untouched — a back-dated import must not
+  // inflate today's live totals.
+  const daily = adapter.prepare('SELECT * FROM project_daily_stats WHERE project_id = ?').get('p1');
+  assert.equal(daily, undefined, 'daily rollup must not be written for an imported turn');
+});

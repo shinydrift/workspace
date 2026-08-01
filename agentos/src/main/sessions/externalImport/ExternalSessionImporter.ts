@@ -23,10 +23,22 @@ export interface ExternalSessionImporterDeps {
   createThread: (req: CreateThreadRequest) => Promise<Thread>;
   bindClaudeSession: (threadId: string, sessionId: string) => void;
   appendImportedMessage: (threadId: string, role: 'user' | 'assistant', text: string, raw: string) => void;
+  /** Persist how many transcript bytes have been ingested for a thread (drives live re-ingestion). */
+  setImportOffset: (threadId: string, offset: number) => void;
+  /**
+   * All live (non-archived) imported sessions, keyed by claudeSessionId → { threadId, ingested
+   * offset }. Native in-app claude-interactive threads carry no offset and are excluded, so they
+   * are never re-ingested. Built once per reconcile to avoid an O(sessions × threads) scan.
+   */
+  getImportStates: () => Map<string, { threadId: string; offset: number }>;
+  /** True while the thread is running an in-app turn — its own pipeline owns transcript writes then. */
+  isThreadRunning: (threadId: string) => boolean;
   /** Inject /save-session-chunk on the adopted thread so its work lands in memory. */
   distill: (threadId: string) => Promise<void>;
   /** Subscribe to turn starts so a thread the user takes over stops being mirrored. Returns unsubscribe. */
   onTurnStarted: (handler: (threadId: string) => void) => () => void;
+  /** Subscribe to turn ends so AgentOS-written transcript bytes are marked ingested. Returns unsubscribe. */
+  onTurnEnded: (handler: (threadId: string) => void) => () => void;
 }
 
 const RECONCILE_MAX_AGE_MS = 24 * 60 * 60 * 1000; // startup: only sessions touched in the last 24h
@@ -40,12 +52,15 @@ export class ExternalSessionImporter {
   private watcher: fs.FSWatcher | null = null;
   private watchDebounce: NodeJS.Timeout | null = null;
   private unsubscribeTurns: (() => void) | null = null;
+  private unsubscribeTurnsEnded: (() => void) | null = null;
   private started = false;
 
   // sessionIds currently being adopted (in-flight, before claudeSessionId is persisted).
   private readonly adopting = new Set<string>();
   // threadId → stop function for an active mirror tail.
   private readonly mirrors = new Map<string, () => void>();
+  // threadId → transcript path, for imported threads (so a turn:ended can re-stat the file).
+  private readonly importedPaths = new Map<string, string>();
 
   private readonly distillQueue: string[] = [];
   private distillPumping = false;
@@ -62,6 +77,10 @@ export class ExternalSessionImporter {
     // When the user takes over an adopted thread with an in-app turn, stop mirroring it — the live
     // turn renders new output and its own idle-stop runs /save-session-chunk via SessionChunkManager.
     this.unsubscribeTurns = this.deps.onTurnStarted((threadId) => this.stopMirror(threadId));
+    // When an in-app turn ends on an imported thread (a distill or a user takeover), the transcript
+    // now holds AgentOS-written bytes. Advance the ingested offset past them so re-ingestion only
+    // ever picks up *future external* appends — this is what breaks the distill feedback loop.
+    this.unsubscribeTurnsEnded = this.deps.onTurnEnded((threadId) => this.markAgentWritesIngested(threadId));
     // One-time reconcile of recent sessions, then keep watching for new ones.
     void this.reconcile(RECONCILE_MAX_AGE_MS);
     this.startWatching();
@@ -79,8 +98,11 @@ export class ExternalSessionImporter {
     this.watcher = null;
     this.unsubscribeTurns?.();
     this.unsubscribeTurns = null;
+    this.unsubscribeTurnsEnded?.();
+    this.unsubscribeTurnsEnded = null;
     for (const stop of Array.from(this.mirrors.values())) stop();
     this.mirrors.clear();
+    this.importedPaths.clear();
   }
 
   private startWatching(): void {
@@ -101,17 +123,20 @@ export class ExternalSessionImporter {
     }
   }
 
-  /** Scan disk and adopt any unknown session touched within maxAgeMs. Idempotent. */
+  /**
+   * Scan disk and (a) adopt any unknown session touched within maxAgeMs, then (b) re-ingest the
+   * delta of any already-imported session whose transcript grew since we last read it. Idempotent.
+   */
   private async reconcile(maxAgeMs: number): Promise<void> {
     if (!this.deps.isEnabled()) return;
     const now = Date.now();
-    const known = this.deps.listKnownClaudeSessionIds();
-    const candidates = scanExternalSessions(this.deps.claudeDataDir)
+    const recent = scanExternalSessions(this.deps.claudeDataDir)
       .filter((s) => now - s.mtimeMs <= maxAgeMs)
-      .filter((s) => !known.has(s.sessionId) && !this.adopting.has(s.sessionId))
       .sort((a, b) => a.mtimeMs - b.mtimeMs); // oldest first, so the newest thread is most-recently-active
 
-    for (const info of candidates) {
+    const known = this.deps.listKnownClaudeSessionIds();
+    for (const info of recent) {
+      if (known.has(info.sessionId) || this.adopting.has(info.sessionId)) continue;
       // Re-check per-item: AgentOS may have claimed this ID after the scan snapshot (for
       // example, while a new in-app Claude turn was launching).
       if (this.deps.listKnownClaudeSessionIds().has(info.sessionId) || this.adopting.has(info.sessionId)) continue;
@@ -126,6 +151,59 @@ export class ExternalSessionImporter {
       } finally {
         this.adopting.delete(info.sessionId);
       }
+    }
+
+    const importStates = this.deps.getImportStates();
+    for (const info of recent) this.reingestIfGrown(info, importStates);
+  }
+
+  /**
+   * Re-attach the live mirror to an already-imported session whose transcript has grown beyond the
+   * bytes we last ingested — importing only the appended delta. Skips sessions that aren't imports,
+   * are already mirroring, or are being driven by an in-app turn (that turn's own pipeline handles
+   * its writes; markAgentWritesIngested advances the offset once it ends).
+   */
+  private reingestIfGrown(
+    info: ExternalSessionInfo,
+    importStates: Map<string, { threadId: string; offset: number }>
+  ): void {
+    const state = importStates.get(info.sessionId);
+    if (!state) return;
+    // Remember the path even if we don't re-ingest now, so a later turn:ended on this thread can
+    // advance the offset past AgentOS-written bytes (matters right after a restart, before any mirror).
+    this.importedPaths.set(state.threadId, info.jsonlPath);
+    if (this.mirrors.has(state.threadId)) return;
+    if (this.deps.isThreadRunning(state.threadId)) return;
+    if (info.size <= state.offset) return;
+    this.startMirror(state.threadId, info.jsonlPath, state.offset, this.makeEmitter(state.threadId));
+    eventLogger.info('import', 'Re-ingesting external session delta', {
+      threadId: state.threadId,
+      sessionId: info.sessionId,
+      from: state.offset,
+      to: info.size,
+    });
+  }
+
+  /** Build a fresh emitter that appends reconstructed messages to a thread. */
+  private makeEmitter(threadId: string): TranscriptMessageEmitter {
+    return new TranscriptMessageEmitter({
+      appendUserMessage: (t) => this.deps.appendImportedMessage(threadId, 'user', t, `${t}\n`),
+      appendAssistantRaw: (raw) => this.deps.appendImportedMessage(threadId, 'assistant', raw, raw),
+    });
+  }
+
+  /**
+   * An in-app turn just ended on an imported thread — its own messages were appended to the same
+   * transcript by AgentOS. Mark the whole file as ingested so re-ingestion won't re-import those
+   * bytes (which would duplicate them and, for /save-session-chunk, loop forever).
+   */
+  private markAgentWritesIngested(threadId: string): void {
+    const jsonlPath = this.importedPaths.get(threadId);
+    if (!jsonlPath) return;
+    try {
+      this.deps.setImportOffset(threadId, fs.statSync(jsonlPath).size);
+    } catch {
+      // best-effort — transcript may have been removed
     }
   }
 
@@ -171,21 +249,32 @@ export class ExternalSessionImporter {
       cwd: info.cwd,
     });
 
-    const emitter = new TranscriptMessageEmitter({
-      appendUserMessage: (t) => this.deps.appendImportedMessage(thread.id, 'user', t, `${t}\n`),
-      appendAssistantRaw: (raw) => this.deps.appendImportedMessage(thread.id, 'assistant', raw, raw),
-    });
+    const emitter = this.makeEmitter(thread.id);
     for (const entry of entries) emitter.push(entry);
+
+    // Start the mirror at the last newline boundary, not the raw end: if the snapshot was captured
+    // mid-write its final line is an unterminated partial (Claude terminates every entry with \n, so
+    // a no-\n tail is always incomplete and was skipped by parseTranscriptLines). Resuming from the
+    // boundary lets the mirror re-read that line once it completes instead of dropping it.
+    const nl = text.lastIndexOf('\n');
+    const startPos = nl === -1 ? 0 : Buffer.byteLength(text.slice(0, nl + 1), 'utf8');
+    // Persist up front so a crash mid-mirror re-ingests only the delta rather than the whole file.
+    this.importedPaths.set(thread.id, info.jsonlPath);
+    this.deps.setImportOffset(thread.id, startPos);
 
     // Tail from the snapshot's end. For an idle (already-finished) session this settles after
     // MIRROR_IDLE_MS and distills; for a still-active terminal session it live-mirrors until idle.
-    this.startMirror(thread.id, info.jsonlPath, Buffer.byteLength(text, 'utf8'), emitter);
+    this.startMirror(thread.id, info.jsonlPath, startPos, emitter);
   }
 
   private startMirror(threadId: string, jsonlPath: string, startPos: number, emitter: TranscriptMessageEmitter): void {
     let pos = startPos;
     let tail = '';
     let idleTimer: NodeJS.Timeout | null = null;
+    let ingested = 0; // transcript entries this mirror actually parsed (gates the distill on stop)
+    // Byte offset of the end of the last complete line consumed (pos minus the retained partial
+    // line). This is the resume point: re-reading from here re-reads that partial line in full.
+    const committed = (): number => pos - Buffer.byteLength(tail, 'utf8');
 
     const stop = (distill: boolean): void => {
       if (!this.mirrors.has(threadId)) return;
@@ -197,7 +286,11 @@ export class ExternalSessionImporter {
         // best-effort
       }
       emitter.flush();
-      if (distill) this.enqueueDistill(threadId);
+      this.deps.setImportOffset(threadId, committed());
+      // Only distill when this mirror ingested something. A re-attach that reads nothing but a
+      // partial/late line (e.g. an agent write the offset-advance just missed) must not distill —
+      // that is what keeps a re-ingest from perpetuating itself.
+      if (distill && ingested > 0) this.enqueueDistill(threadId);
     };
 
     const armIdle = (): void => {
@@ -230,7 +323,10 @@ export class ExternalSessionImporter {
           continue;
         }
         emitter.push(entry);
+        ingested++;
       }
+      // Persist the newline-aligned offset so a restart (or re-ingest) resumes exactly here.
+      this.deps.setImportOffset(threadId, committed());
       armIdle();
     };
 
@@ -238,6 +334,13 @@ export class ExternalSessionImporter {
 
     this.mirrors.set(threadId, () => stop(false));
     fs.watchFile(jsonlPath, { interval: MIRROR_POLL_MS, persistent: false }, onChange);
+    // Catch up on bytes already present beyond startPos before waiting on change events — this is the
+    // re-ingest delta of an already-idle session (and closes any adopt-time read/stat race).
+    try {
+      handleNewBytes(fs.statSync(jsonlPath).size);
+    } catch {
+      // best-effort
+    }
     armIdle();
   }
 

@@ -239,12 +239,16 @@ export class ThreadOutputManager {
     text: string,
     raw?: string,
     firstChunkAt?: number,
-    opts?: { multiTurn?: boolean; skipSideEffects?: boolean }
+    opts?: { multiTurn?: boolean; skipSideEffects?: boolean; importMode?: boolean }
   ): void {
     const thread = threadStore.getThread(threadId);
     const provider = thread?.provider ?? 'claude';
     const normalize = opts?.multiTurn ? normalizeMessagesMultiTurn : normalizeMessages;
     const results = normalize({ provider, role, text, raw });
+    // Imported historical turns record thread-scoped analytics (session_metrics, token totals) so
+    // the insights panel loads, but must not touch live provider rate-limit state or the daily rollup.
+    const recordMetrics = !opts?.skipSideEffects || opts?.importMode === true;
+    const liveRateLimitEffects = !opts?.skipSideEffects && opts?.importMode !== true;
     let tokenUsageEmitted = false;
     const toolUseIdToName = new Map<string, string>();
     const toolStats = new Map<string, { name: string; count: number; successCount: number; errorCount: number }>();
@@ -260,7 +264,7 @@ export class ThreadOutputManager {
         source,
         role === 'assistant' ? firstChunkAt : undefined
       );
-      if (!opts?.skipSideEffects) {
+      if (recordMetrics) {
         // Emit token usage once per normalizeMessages call (first result that carries it).
         // Claude's message_start/message_delta events already carry cumulative totals for the
         // entire exchange, so emitting on the first result is correct and avoids double-counting.
@@ -275,11 +279,12 @@ export class ThreadOutputManager {
             outputTokens: result.tokenUsage.outputTokens,
             cacheReadTokens: result.tokenUsage.cacheReadTokens,
             cacheCreationTokens: result.tokenUsage.cacheCreationTokens,
+            skipDailyRollup: opts?.importMode === true,
           });
         }
-        if (result.rateLimitWindows) {
-          updateProviderRateLimits(provider, result.rateLimitWindows);
-        }
+      }
+      if (liveRateLimitEffects && result.rateLimitWindows) {
+        updateProviderRateLimits(provider, result.rateLimitWindows);
       }
       // Track turn/tool counts for assistant messages.
       if (role === 'assistant') {
@@ -302,13 +307,15 @@ export class ThreadOutputManager {
         }
       }
     }
-    if (!opts?.skipSideEffects && role === 'assistant' && assistantResultCount > 0) {
+    if (recordMetrics && role === 'assistant' && assistantResultCount > 0) {
       analyticsService.onAssistantMessage(threadId, assistantResultCount, [...toolStats.values()], memoryGetCallCount);
-      refreshProviderRateLimits({ force: true }).catch((error: unknown) => {
-        eventLogger.warn('thread', 'Provider rate limit refresh failed after assistant turn', {
-          error: getErrorMessage(error),
+      if (liveRateLimitEffects) {
+        refreshProviderRateLimits({ force: true }).catch((error: unknown) => {
+          eventLogger.warn('thread', 'Provider rate limit refresh failed after assistant turn', {
+            error: getErrorMessage(error),
+          });
         });
-      });
+      }
     }
   }
 

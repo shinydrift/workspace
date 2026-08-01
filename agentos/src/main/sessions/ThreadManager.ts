@@ -290,8 +290,9 @@ class ThreadManager implements Disposable {
 
   /**
    * Append a message reconstructed from an imported external Claude transcript. Assistant `text`
-   * is raw JSONL parsed by the multi-turn normalizer; side effects (token/rate-limit analytics)
-   * are skipped so a historical import doesn't pollute live metrics.
+   * is raw JSONL parsed by the multi-turn normalizer. `importMode` records the thread's own
+   * session_metrics (so the insights panel loads) while skipping live provider rate-limit state and
+   * the daily rollup — a back-dated import must not pollute today's live aggregates.
    */
   appendImportedMessage(threadId: string, role: 'user' | 'assistant', text: string, raw: string): void {
     this.output.appendNormalizedMessageWithSource(
@@ -301,7 +302,7 @@ class ThreadManager implements Disposable {
       text,
       raw,
       undefined,
-      { multiTurn: role === 'assistant', skipSideEffects: true }
+      { multiTurn: role === 'assistant', importMode: true }
     );
   }
 

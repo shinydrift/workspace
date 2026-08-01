@@ -32,8 +32,12 @@ test('reconcile re-checks ownership before adopting a scanned session', async (t
     },
     bindClaudeSession: () => undefined,
     appendImportedMessage: () => undefined,
+    setImportOffset: () => undefined,
+    getImportStates: () => new Map(),
+    isThreadRunning: () => false,
     distill: async () => undefined,
     onTurnStarted: () => () => undefined,
+    onTurnEnded: () => () => undefined,
   });
 
   await (

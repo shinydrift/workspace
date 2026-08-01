@@ -55,6 +55,7 @@ export const threads = sqliteTable(
     parentThreadId: text('parent_thread_id').references((): AnySQLiteColumn => threads.id, { onDelete: 'set null' }),
     councilRunId: text('council_run_id'),
     recordingId: text('recording_id').references((): AnySQLiteColumn => recordings.id, { onDelete: 'set null' }),
+    importedByteOffset: integer('imported_byte_offset'),
   },
   (table) => [
     index('idx_threads_project').on(table.projectId),

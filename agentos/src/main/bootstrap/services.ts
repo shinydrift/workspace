@@ -259,11 +259,30 @@ function buildExternalImportDeps(homeDir: string): ConstructorParameters<typeof 
     bindClaudeSession: (threadId, sessionId) => updateThread(threadId, { claudeSessionId: sessionId }),
     appendImportedMessage: (threadId, role, text, raw) =>
       threadManager.appendImportedMessage(threadId, role, text, raw),
+    setImportOffset: (threadId, offset) => updateThread(threadId, { importedByteOffset: offset }),
+    // Only imported threads carry an importedByteOffset; native in-app claude-interactive threads
+    // (which also have a claudeSessionId) never do, so they are excluded from re-ingestion. Archived
+    // threads are skipped too — their worktree may be gone. Built in one pass over all threads.
+    getImportStates: () => {
+      const map = new Map<string, { threadId: string; offset: number }>();
+      for (const t of getAllThreads()) {
+        if (t.claudeSessionId && t.importedByteOffset != null && !t.archivedAt) {
+          map.set(t.claudeSessionId, { threadId: t.id, offset: t.importedByteOffset });
+        }
+      }
+      return map;
+    },
+    isThreadRunning: (threadId) => threadManager.getThread(threadId)?.status === 'running',
     distill: (threadId) => threadManager.sendInput(threadId, '/save-session-chunk\n', 'skills'),
     onTurnStarted: (handler) => {
       const fn = (payload: { threadId: string }): void => handler(payload.threadId);
       internalBus.on('turn:started', fn);
       return () => internalBus.off('turn:started', fn);
+    },
+    onTurnEnded: (handler) => {
+      const fn = (payload: { threadId: string }): void => handler(payload.threadId);
+      internalBus.on('turn:ended', fn);
+      return () => internalBus.off('turn:ended', fn);
     },
   };
 }

@@ -46,6 +46,7 @@ function rowToThread(row: ThreadRow): StoredThread {
     parentThreadId: row.parentThreadId ?? undefined,
     councilRunId: row.councilRunId ?? undefined,
     recordingId: row.recordingId ?? undefined,
+    importedByteOffset: row.importedByteOffset ?? undefined,
     promptHistory: [],
   };
 }
@@ -87,6 +88,7 @@ function threadToInsert(t: StoredThread): ThreadInsert {
     parentThreadId: t.parentThreadId ?? null,
     councilRunId: t.councilRunId ?? null,
     recordingId: t.recordingId ?? null,
+    importedByteOffset: t.importedByteOffset ?? null,
   };
 }
 
