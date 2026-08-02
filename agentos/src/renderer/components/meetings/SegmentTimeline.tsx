@@ -8,6 +8,8 @@ import type { RecordingRecord, SavedProject } from '../../../shared/types';
 import { useDomainStore } from '../../store/domainStore';
 import { useUIStore } from '../../store/uiStore';
 import { claimRecordingPlayback, releaseRecordingPlayback } from './recordingPlayback';
+import { audioBufferPeaks, buildTimelineClips, resolveTimelineTime } from './audioTimeline';
+import { WaveformSlider } from './WaveformSlider';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
@@ -100,26 +102,62 @@ interface SegmentTimelineProps {
   active: boolean;
 }
 
-function SelectionPlayer({ segments }: { segments: RecordingRecord[] }) {
+function SelectionPlayer({ segments, from, to }: { segments: RecordingRecord[]; from: number; to: number }) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const urlRef = useRef<string | null>(null);
   const loadTokenRef = useRef(0);
+  const waveformTokenRef = useRef(0);
+  const bytesRef = useRef(new Map<string, ArrayBuffer>());
   const [index, setIndex] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [current, setCurrent] = useState(0);
+  const [peaksById, setPeaksById] = useState<Record<string, number[]>>({});
 
   // The parent hands us a fresh array on every drag tick and every "now" tick, even when the
   // overlapping recordings are unchanged. Key resets on the recording identity so playback keeps
   // running while you drag, and only tears down when the underlying saved recordings actually change.
   const segmentKey = useMemo(() => segments.map((s) => s.id).join('|'), [segments]);
-  const totalDuration = useMemo(() => segments.reduce((sum, s) => sum + s.durationSeconds, 0), [segments]);
-  const elapsedBefore = useMemo(
-    () => segments.slice(0, index).reduce((sum, s) => sum + s.durationSeconds, 0),
-    [index, segments]
-  );
-  const windowCurrent = elapsedBefore + current;
+  const clips = useMemo(() => buildTimelineClips(segments, from, to), [segments, from, to]);
+  const totalDuration = Math.max(0, (to - from) / 1000);
+  const windowCurrent = clips[index] ? clips[index].from + Math.max(0, current - clips[index].sourceOffset) : current;
+
+  // Decode each newly-selected source once. The token prevents a prior selection's slow IPC/decode
+  // from painting peaks into the current slider.
+  useEffect(() => {
+    const token = ++waveformTokenRef.current;
+    let cancelled = false;
+    setPeaksById({});
+    void Promise.all(
+      segments.map(async (segment) => {
+        try {
+          let bytes = bytesRef.current.get(segment.id);
+          if (!bytes) {
+            const result = await window.electronAPI.files.readRecording({ recordingId: segment.id });
+            bytes = result.data.slice(0);
+            bytesRef.current.set(segment.id, bytes);
+          }
+          const context = new AudioContext();
+          try {
+            const buffer = await context.decodeAudioData(bytes.slice(0));
+            return [segment.id, audioBufferPeaks(buffer)] as const;
+          } finally {
+            void context.close();
+          }
+        } catch {
+          return [segment.id, []] as const;
+        }
+      })
+    ).then((entries) => {
+      if (!cancelled && token === waveformTokenRef.current) setPeaksById(Object.fromEntries(entries));
+    });
+    return () => {
+      cancelled = true;
+    };
+    // `segmentKey` is the stable playback invariant: selection-edge drags retain the same sources.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [segmentKey]);
 
   const cleanupAudio = useCallback((invalidateLoad = false) => {
     if (invalidateLoad) loadTokenRef.current += 1;
@@ -137,27 +175,44 @@ function SelectionPlayer({ segments }: { segments: RecordingRecord[] }) {
   // into one continuous stream — callers address time by window position, never by clip.
   const playIndex = useCallback(
     async (nextIndex: number, shouldPlay = true, startAt = 0) => {
-      const segment = segments[nextIndex];
-      if (!segment) return;
+      const clip = clips[nextIndex];
+      if (!clip) return;
       const token = ++loadTokenRef.current;
       cleanupAudio();
       setIndex(nextIndex);
-      setCurrent(startAt);
+      setCurrent(startAt || clip.sourceOffset);
       setLoading(true);
       setError('');
       try {
-        const { data } = await window.electronAPI.files.readRecording({ recordingId: segment.id });
+        let data = bytesRef.current.get(clip.source.id);
+        if (!data) {
+          const result = await window.electronAPI.files.readRecording({ recordingId: clip.source.id });
+          data = result.data.slice(0);
+          bytesRef.current.set(clip.source.id, data);
+        }
         if (token !== loadTokenRef.current) return;
         const url = URL.createObjectURL(new Blob([data], { type: 'audio/wav' }));
         urlRef.current = url;
         const audio = new Audio(url);
-        if (startAt > 0) audio.currentTime = startAt;
-        audio.addEventListener('timeupdate', () => setCurrent(audio.currentTime));
+        audio.currentTime = startAt || clip.sourceOffset;
+        audio.addEventListener('timeupdate', () => {
+          setCurrent(audio.currentTime);
+          if (audio.currentTime >= clip.sourceOffset + (clip.to - clip.from) - 0.03) {
+            audio.pause();
+            if (nextIndex + 1 < clips.length) void playIndex(nextIndex + 1, true);
+            else {
+              cleanupAudio();
+              setPlaying(false);
+              setIndex(0);
+              setCurrent(0);
+            }
+          }
+        });
         audio.addEventListener('loadedmetadata', () => {
-          if (startAt > 0) audio.currentTime = startAt;
+          audio.currentTime = startAt || clip.sourceOffset;
         });
         audio.addEventListener('ended', () => {
-          if (nextIndex + 1 < segments.length) {
+          if (nextIndex + 1 < clips.length) {
             void playIndex(nextIndex + 1, true);
           } else {
             cleanupAudio();
@@ -172,12 +227,17 @@ function SelectionPlayer({ segments }: { segments: RecordingRecord[] }) {
         audioRef.current = audio;
         if (shouldPlay) void audio.play().catch(() => setError('Playback failed'));
       } catch (err) {
-        if (token === loadTokenRef.current) setError(err instanceof Error ? err.message : 'Failed to load audio');
+        if (token === loadTokenRef.current) {
+          setError(err instanceof Error ? err.message : 'Failed to load audio');
+          // A missing/corrupt clip is a gap: keep playback moving when another clip exists.
+          if (shouldPlay && nextIndex + 1 < clips.length) void playIndex(nextIndex + 1, true);
+          else setPlaying(false);
+        }
       } finally {
         if (token === loadTokenRef.current) setLoading(false);
       }
     },
-    [cleanupAudio, segments]
+    [cleanupAudio, clips]
   );
 
   useEffect(() => {
@@ -191,9 +251,9 @@ function SelectionPlayer({ segments }: { segments: RecordingRecord[] }) {
   useEffect(() => () => cleanupAudio(true), [cleanupAudio]);
 
   function toggle() {
-    if (!segments.length) return;
+    if (!clips.length) return;
     if (!audioRef.current) {
-      void playIndex(index, true);
+      void playIndex(index < clips.length ? index : 0, true);
       return;
     }
     if (audioRef.current.paused) void audioRef.current.play().catch(() => setError('Playback failed'));
@@ -201,15 +261,17 @@ function SelectionPlayer({ segments }: { segments: RecordingRecord[] }) {
   }
 
   // Map a window-relative position back to the clip that holds it, then seek there transparently.
-  function seek(e: React.ChangeEvent<HTMLInputElement>) {
-    const target = Number(e.target.value);
-    let acc = 0;
-    let j = 0;
-    for (; j < segments.length - 1; j++) {
-      if (target < acc + segments[j].durationSeconds) break;
-      acc += segments[j].durationSeconds;
+  function seek(target: number) {
+    const resolved = resolveTimelineTime(clips, target);
+    if (!resolved) {
+      cleanupAudio(true);
+      setIndex(clips.length);
+      setCurrent(totalDuration);
+      setPlaying(false);
+      return;
     }
-    const offset = Math.max(0, target - acc);
+    const j = clips.indexOf(resolved.clip);
+    const offset = resolved.sourceTime;
     if (j === index && audioRef.current) {
       audioRef.current.currentTime = offset;
       setCurrent(offset);
@@ -245,16 +307,19 @@ function SelectionPlayer({ segments }: { segments: RecordingRecord[] }) {
         </Button>
       </div>
       <div className="mt-2 flex items-center gap-2">
-        <input
-          type="range"
-          min={0}
-          max={totalDuration || 1}
-          step={0.1}
-          value={Math.min(windowCurrent, totalDuration || windowCurrent)}
-          onChange={seek}
-          disabled={!segments.length}
-          aria-label="Seek preview"
-          className="h-1 flex-1 cursor-pointer accent-blue-500 disabled:cursor-default"
+        <WaveformSlider
+          duration={totalDuration || 1}
+          current={windowCurrent}
+          ranges={clips.map((clip) => {
+            const allPeaks = peaksById[clip.source.id] ?? [];
+            const sourceDuration = Math.max(0.001, clip.source.durationSeconds);
+            const first = Math.floor((clip.sourceOffset / sourceDuration) * allPeaks.length);
+            const last = Math.ceil(((clip.sourceOffset + clip.to - clip.from) / sourceDuration) * allPeaks.length);
+            return { from: clip.from, to: clip.to, peaks: allPeaks.slice(first, last) };
+          })}
+          disabled={!clips.length}
+          label="Seek preview on meeting timeline"
+          onSeek={seek}
         />
         <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">{progressLabel}</span>
       </div>
@@ -304,11 +369,10 @@ export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps
   );
   const selectedDuration = Math.max(0, Math.round((selTo - selFrom) / 1000));
   const availability = useMemo(() => mergeAvailability(segments), [segments]);
-  // Enable Create whenever the slot overlaps captured audio, using the same merged ranges the
-  // timeline shades — so a slot sitting inside a bridged gap no longer shows blue yet stays disabled.
+  // Merged availability is display-only. A slot wholly inside a bridged gap has no playable audio.
   const hasAudio = useMemo(
-    () => availability.some((r) => selFrom < r.to && selTo > r.from),
-    [availability, selFrom, selTo]
+    () => segments.some((segment) => overlaps(segment, selFrom, selTo)),
+    [segments, selFrom, selTo]
   );
 
   const load = useCallback(async () => {
@@ -660,7 +724,7 @@ export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps
             <div className="flex min-h-0 flex-col">
               <ScrollArea className="min-h-0 flex-1">
                 <div className="space-y-3 p-3">
-                  <SelectionPlayer segments={selectedSegments} />
+                  <SelectionPlayer segments={selectedSegments} from={selFrom} to={selTo} />
                   {!hasAudio && (
                     <p className="rounded-md border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground">
                       No captured audio in this slot yet.

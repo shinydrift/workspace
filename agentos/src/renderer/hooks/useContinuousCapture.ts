@@ -51,29 +51,31 @@ export function useContinuousCapture(): UseContinuousCaptureResult {
   // Cleanup for the "arm system audio on next user gesture" fallback (see armSystemAudio).
   const gestureCleanupRef = useRef<(() => void) | null>(null);
 
-  const processSegment = useCallback(
-    async (chunks: Float32Array[], sampleRate: number, startedAt: number, endedAt: number) => {
+  const processSegment = useCallback(async (chunks: Float32Array[], sampleRate: number, startedAt: number) => {
+    try {
+      const resampled = await resamplePcmTo16kHz(chunks, sampleRate);
+      const arrayBuffer = encodePcmAsWav([resampled], 16000);
+      let transcript = '';
       try {
-        const resampled = await resamplePcmTo16kHz(chunks, sampleRate);
-        const arrayBuffer = encodePcmAsWav([resampled], 16000);
-        const { text } = await window.electronAPI.audio.transcribe(arrayBuffer);
-        const transcript = text.trim();
-        // Drop silent clips — nothing was said, so nothing to summarize.
-        if (!transcript) return;
-        await window.electronAPI.files.saveRecording({
-          duration: Math.round((endedAt - startedAt) / 1000),
-          arrayBuffer,
-          transcript,
-          kind: 'segment',
-          startedAt,
-        });
+        const result = await window.electronAPI.audio.transcribe(arrayBuffer);
+        transcript = result.text.trim();
       } catch (err) {
-        // A single failed segment must not stop continuous capture.
-        console.error('continuous capture: segment failed', getErrorMessage(err));
+        // Audio is the primary capture artifact. A failed/empty transcript must not create a gap.
+        console.warn('continuous capture: transcription unavailable', getErrorMessage(err));
       }
-    },
-    []
-  );
+      const sampleCount = resampled.length;
+      await window.electronAPI.files.saveRecording({
+        duration: sampleCount / 16000,
+        arrayBuffer,
+        transcript,
+        kind: 'segment',
+        startedAt,
+      });
+    } catch (err) {
+      // A single failed segment must not stop continuous capture.
+      console.error('continuous capture: segment failed', getErrorMessage(err));
+    }
+  }, []);
 
   // Snapshot the accumulated PCM, reset the buffer, and process the closed segment
   // out-of-band so capture keeps running without a gap.
@@ -85,7 +87,7 @@ export function useContinuousCapture(): UseContinuousCaptureResult {
     segmentStartRef.current = endedAt;
     if (chunks.length === 0) return;
     const sampleRate = audioCtxRef.current?.sampleRate ?? 44100;
-    void processSegment(chunks, sampleRate, startedAt, endedAt);
+    void processSegment(chunks, sampleRate, startedAt);
   }, [processSegment]);
 
   const teardown = useCallback(() => {
