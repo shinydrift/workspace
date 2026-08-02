@@ -19,6 +19,8 @@ const MERGE_GAP_MS = 90 * 1000; // Bridge tiny gaps so captured audio reads as o
 const SNAP_MS = 5 * 60 * 1000; // Drag snaps to 5-minute marks; nudges and keyboard steps move by the same unit.
 const MIN_GAP_FRAC = SNAP_MS / WINDOW_MS; // Shortest slot you can drag (5 min) — matches the smallest preset.
 const NOW_TICK_MS = 30 * 1000; // Keep the "now" edge live while the picker is open.
+const MIN_BAND_PX = 6; // Floor for an availability band so a short clip stays visible.
+const MIN_BAND_MS = (MIN_BAND_PX / TIMELINE_HEIGHT) * WINDOW_MS; // What that floor is worth in time, for hit-testing.
 const TIMELINE_LANE_CLASS = 'inset-x-2';
 
 type DragTarget = 'start' | 'end' | 'block' | 'new' | null;
@@ -82,6 +84,15 @@ function mergeAvailability(segments: RecordingRecord[]): Array<{ from: number; t
     else ranges.push({ from: start, to: end });
   }
   return ranges;
+}
+
+/**
+ * The availability band under a timestamp. Bands are drawn downward from `to` and floored to
+ * MIN_BAND_PX, so hit-test the extent as drawn — otherwise a short clip is unhittable exactly where
+ * it looks solid.
+ */
+function bandAt(ranges: Array<{ from: number; to: number }>, ts: number): { from: number; to: number } | undefined {
+  return ranges.find((r) => ts <= r.to && ts >= Math.min(r.from, r.to - MIN_BAND_MS));
 }
 
 interface SegmentTimelineProps {
@@ -429,6 +440,15 @@ export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps
     didScroll.current = true;
   }, [open, loading, availability, from, posFromFrac]);
 
+  // Double-click widens the slot to the whole recorded stretch under the cursor — the one-gesture
+  // way to grab a long meeting, without stealing the single click that places a 30-minute slot.
+  function expandToStretch(clientY: number) {
+    const hit = bandAt(availability, from + timeFracFromEvent(clientY) * WINDOW_MS);
+    if (!hit) return;
+    setStartFrac(clampFrac((hit.from - from) / WINDOW_MS));
+    setEndFrac(clampFrac((hit.to - from) / WINDOW_MS));
+  }
+
   function nudge(which: 'start' | 'end', deltaMs: number) {
     const delta = deltaMs / WINDOW_MS;
     if (which === 'start') setStartFrac((v) => Math.min(clampFrac(v + delta), endFrac - MIN_GAP_FRAC));
@@ -531,7 +551,7 @@ export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps
                   <div
                     ref={trackRef}
                     role="group"
-                    aria-label="Timeline — click to place a meeting slot"
+                    aria-label="Timeline — click to place a 30-minute meeting slot, double-click a recording to select all of it"
                     // pan-y keeps a touch swipe scrolling the 7-day timeline instead of dragging a
                     // slot; the browser cancels the pointer gesture once it decides you're panning.
                     className="relative flex-1 touch-pan-y cursor-crosshair rounded-md border border-border bg-muted/20"
@@ -548,6 +568,7 @@ export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps
                       setStartFrac(anchor);
                       setEndFrac(anchor);
                     }}
+                    onDoubleClick={(e) => expandToStretch(e.clientY)}
                   >
                     {hourMarks.map(({ ts, isDay }) => (
                       <div
@@ -561,18 +582,14 @@ export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps
                       const topFrac = clampFrac((range.to - from) / WINDOW_MS);
                       const botFrac = clampFrac((range.from - from) / WINDOW_MS);
                       const top = posFromFrac(topFrac);
-                      const height = Math.max(6, (topFrac - botFrac) * TIMELINE_HEIGHT);
+                      const height = Math.max(MIN_BAND_PX, (topFrac - botFrac) * TIMELINE_HEIGHT);
                       return (
-                        <button
-                          type="button"
+                        // Shading only — the gesture belongs to the track underneath, so clicking on
+                        // recorded audio drops a 30-minute slot at that time instead of grabbing the
+                        // whole stretch.
+                        <div
                           key={range.from}
-                          title="Select this recorded stretch"
-                          onPointerDown={(e) => e.stopPropagation()}
-                          onClick={() => {
-                            setStartFrac(clampFrac((range.from - from) / WINDOW_MS));
-                            setEndFrac(clampFrac((range.to - from) / WINDOW_MS));
-                          }}
-                          className={`absolute ${TIMELINE_LANE_CLASS} cursor-pointer rounded-sm border border-blue-400/15 bg-blue-400/10 transition-colors hover:bg-blue-400/20`}
+                          className={`pointer-events-none absolute ${TIMELINE_LANE_CLASS} rounded-sm border border-blue-400/15 bg-blue-400/10`}
                           style={{ top: `${top}%`, height }}
                         />
                       );

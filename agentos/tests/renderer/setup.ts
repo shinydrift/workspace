@@ -31,6 +31,10 @@ function makeElectronAPI() {
       transcribe: vi.fn().mockResolvedValue(''),
       stopTTS: vi.fn().mockResolvedValue(undefined),
     },
+    files: {
+      listSegments: vi.fn().mockResolvedValue([]),
+      readRecording: vi.fn().mockResolvedValue({ data: new ArrayBuffer(0) }),
+    },
     tray: {
       focusThread: vi.fn(),
       openApp: vi.fn(),
@@ -43,6 +47,20 @@ function makeElectronAPI() {
     },
     platform: 'linux',
   };
+}
+
+// jsdom ships neither of these, and Radix primitives (ScrollArea, Dialog) call both on mount.
+if (!('ResizeObserver' in window)) {
+  window.ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
+}
+if (!Element.prototype.hasPointerCapture) {
+  Element.prototype.hasPointerCapture = () => false;
+  Element.prototype.setPointerCapture = () => {};
+  Element.prototype.releasePointerCapture = () => {};
 }
 
 // Reset mocks before each test
