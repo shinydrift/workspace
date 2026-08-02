@@ -563,16 +563,12 @@ export function SegmentTimeline({ defaultProject, active }: SegmentTimelineProps
                       const top = posFromFrac(topFrac);
                       const height = Math.max(6, (topFrac - botFrac) * TIMELINE_HEIGHT);
                       return (
-                        <button
-                          type="button"
+                        // Shading only — the gesture belongs to the track underneath, so clicking on
+                        // recorded audio drops a 30-minute slot at that time instead of grabbing the
+                        // whole stretch.
+                        <div
                           key={range.from}
-                          title="Select this recorded stretch"
-                          onPointerDown={(e) => e.stopPropagation()}
-                          onClick={() => {
-                            setStartFrac(clampFrac((range.from - from) / WINDOW_MS));
-                            setEndFrac(clampFrac((range.to - from) / WINDOW_MS));
-                          }}
-                          className={`absolute ${TIMELINE_LANE_CLASS} cursor-pointer rounded-sm border border-blue-400/15 bg-blue-400/10 transition-colors hover:bg-blue-400/20`}
+                          className={`pointer-events-none absolute ${TIMELINE_LANE_CLASS} rounded-sm border border-blue-400/15 bg-blue-400/10`}
                           style={{ top: `${top}%`, height }}
                         />
                       );
