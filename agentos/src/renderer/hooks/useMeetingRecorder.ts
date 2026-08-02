@@ -198,7 +198,7 @@ export function useMeetingRecorder(workingDirectory: string, projectName?: strin
       timerRef.current = null;
     }
 
-    const finalElapsed = Math.floor((Date.now() - startTimeRef.current) / 1000);
+    let finalElapsed = Math.floor((Date.now() - startTimeRef.current) / 1000);
     const now = new Date();
     const threadName = `Meeting — ${now.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} at ${now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
 
@@ -247,23 +247,16 @@ export function useMeetingRecorder(workingDirectory: string, projectName?: strin
     }
     pcmChunksRef.current = [];
     const arrayBuffer = encodePcmAsWav([resampled], 16000);
+    // Captured samples are authoritative when the stream stops abruptly or timers were throttled.
+    finalElapsed = resampled.length / 16000;
 
     let transcript = '';
     try {
       const result = await window.electronAPI.audio.transcribe(arrayBuffer);
       transcript = result.text.trim();
     } catch (err) {
-      setProcessingEntry(null);
-      setErrorMsg(`Transcription failed: ${getErrorMessage(err)}`);
-      setState('error');
-      return;
-    }
-
-    if (!transcript) {
-      setProcessingEntry(null);
-      setErrorMsg('No speech detected in the recording.');
-      setState('error');
-      return;
+      // Preserve the recording even if STT is unavailable; notes can be retried later.
+      console.warn('meeting recorder: transcription unavailable', getErrorMessage(err));
     }
 
     let recordingId: string;
@@ -281,6 +274,13 @@ export function useMeetingRecorder(workingDirectory: string, projectName?: strin
       setProcessingEntry(null);
       setErrorMsg(`Failed to save recording: ${getErrorMessage(err)}`);
       setState('error');
+      return;
+    }
+
+    if (!transcript) {
+      setProcessingEntry(null);
+      setState('idle');
+      setElapsed(0);
       return;
     }
 

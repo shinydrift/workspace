@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Play, Pause, CircleNotch, Warning } from '@phosphor-icons/react';
 import { cn, formatSeconds } from '@/lib/utils';
 import { claimRecordingPlayback, releaseRecordingPlayback } from './recordingPlayback';
+import { WaveformSlider } from './WaveformSlider';
+import { audioBufferPeaks } from './audioTimeline';
 
 interface RecordingPlayerProps {
   recordingId: string;
@@ -26,6 +28,7 @@ export function RecordingPlayer({ recordingId, durationSeconds, autoPlay = false
   const [error, setError] = useState('');
   const [current, setCurrent] = useState(0);
   const [duration, setDuration] = useState(durationSeconds);
+  const [peaks, setPeaks] = useState<number[]>([]);
 
   const ensureLoaded = useCallback(async (): Promise<HTMLAudioElement | null> => {
     if (audioRef.current) return audioRef.current;
@@ -35,6 +38,14 @@ export function RecordingPlayer({ recordingId, durationSeconds, autoPlay = false
     const promise = (async () => {
       try {
         const { data } = await window.electronAPI.files.readRecording({ recordingId });
+        const bytes = data.slice(0);
+        const context = new AudioContext();
+        try {
+          const decoded = await context.decodeAudioData(bytes.slice(0));
+          setPeaks(audioBufferPeaks(decoded));
+        } finally {
+          void context.close();
+        }
         const url = URL.createObjectURL(new Blob([data], { type: 'audio/wav' }));
         urlRef.current = url;
         const audio = new Audio(url);
@@ -93,8 +104,7 @@ export function RecordingPlayer({ recordingId, durationSeconds, autoPlay = false
     };
   }, []);
 
-  function seek(e: React.ChangeEvent<HTMLInputElement>) {
-    const t = Number(e.target.value);
+  function seek(t: number) {
     setCurrent(t);
     if (audioRef.current) audioRef.current.currentTime = t;
   }
@@ -121,16 +131,13 @@ export function RecordingPlayer({ recordingId, durationSeconds, autoPlay = false
         )}
       </button>
 
-      <input
-        type="range"
-        min={0}
-        max={total || 1}
-        step={0.1}
-        value={Math.min(current, total || current)}
-        onChange={seek}
+      <WaveformSlider
+        duration={total || 1}
+        current={current}
+        ranges={[{ from: 0, to: total || 1, peaks }]}
         disabled={!loaded && !loading}
-        aria-label="Seek"
-        className="h-1 flex-1 cursor-pointer accent-blue-500 disabled:cursor-default"
+        label="Seek recording"
+        onSeek={seek}
       />
 
       <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
