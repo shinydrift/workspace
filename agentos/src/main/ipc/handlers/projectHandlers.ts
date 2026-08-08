@@ -88,7 +88,7 @@ export function registerProjectHandlers(): void {
     })
   );
 
-  ipcMain.handle(IPC_CHANNELS.PROJECT_UPDATE_CONFIG, (e, raw) =>
+  ipcMain.handle(IPC_CHANNELS.PROJECT_UPDATE_CONFIG, (_e, raw) =>
     handleIpc(async () => {
       const { projectPath, key, updates } = z
         .object({ projectPath: filePath, key: z.enum(PROJECT_CONFIG_KEYS), updates: z.record(z.string(), z.unknown()) })
@@ -105,7 +105,7 @@ export function registerProjectHandlers(): void {
           syncPersonalityRefresh(project.id, enable);
         }
       }
-      broadcastProjectConfigUpdated(projectPath, key, e.sender);
+      broadcastProjectConfigUpdated(projectPath, key);
     })
   );
 

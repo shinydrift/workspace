@@ -39,10 +39,14 @@ export function useThreadComposer(projects: SavedProject[]) {
 
   const matchedProject = useMemo(() => projects.find((p) => p.path === workingDir), [projects, workingDir]);
 
-  // Load effective provider order from app settings plus project config.
+  // Load effective provider order from app settings plus project config. The lookup is keyed on the
+  // working directory itself, not on a saved project that happens to match it: the main process
+  // resolves the same config from `projectPath ?? workingDirectory` at thread start, so keying on a
+  // saved project would make a browsed-to folder's `.agentos/config.json` invisible here while it
+  // still decided the real launch.
   useEffect(() => {
     let cancelled = false;
-    const projectPath = matchedProject?.path;
+    const projectPath = workingDir.trim() || undefined;
 
     async function loadEffectiveProvider() {
       try {
@@ -69,10 +73,19 @@ export function useThreadComposer(projects: SavedProject[]) {
 
     void loadEffectiveProvider();
 
+    // Re-resolve when either level changes underneath an open composer, so the toggles keep showing
+    // what a thread started right now would actually do.
+    const unsubSettings = window.electronAPI.on.settingsChanged(() => void loadEffectiveProvider());
+    const unsubProjectConfig = window.electronAPI.on.projectConfigUpdated((e) => {
+      if (!projectPath || e.projectPath === projectPath) void loadEffectiveProvider();
+    });
+
     return () => {
       cancelled = true;
+      unsubSettings();
+      unsubProjectConfig();
     };
-  }, [matchedProject?.path]);
+  }, [workingDir]);
 
   function setProviderSelection(nextProvider: Provider) {
     providerTouchedRef.current = true;
