@@ -11,12 +11,22 @@ import { SectionHeader } from './SectionHeader';
 interface Props {
   sb: SandboxSecuritySettings;
   runOnHost: boolean;
+  /** True when this project pins its own value rather than following the app setting. */
+  runOnHostPinned: boolean;
   savingKey: string | null;
   onPatch: (patch: Partial<SandboxSecuritySettings>) => void;
   onRunOnHostChange: (runOnHost: boolean) => void;
+  onRunOnHostInherit: () => void;
 }
 
-export function SandboxSection({ sb, runOnHost, onPatch, onRunOnHostChange }: Props) {
+export function SandboxSection({
+  sb,
+  runOnHost,
+  runOnHostPinned,
+  onPatch,
+  onRunOnHostChange,
+  onRunOnHostInherit,
+}: Props) {
   return (
     <>
       <SectionHeader
@@ -31,6 +41,18 @@ export function SandboxSection({ sb, runOnHost, onPatch, onRunOnHostChange }: Pr
           checked={!runOnHost}
           onCheckedChange={(v) => onRunOnHostChange(!v)}
         />
+        <p className="text-xs text-muted-foreground">
+          {runOnHostPinned ? (
+            <>
+              Set for this project.{' '}
+              <button type="button" className="underline hover:text-foreground" onClick={onRunOnHostInherit}>
+                Inherit from app settings
+              </button>
+            </>
+          ) : (
+            'Inherited from app settings — changing this toggle pins it to the project.'
+          )}
+        </p>
         {runOnHost && (
           <p className="text-xs rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-destructive">
             ⚠ No isolation: agents run with full read/write access to your machine and

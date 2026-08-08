@@ -2,7 +2,7 @@ import { promises as fsPromises } from 'fs';
 import path from 'path';
 import { nanoid } from 'nanoid';
 import type { Thread, CreateThreadRequest } from '../../shared/types';
-import { getEffectiveRunOnHost, getEffectiveWorktreeSettings } from '../../shared/effectiveProjectSettings';
+import { getEffectiveWorktreeSettings } from '../../shared/effectiveProjectSettings';
 import { getStore } from '../store/index';
 import * as threadStore from '../threads/threadStore';
 import {
@@ -53,7 +53,10 @@ export class ThreadFactory {
       provider === 'codex'
         ? (req.reasoning ?? resolveEffectiveReasoning(projectConfigResult.config, settings))
         : undefined;
-    const runOnHost = req.runOnHost ?? getEffectiveRunOnHost(settings, projectConfigResult.config);
+    // Only an explicit chat-level pick is pinned on the thread. Left undefined, the thread keeps
+    // inheriting project → app at every start (resolved in resolveStartConfig), so later changes to
+    // those levels still reach threads whose sandbox mode the user never chose by hand.
+    const runOnHost = req.runOnHost;
 
     let workingDirectory = callerManagedWorktree ? req.workingDirectory : projectPath;
     let usingWorktree = callerManagedWorktree;

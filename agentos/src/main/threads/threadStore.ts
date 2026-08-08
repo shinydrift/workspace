@@ -18,6 +18,7 @@ function rowToThread(row: ThreadRow): StoredThread {
     projectPath: row.projectPath ?? undefined,
     subdir: row.subdir ?? undefined,
     usingWorktree: row.usingWorktree != null ? Boolean(row.usingWorktree) : undefined,
+    runOnHost: row.runOnHost != null ? Boolean(row.runOnHost) : undefined,
     provider: (row.provider as Thread['provider']) ?? undefined,
     model: row.model ?? undefined,
     effort: (row.effort as Thread['effort']) ?? undefined,
@@ -60,6 +61,7 @@ function threadToInsert(t: StoredThread): ThreadInsert {
     projectPath: t.projectPath ?? null,
     subdir: t.subdir ?? null,
     usingWorktree: t.usingWorktree != null ? (t.usingWorktree ? 1 : 0) : null,
+    runOnHost: t.runOnHost != null ? (t.runOnHost ? 1 : 0) : null,
     provider: t.provider ?? null,
     model: t.model ?? null,
     effort: t.effort ?? null,
@@ -100,7 +102,7 @@ type ThreadUpdatePatch = {
 // Persisted Thread fields that map to INTEGER boolean columns.
 // Listed explicitly so a future field added with an unhandled type fails loudly below
 // instead of silently passing through as the wrong column affinity.
-const BOOLEAN_PATCH_KEYS: ReadonlySet<string> = new Set(['usingWorktree', 'autopilotEnabled']);
+const BOOLEAN_PATCH_KEYS: ReadonlySet<string> = new Set(['usingWorktree', 'autopilotEnabled', 'runOnHost']);
 
 // Drizzle accepts undefined to skip a column in .set(). Convert booleans → 0/1,
 // skillTags → JSON, and pass `null` through to clear nullable columns.

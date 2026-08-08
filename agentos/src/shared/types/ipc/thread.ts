@@ -11,6 +11,7 @@ export const THREAD_IPC_CHANNELS = {
   THREAD_LIST: 'thread:list',
   THREAD_RENAME: 'thread:rename',
   THREAD_SET_AUTOPILOT: 'thread:setAutopilot',
+  THREAD_SET_RUN_ON_HOST: 'thread:setRunOnHost',
   THREAD_SET_ACTIVE: 'thread:setActive',
   THREAD_SET_PROVIDER_MODEL: 'thread:setProviderModel',
   THREAD_INJECTION_STATUS: 'thread:getInjectionStatus',

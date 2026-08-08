@@ -10,6 +10,7 @@ import { ThreadPostsView } from '../thread/ThreadPostsView';
 import { ThreadInsightsPanel } from '../insights/ThreadInsightsPanel';
 import { useMessages } from '../../hooks/useMessages';
 import { useThreadPosts } from '../../hooks/useThreadPosts';
+import { useInheritedRunOnHost } from '../../hooks/useInheritedRunOnHost';
 import { ThreadDetailHeader } from './ThreadDetailHeader';
 import { CouncilRunPanel } from '../chat/CouncilRunPanel';
 import { TaskSheetPanel } from '../board/TaskSheetPanel';
@@ -34,6 +35,7 @@ export function ThreadDetail({ thread, noCard, initialView }: Props) {
     hasMemory: false,
     injected: false,
   });
+  const inheritedRunOnHost = useInheritedRunOnHost(thread.projectPath ?? thread.workingDirectory);
   const { messages, streamingBlocks, isStreaming } = useMessages(thread);
   const { posts: threadPosts, addOptimistic } = useThreadPosts(thread.id);
   // Pure echo of the indicator derived (and persisted) in main's broadcastStatus.
@@ -118,6 +120,12 @@ export function ThreadDetail({ thread, noCard, initialView }: Props) {
               autopilotEnabled={thread.autopilotEnabled}
               onToggleAutopilot={async () => {
                 const updated = await window.electronAPI.thread.setAutopilot(thread.id, !thread.autopilotEnabled);
+                upsertThread(updated);
+              }}
+              runOnHost={thread.runOnHost}
+              inheritedRunOnHost={inheritedRunOnHost}
+              onToggleRunOnHost={async (next) => {
+                const updated = await window.electronAPI.thread.setRunOnHost(thread.id, next);
                 upsertThread(updated);
               }}
             />

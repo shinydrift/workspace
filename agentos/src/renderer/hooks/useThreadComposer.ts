@@ -22,10 +22,11 @@ export function useThreadComposer(projects: SavedProject[]) {
   const providerTouchedRef = useRef(false);
   // Per-thread sandbox override. `undefined` means "inherit the project/app setting" — the main
   // process resolves it fresh at thread start (matching model/effort/reasoning). We only send an
-  // explicit boolean once the user toggles. sandboxEnabled drives whether the toggle shows at all —
-  // hidden when the project already runs on host (sandbox off), per product decision.
+  // explicit boolean once the user toggles. inheritedRunOnHost mirrors that effective setting so the
+  // toggle can render the inherited state before any pick; `undefined` until the settings load
+  // resolves, so the toggle stays hidden rather than guessing.
   const [runOnHost, setRunOnHost] = useState<boolean | undefined>(undefined);
-  const [sandboxEnabled, setSandboxEnabled] = useState(false);
+  const [inheritedRunOnHost, setInheritedRunOnHost] = useState<boolean | undefined>(undefined);
   // Per-thread worktree override. `undefined` means "inherit the project/app auto-create setting"
   // (resolved in the main process at thread creation). worktreeDefault mirrors that effective
   // setting so the composer chip can show the inherited on/off state before any toggle; it stays
@@ -52,7 +53,7 @@ export function useThreadComposer(projects: SavedProject[]) {
             : Promise.resolve(null),
         ]);
         if (cancelled) return;
-        setSandboxEnabled(!getEffectiveRunOnHost(settings, lookup?.config ?? null));
+        setInheritedRunOnHost(getEffectiveRunOnHost(settings, lookup?.config ?? null));
         setWorktreeDefault(getEffectiveWorktreeSettings(settings, lookup?.config ?? null).autoCreate);
         if (providerTouchedRef.current) return;
         const primary = getEffectivePrimaryProviderEntry(settings, lookup?.config ?? null);
@@ -116,7 +117,7 @@ export function useThreadComposer(projects: SavedProject[]) {
     clearProviderTouch,
     runOnHost,
     setRunOnHostSelection,
-    sandboxEnabled,
+    inheritedRunOnHost,
     createWorktree,
     setCreateWorktreeSelection,
     worktreeDefault,
