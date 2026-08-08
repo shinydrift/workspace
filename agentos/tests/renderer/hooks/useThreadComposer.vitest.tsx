@@ -19,10 +19,55 @@ function api() {
   };
 }
 
+// Whatever `settings.get` returns must carry `agents` — the same load resolves the provider entry,
+// and a fixture without it throws into the hook's catch, silently skipping half the effect.
+function appSettings(overrides: Record<string, unknown> = {}) {
+  return {
+    runOnHost: false,
+    agents: { providerOrder: [{ provider: 'codex' }], autopilot: { enabled: true } },
+    ...overrides,
+  };
+}
+
 describe('useThreadComposer sandbox resolution', () => {
   beforeEach(() => {
-    api().settings.get.mockResolvedValue({ runOnHost: false });
+    api().settings.get.mockResolvedValue(appSettings());
     api().project.getConfig.mockResolvedValue(null);
+  });
+
+  it('resolves the provider defaults from the same load', async () => {
+    const { result } = renderHook(() => useThreadComposer([]));
+    await waitFor(() => expect(result.current.provider).toBe('codex'));
+    expect(result.current.autopilotEnabled).toBe(true);
+  });
+
+  it('lets the working directory decide the provider too, not just the sandbox', async () => {
+    api().project.getConfig.mockResolvedValue({ config: { agents: { providerOrder: [{ provider: 'gemini' }] } } });
+
+    const { result } = renderHook(() => useThreadComposer([]));
+    act(() => result.current.setWorkingDir(UNSAVED_DIR));
+
+    await waitFor(() => expect(result.current.provider).toBe('gemini'));
+  });
+
+  it('does not clobber a hand-picked provider when it re-resolves', async () => {
+    let fire: (() => void) | undefined;
+    api().on.settingsChanged.mockImplementation((cb: () => void) => {
+      fire = cb;
+      return () => {};
+    });
+
+    const { result } = renderHook(() => useThreadComposer([]));
+    await waitFor(() => expect(result.current.provider).toBe('codex'));
+    act(() => result.current.setProviderSelection('gemini'));
+
+    api().settings.get.mockResolvedValue(appSettings({ runOnHost: true }));
+    await act(async () => {
+      fire?.();
+    });
+
+    await waitFor(() => expect(result.current.inheritedRunOnHost).toBe(true));
+    expect(result.current.provider).toBe('gemini');
   });
 
   it('defaults to sandboxed when neither level opts out', async () => {
@@ -41,7 +86,7 @@ describe('useThreadComposer sandbox resolution', () => {
   });
 
   it('lets a project opt back into the sandbox over an app-level host default', async () => {
-    api().settings.get.mockResolvedValue({ runOnHost: true });
+    api().settings.get.mockResolvedValue(appSettings({ runOnHost: true }));
     api().project.getConfig.mockResolvedValue({ config: { runOnHost: false } });
 
     const { result } = renderHook(() => useThreadComposer([]));
@@ -60,7 +105,7 @@ describe('useThreadComposer sandbox resolution', () => {
     const { result } = renderHook(() => useThreadComposer([]));
     await waitFor(() => expect(result.current.inheritedRunOnHost).toBe(false));
 
-    api().settings.get.mockResolvedValue({ runOnHost: true });
+    api().settings.get.mockResolvedValue(appSettings({ runOnHost: true }));
     await act(async () => {
       fire?.();
     });

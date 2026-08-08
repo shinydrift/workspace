@@ -109,15 +109,16 @@ export function broadcastThreadDeleted(threadId: string): void {
   trayUpdateHook?.();
 }
 
-export function broadcastSettingsChanged(settings: AppSettings, exclude?: WebContents): void {
+export function broadcastSettingsChanged(settings: AppSettings): void {
   // Strip credential fields — renderer doesn't need them and sending secrets
   // to all windows increases blast radius unnecessarily.
   const { apiKeys: _a, slack: _s, tailscale: _t, env, ...rest }: AppSettings = settings;
   // Keep env.safelist (non-secret, used to show inherited app safelist) but drop env.vars.
   const safe: PublicSettings = { ...rest, ...(env ? { env: { safelist: env.safelist } } : {}) };
-  // Broadcast fires before the IPC response serialises back to the initiating
-  // renderer, so pass exclude=sender to avoid a redundant self-update.
-  broadcastToWindows<PublicSettings>(IPC_EVENTS.SETTINGS_CHANGED, safe, exclude);
+  // The initiating window is deliberately NOT excluded: it hosts the settings modal *and* every
+  // other view that derives from these settings, so skipping it left those views stale — the
+  // saver's own local state is not an update for the rest of the window.
+  broadcastToWindows<PublicSettings>(IPC_EVENTS.SETTINGS_CHANGED, safe);
 }
 
 export function broadcastProjectSaved(project: SavedProject, exclude?: WebContents): void {
@@ -128,6 +129,8 @@ export function broadcastProjectDeleted(projectId: string, exclude?: WebContents
   broadcastToWindows(IPC_EVENTS.PROJECT_DELETED, { projectId }, exclude);
 }
 
-export function broadcastProjectConfigUpdated(projectPath: string, key: string, exclude?: WebContents): void {
-  broadcastToWindows(IPC_EVENTS.PROJECT_CONFIG_UPDATED, { projectPath, key }, exclude);
+// Same reasoning as broadcastSettingsChanged — the window that saved the config still has views
+// (composer toggles, project panels) that need to hear about it.
+export function broadcastProjectConfigUpdated(projectPath: string, key: string): void {
+  broadcastToWindows(IPC_EVENTS.PROJECT_CONFIG_UPDATED, { projectPath, key });
 }
