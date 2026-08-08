@@ -5,6 +5,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { cn, formatSeconds } from '@/lib/utils';
 import { useComposerBase } from '@/hooks/useComposerBase';
 import { AttachedFileList } from './AttachedFileList';
+import { SandboxToggleButton } from '../threads/SandboxToggleButton';
 
 interface PromptInputProps {
   threadId: string;
@@ -13,6 +14,10 @@ interface PromptInputProps {
   onStop?: () => void;
   autopilotEnabled?: boolean;
   onToggleAutopilot?: () => void;
+  /** Per-thread sandbox pin; `undefined` means the thread inherits project → app. */
+  runOnHost?: boolean;
+  inheritedRunOnHost?: boolean;
+  onToggleRunOnHost?: (runOnHost: boolean) => void;
   /**
    * Fired with the trimmed prompt text the instant a send starts, for optimistic rendering.
    * Returns a remover invoked if the send fails so the optimistic post doesn't linger.
@@ -27,6 +32,9 @@ export function PromptInput({
   onStop,
   autopilotEnabled,
   onToggleAutopilot,
+  runOnHost,
+  inheritedRunOnHost,
+  onToggleRunOnHost,
   onSend,
 }: PromptInputProps) {
   const {
@@ -147,6 +155,14 @@ export function PromptInput({
           >
             <Robot className="h-3.5 w-3.5" weight={autopilotEnabled ? 'fill' : 'regular'} />
           </Button>
+        )}
+        {onToggleRunOnHost && (
+          <SandboxToggleButton
+            runOnHost={runOnHost}
+            inheritedRunOnHost={inheritedRunOnHost}
+            onToggle={onToggleRunOnHost}
+            note="Applies the next time this thread starts — its container is fixed for the current run"
+          />
         )}
         <div className="ml-auto flex shrink-0 items-center gap-1.5">
           {recording && (

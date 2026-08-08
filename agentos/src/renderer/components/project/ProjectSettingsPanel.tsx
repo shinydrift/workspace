@@ -125,14 +125,13 @@ export function ProjectSettingsPanel({
             <SandboxSection
               sb={sb}
               runOnHost={runOnHost}
+              runOnHostPinned={config.runOnHost !== undefined}
               savingKey={savingKey}
               onPatch={(patch) => void updateConfig('sandbox', { ...sb, ...patch })}
-              onRunOnHostChange={(v) => {
-                // Delete the override (inherit the app setting) when the choice matches the app
-                // default; otherwise pin an explicit boolean on the project.
-                const appDefault = appSettings?.runOnHost ?? false;
-                void updateConfig('runOnHost', { _value: v === appDefault ? null : v });
-              }}
+              // Always pin an explicit boolean: a choice that matched the app default and was
+              // therefore stored as "inherit" would silently move with a later app-level change.
+              onRunOnHostChange={(v) => void updateConfig('runOnHost', { _value: v })}
+              onRunOnHostInherit={() => void updateConfig('runOnHost', { _value: null })}
             />
           )}
           {section === 'env' && (

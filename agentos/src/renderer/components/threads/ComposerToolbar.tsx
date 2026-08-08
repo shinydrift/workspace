@@ -6,8 +6,6 @@ import {
   MicrophoneSlash,
   Paperclip,
   Robot,
-  Shield,
-  ShieldWarning,
   Stop,
 } from '@phosphor-icons/react';
 import type { Provider, SavedProject } from '../../../shared/types';
@@ -16,6 +14,7 @@ import { Button } from '@/components/ui/button';
 import { cn, formatSeconds } from '@/lib/utils';
 import { ComposerProjectPicker } from './ComposerProjectPicker';
 import { ProviderModelBadges } from './ProviderModelBadges';
+import { SandboxToggleButton } from './SandboxToggleButton';
 
 interface Props {
   autopilotEnabled: boolean;
@@ -32,8 +31,8 @@ interface Props {
   onToggleAutopilot: () => void;
   provider: Provider;
   runOnHost?: boolean;
-  sandboxEnabled?: boolean;
-  onToggleRunOnHost?: () => void;
+  inheritedRunOnHost?: boolean;
+  onToggleRunOnHost?: (runOnHost: boolean) => void;
   worktreeOn?: boolean;
   onToggleWorktree?: () => void;
   recording: boolean;
@@ -63,7 +62,7 @@ export function ComposerToolbar({
   onToggleAutopilot,
   provider,
   runOnHost,
-  sandboxEnabled,
+  inheritedRunOnHost,
   onToggleRunOnHost,
   worktreeOn,
   onToggleWorktree,
@@ -153,20 +152,12 @@ export function ComposerToolbar({
           </Button>
         )}
 
-        {sandboxEnabled && onToggleRunOnHost && (
-          <Button
-            onClick={onToggleRunOnHost}
-            variant="ghost"
-            size="icon"
-            title={runOnHost ? 'Sandbox off — running on host. Click to sandbox' : 'Sandbox on — click to run on host'}
-            aria-label={runOnHost ? 'Sandbox off — running on host' : 'Sandbox on'}
-            className={cn(
-              'h-7 w-7 shrink-0',
-              runOnHost ? 'text-amber-500 hover:text-amber-400' : 'text-emerald-500 hover:text-emerald-400'
-            )}
-          >
-            {runOnHost ? <ShieldWarning className="h-4 w-4" /> : <Shield className="h-4 w-4" weight="fill" />}
-          </Button>
+        {onToggleRunOnHost && (
+          <SandboxToggleButton
+            runOnHost={runOnHost}
+            inheritedRunOnHost={inheritedRunOnHost}
+            onToggle={onToggleRunOnHost}
+          />
         )}
 
         <ProviderModelBadges

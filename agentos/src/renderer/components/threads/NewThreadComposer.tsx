@@ -54,7 +54,7 @@ export function NewThreadComposer() {
     clearProviderTouch,
     runOnHost,
     setRunOnHostSelection,
-    sandboxEnabled,
+    inheritedRunOnHost,
     createWorktree,
     setCreateWorktreeSelection,
     worktreeDefault,
@@ -200,8 +200,8 @@ export function NewThreadComposer() {
               onToggleAutopilot={() => setAutopilotEnabled((value) => !value)}
               provider={provider}
               runOnHost={runOnHost}
-              sandboxEnabled={sandboxEnabled}
-              onToggleRunOnHost={() => setRunOnHostSelection(!runOnHost)}
+              inheritedRunOnHost={inheritedRunOnHost}
+              onToggleRunOnHost={setRunOnHostSelection}
               worktreeOn={worktreeOn}
               onToggleWorktree={worktreeOn === undefined ? undefined : () => setCreateWorktreeSelection(!worktreeOn)}
               recording={recording}

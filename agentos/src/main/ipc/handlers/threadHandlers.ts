@@ -80,6 +80,13 @@ export function registerThreadHandlers(): void {
     })
   );
 
+  ipcMain.handle(IPC_CHANNELS.THREAD_SET_RUN_ON_HOST, (_e, raw) =>
+    handleIpc(() => {
+      const { threadId: id, runOnHost } = z.object({ threadId, runOnHost: z.boolean().nullable() }).parse(raw);
+      return threadManager.setThreadRunOnHost(id, runOnHost);
+    })
+  );
+
   const SetProviderModelSchema = z.object({
     threadId,
     provider: z.string().min(1).max(64),

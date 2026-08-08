@@ -27,6 +27,7 @@ export const threads = sqliteTable(
     projectPath: text('project_path'),
     subdir: text('subdir'),
     usingWorktree: integer('using_worktree'),
+    runOnHost: integer('run_on_host'),
     provider: text('provider'),
     model: text('model'),
     effort: text('effort'),

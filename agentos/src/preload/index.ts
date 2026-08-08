@@ -51,6 +51,8 @@ const api = {
     rename: (threadId: string, name: string) => invoke('thread:rename', { threadId, name }),
     getInjectionStatus: (threadId: string) => invoke('thread:getInjectionStatus', { threadId }),
     setAutopilot: (threadId: string, enabled: boolean) => invoke('thread:setAutopilot', { threadId, enabled }),
+    setRunOnHost: (threadId: string, runOnHost: boolean | null) =>
+      invoke('thread:setRunOnHost', { threadId, runOnHost }),
     setActive: (threadId: string | null) => invoke('thread:setActive', { threadId }),
     setProviderModel: (
       threadId: string,

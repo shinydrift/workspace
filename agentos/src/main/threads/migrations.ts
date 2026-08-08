@@ -525,6 +525,19 @@ CREATE INDEX idx_stb_thread_id ON slack_thread_bindings(thread_id);
       }
     },
   },
+  {
+    // The chat-level sandbox pick. Set only when a thread's launch mode was chosen by hand — it was
+    // previously carried on the Thread object with nowhere to land, so it never survived the save
+    // and the toggle did nothing. NULL (no pick, and every pre-existing row) means the thread keeps
+    // inheriting project → app at each start.
+    name: '0015_add_run_on_host',
+    run: (db) => {
+      const cols = db.prepare(`PRAGMA table_info(threads)`).all() as { name: string }[];
+      if (!cols.some((c) => c.name === 'run_on_host')) {
+        db.exec(`ALTER TABLE threads ADD COLUMN run_on_host INTEGER`);
+      }
+    },
+  },
 ];
 
 // Derived from THREADS_MIGRATIONS so the seeding branch never goes stale.

@@ -37,7 +37,7 @@ export function ThreadCreateModal({ onClose }: Props) {
     setReasoning,
     runOnHost,
     setRunOnHostSelection,
-    sandboxEnabled,
+    inheritedRunOnHost,
     createWorktree,
     setCreateWorktreeSelection,
     worktreeDefault,
@@ -142,11 +142,11 @@ export function ThreadCreateModal({ onClose }: Props) {
               />
             </div>
 
-            {sandboxEnabled && (
+            {inheritedRunOnHost !== undefined && (
               <ToggleRow
                 label="Sandbox"
-                description="Run this thread in a Docker sandbox. Turn off to run directly on the host for this thread only."
-                checked={!runOnHost}
+                description="Run this thread in a Docker sandbox. Overrides the project and app setting for this thread only."
+                checked={!(runOnHost ?? inheritedRunOnHost)}
                 onCheckedChange={(v) => setRunOnHostSelection(!v)}
               />
             )}

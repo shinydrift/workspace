@@ -461,6 +461,15 @@ class ThreadManager implements Disposable {
     return this.reads.getThread(threadId)!;
   }
 
+  // A running thread's launch mode is fixed for the life of its container, so this only takes
+  // effect at the next start. `null` clears the pin and hands the thread back to project → app.
+  setThreadRunOnHost(threadId: string, runOnHost: boolean | null): Thread {
+    const thread = threadStore.getThread(threadId);
+    if (!thread) throw new Error(`Thread ${threadId} not found`);
+    threadStore.updateThread(threadId, { runOnHost });
+    return this.reads.getThread(threadId)!;
+  }
+
   setThreadAutopilot(threadId: string, enabled: boolean, options?: { triggerAfterTurn?: boolean }): Thread {
     return this.autopilotState.setAutopilot(threadId, enabled, options);
   }
