@@ -24,6 +24,7 @@ function makeElectronAPI() {
     project: {
       list: vi.fn().mockResolvedValue([]),
       get: vi.fn().mockResolvedValue(null),
+      getConfig: vi.fn().mockResolvedValue(null),
       save: vi.fn().mockResolvedValue(undefined),
       remove: vi.fn().mockResolvedValue(undefined),
     },
@@ -43,6 +44,7 @@ function makeElectronAPI() {
     on: {
       threadStatus: vi.fn().mockReturnValue(() => {}),
       settingsChanged: vi.fn().mockReturnValue(() => {}),
+      projectConfigUpdated: vi.fn().mockReturnValue(() => {}),
       message: vi.fn().mockReturnValue(() => {}),
     },
     platform: 'linux',
