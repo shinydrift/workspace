@@ -11,7 +11,7 @@ export function registerSettingsHandlers(): void {
   // settings UI needs them for display and editing by the user.
   ipcMain.handle(IPC_CHANNELS.SETTINGS_GET, () => handleIpc(() => getStore().get('settings')));
 
-  ipcMain.handle(IPC_CHANNELS.SETTINGS_SET, (e, raw) =>
+  ipcMain.handle(IPC_CHANNELS.SETTINGS_SET, (_e, raw) =>
     handleIpc(() => {
       // zod 4 infers `.nullable()` fields as optional in the parsed output,
       // which doesn't structurally match required-nullable fields on
@@ -21,7 +21,7 @@ export function registerSettingsHandlers(): void {
       const patch = AppSettingsPatchSchema.parse(raw) as Partial<AppSettings>;
       const result = setSettings(patch);
       eventLogger.info('settings', 'Settings updated', { keys: Object.keys(patch) });
-      broadcastSettingsChanged(result, e.sender);
+      broadcastSettingsChanged(result);
       return result;
     })
   );
