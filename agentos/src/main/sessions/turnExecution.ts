@@ -17,6 +17,7 @@ import { ThreadRuntimeStore } from './ThreadRuntimeStore';
 import { execHeadlessTurn, isProviderLimitError, type TurnEndReason } from './headlessRunner';
 import { execClaudeInteractiveTurn } from './claudeInteractive/execClaudeInteractiveTurn';
 import { claudeInteractiveSessions } from './claudeInteractive/sessionRegistry';
+import { canFallbackProvider } from './providerFallbackPolicy';
 import { emitTurnStarted, emitTurnEnded } from '../events';
 import { getStore } from '../store/index';
 import { loadProjectConfig } from '../config/projectConfig';
@@ -469,6 +470,22 @@ export class TurnExecutor {
     if (!thread) return false;
 
     const currentProvider = thread.provider ?? 'claude';
+
+    // Switching drops every turn the thread has taken — see canFallbackProvider for why that is
+    // only worth it on the first turn.
+    if (!canFallbackProvider(thread, currentProvider)) {
+      this.output.appendSystemLogEntry(
+        threadId,
+        `[provider fallback] ${PROVIDER_LABEL[currentProvider]} hit a usage limit. This thread has context, so it stays on ${PROVIDER_LABEL[currentProvider]} — resume it once the limit clears.`
+      );
+      eventLogger.warn('thread', 'Provider usage limit reached mid-thread; keeping provider', {
+        threadId,
+        provider: currentProvider,
+        turns: thread.promptHistory.length,
+      });
+      return false;
+    }
+
     const projectConfigResult = await loadProjectConfig(thread.projectPath ?? thread.workingDirectory);
     const providerOrder = getEffectiveProviderOrder(getStore().get('settings'), projectConfigResult.config);
     const currentIndex = providerOrder.findIndex((entry) => entry.provider === currentProvider);
