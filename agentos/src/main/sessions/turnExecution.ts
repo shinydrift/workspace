@@ -469,6 +469,25 @@ export class TurnExecutor {
     if (!thread) return false;
 
     const currentProvider = thread.provider ?? 'claude';
+
+    // A switch restarts the thread against a different CLI, and no provider can resume another's
+    // session — so every turn taken so far is dropped. That trade only pays on a thread's first
+    // turn, where there is nothing yet to lose. Later on, the limit is surfaced and the thread
+    // stays on its provider, so it resumes with its context once the limit clears.
+    // `persistUserInput` appends the current prompt before the turn runs, so the first turn is 1.
+    if (thread.promptHistory.length > 1) {
+      this.output.appendSystemLogEntry(
+        threadId,
+        `[provider fallback] ${PROVIDER_LABEL[currentProvider]} hit a usage limit. This thread has context, so it stays on ${PROVIDER_LABEL[currentProvider]} — resume it once the limit clears.`
+      );
+      eventLogger.warn('thread', 'Provider usage limit reached mid-thread; keeping provider', {
+        threadId,
+        provider: currentProvider,
+        turns: thread.promptHistory.length,
+      });
+      return false;
+    }
+
     const projectConfigResult = await loadProjectConfig(thread.projectPath ?? thread.workingDirectory);
     const providerOrder = getEffectiveProviderOrder(getStore().get('settings'), projectConfigResult.config);
     const currentIndex = providerOrder.findIndex((entry) => entry.provider === currentProvider);
