@@ -21,21 +21,6 @@ import { refreshProviderRateLimits } from '../analytics/providerRateLimitRefresh
  */
 const LOG_FILE_MAX_BYTES = 50 * 1024 * 1024; // 50 MB hard cap per thread log file
 
-// The containerized claude-code CLI prints warnings about /home/agent/.claude.json
-// (missing / corrupted / backup paths) because we intentionally don't mount that
-// file. The messages are harmless but noisy — drop them before they reach the
-// thread log, terminal broadcast, or assistant chunk buffer.
-const CLAUDE_CONFIG_NOISE_RE =
-  /(Configuration error in \/home\/agent\/\.claude\.json|Claude configuration file (?:at \/home\/agent\/\.claude\.json is corrupted|not found)|corrupted file has already been backed up|A backup file exists at:|You can manually restore it by running)/;
-
-export function filterClaudeCliNoise(data: string): string {
-  if (!CLAUDE_CONFIG_NOISE_RE.test(data)) return data;
-  return data
-    .split('\n')
-    .filter((line) => !CLAUDE_CONFIG_NOISE_RE.test(line))
-    .join('\n');
-}
-
 export class ThreadOutputManager {
   private logBuffers = new Map<string, ThreadLogEntry[]>();
   private logStreams = new Map<string, fs.WriteStream>();
