@@ -17,6 +17,7 @@ import { ThreadRuntimeStore } from './ThreadRuntimeStore';
 import { execHeadlessTurn, isProviderLimitError, type TurnEndReason } from './headlessRunner';
 import { execClaudeInteractiveTurn } from './claudeInteractive/execClaudeInteractiveTurn';
 import { claudeInteractiveSessions } from './claudeInteractive/sessionRegistry';
+import { canFallbackProvider } from './providerFallbackPolicy';
 import { emitTurnStarted, emitTurnEnded } from '../events';
 import { getStore } from '../store/index';
 import { loadProjectConfig } from '../config/projectConfig';
@@ -470,12 +471,9 @@ export class TurnExecutor {
 
     const currentProvider = thread.provider ?? 'claude';
 
-    // A switch restarts the thread against a different CLI, and no provider can resume another's
-    // session — so every turn taken so far is dropped. That trade only pays on a thread's first
-    // turn, where there is nothing yet to lose. Later on, the limit is surfaced and the thread
-    // stays on its provider, so it resumes with its context once the limit clears.
-    // `persistUserInput` appends the current prompt before the turn runs, so the first turn is 1.
-    if (thread.promptHistory.length > 1) {
+    // Switching drops every turn the thread has taken — see canFallbackProvider for why that is
+    // only worth it on the first turn.
+    if (!canFallbackProvider(thread, currentProvider)) {
       this.output.appendSystemLogEntry(
         threadId,
         `[provider fallback] ${PROVIDER_LABEL[currentProvider]} hit a usage limit. This thread has context, so it stays on ${PROVIDER_LABEL[currentProvider]} — resume it once the limit clears.`
