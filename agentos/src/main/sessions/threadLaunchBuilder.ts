@@ -163,6 +163,15 @@ export async function buildThreadLaunchArgs(params: {
     };
   }
 
+  // claude keeps .claude.json inside CLAUDE_CONFIG_DIR. Point it at the bind-mounted ~/.claude
+  // directory so the CLI's temp-file + rename() write stays within one filesystem and remains
+  // atomic — see the note in threadStartup for why the file itself is not mounted. Container
+  // only: on host the CLI already uses the user's real ~/ paths.
+  const containerEnvWithClaudeConfigDir: Record<string, string> =
+    provider === 'claude' || provider === 'claude-interactive'
+      ? { CLAUDE_CONFIG_DIR: PROVIDER_CONFIGS[provider].sessionConfigDir, ...containerEnv }
+      : containerEnv;
+
   const dockerArgs = buildDockerRunArgs(
     threadId,
     stored.workingDirectory,
@@ -183,7 +192,7 @@ export async function buildThreadLaunchArgs(params: {
       claudeOauthToken,
       sessionDataDir,
       seccompProfilePath,
-      extraEnv: containerEnv,
+      extraEnv: containerEnvWithClaudeConfigDir,
       providerCommandOverrides: params.providerCommandOverrides,
       subdir: stored.subdir,
     }

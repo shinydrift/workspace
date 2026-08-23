@@ -19,7 +19,6 @@ import { effectiveHostCwd, claudeProjectDirName } from './effectiveCwd';
 import type { ThreadRuntimeStore } from './ThreadRuntimeStore';
 import type { ContainerManager } from './ContainerManager';
 import type { ThreadOutputManager } from './threadOutput';
-import { filterClaudeCliNoise } from './threadOutput';
 import type { QueueSource } from './ThreadInputQueue';
 
 const HEADLESS_IDLE_STOP_MS = 30 * 60 * 1000; // 30 minutes
@@ -310,11 +309,10 @@ export async function execHeadlessTurn(
         containers.touchFromActivity(threadId).catch((err) => {
           eventLogger.warn('thread', 'failed to touch container registry', { error: String(err) });
         });
-        const filtered = filterClaudeCliNoise(chunk);
-        if (!filtered) return;
-        outputBuffer += filtered;
-        output.appendLog(threadId, filtered);
-        broadcastTerminalData({ threadId, data: filtered });
+        if (!chunk) return;
+        outputBuffer += chunk;
+        output.appendLog(threadId, chunk);
+        broadcastTerminalData({ threadId, data: chunk });
       });
 
       turnProc.on('exit', (exitCode: number | undefined) => {

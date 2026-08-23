@@ -139,10 +139,9 @@ export class ClaudeInteractiveSession {
       }
     }
 
-    // Pre-accept the in-container TUI's trust + skip-permissions dialogs by
-    // patching the host-side claude config. Without this, the TUI blocks
-    // and the first turn never reaches the model.
-    seedClaudeHostConfigOnce(app.getPath('home'));
+    // Pre-accept the TUI's trust + skip-permissions dialogs by patching the claude config this
+    // session will read. Without this, the TUI blocks and the first turn never reaches the model.
+    seedClaudeHostConfigOnce(app.getPath('home'), this.args.runOnHost ?? false);
 
     const { command, args, env } = buildClaudeInteractiveArgs({ ...this.args, isResume: this.hasSpawnedBefore });
     eventLogger.info('claudeIO', 'interactive: spawning claude PTY', {

@@ -140,18 +140,14 @@ export async function prepareThreadStartup(
     }
   }
 
-  // The interactive claude TUI requires ~/.claude.json (a sibling file, not inside
-  // ~/.claude/) to find the user's auth and skip the onboarding flow. Headless
-  // claude is fine without it because it relies on CLAUDE_CODE_OAUTH_TOKEN env.
-  // Mount it read-write so claude can record per-project trust decisions; harmless
-  // for headless threads if present. (Docker only — host reads it in place.)
-  const claudeJsonHost = path.join(userHome, '.claude.json');
-  const claudeJsonMount =
-    !runOnHost && provider === 'claude' && fs.existsSync(claudeJsonHost) && fs.statSync(claudeJsonHost).isFile()
-      ? [{ hostPath: claudeJsonHost, containerPath: '/home/agent/.claude.json', readOnly: false }]
-      : [];
+  // NOTE: ~/.claude.json is deliberately NOT bind-mounted as a single file. claude writes it by
+  // rename()-ing a temp file into place, which cannot cross a single-file mountpoint — the CLI
+  // then falls back to a non-atomic in-place rewrite, and any concurrent reader (another session
+  // container, the host CLI) sees a truncated file and declares it corrupted. Instead we set
+  // CLAUDE_CONFIG_DIR to the already-mounted ~/.claude directory (see threadLaunchBuilder), so
+  // the temp file and the target share a filesystem and the rename stays atomic.
 
-  const allExtraReadonlyMounts = [...extraReadonlyMounts, ...secondaryAuthMounts, ...claudeJsonMount];
+  const allExtraReadonlyMounts = [...extraReadonlyMounts, ...secondaryAuthMounts];
 
   const containerName = `agentos-session-${threadId}`;
   const configHash = computeContainerConfigHash({

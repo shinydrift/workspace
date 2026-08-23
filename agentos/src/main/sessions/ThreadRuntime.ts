@@ -17,7 +17,6 @@ import { emitTurnEnded } from '../events';
 import { ThreadRuntimeStore } from './ThreadRuntimeStore';
 import type { TurnExecutor } from './turnExecution';
 import type { ThreadOutputManager } from './threadOutput';
-import { filterClaudeCliNoise } from './threadOutput';
 import type { ThreadInputQueue } from './ThreadInputQueue';
 import type { TurnWaiterManager } from './TurnWaiterManager';
 import type { ContainerManager } from './ContainerManager';
@@ -154,14 +153,13 @@ export class ThreadRuntime {
     });
 
     proc.on('data', (data: string) => {
-      const filtered = filterClaudeCliNoise(data);
       this.containers.touchFromActivity(threadId).catch((err) => {
         eventLogger.warn('thread', 'failed to touch container registry', { error: String(err) });
       });
-      if (!filtered) return;
-      this.waiterManager.observe(threadId, filtered);
-      this.output.appendLog(threadId, filtered);
-      broadcastTerminalData({ threadId, data: filtered });
+      if (!data) return;
+      this.waiterManager.observe(threadId, data);
+      this.output.appendLog(threadId, data);
+      broadcastTerminalData({ threadId, data });
     });
 
     proc.on('exit', this.createPtyExitHandler(threadId, stored));
