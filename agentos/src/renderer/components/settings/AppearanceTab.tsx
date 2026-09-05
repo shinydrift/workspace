@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useTheme } from '@/hooks/useTheme';
 import type { FontSize } from '@/hooks/useTheme';
+import type { KeepAwakeMode } from '../../../shared/types';
 import { useSettings } from '../../contexts/SettingsContext';
 import { useUIStore } from '../../store/uiStore';
 import { ToggleRow } from '@/components/ui/toggle-row';
@@ -19,6 +20,12 @@ const FONT_SIZE_OPTIONS: { value: FontSize; label: string }[] = [
   { value: 'small', label: 'S' },
   { value: 'medium', label: 'M' },
   { value: 'large', label: 'L' },
+];
+
+const KEEP_AWAKE_OPTIONS: { value: KeepAwakeMode; label: string }[] = [
+  { value: 'off', label: 'Off' },
+  { value: 'while-active', label: 'While a turn is running' },
+  { value: 'always', label: 'Always' },
 ];
 
 const COLOR_SWATCHES = [
@@ -45,6 +52,13 @@ export function AppearanceTab() {
     appearance.setDesktopNotifications(value);
     window.electronAPI?.settings.set({ notifications: { desktop: value } }).catch((err) => {
       console.warn('Failed to persist notification settings', err);
+    });
+  }
+
+  function handleKeepAwakeChange(value: KeepAwakeMode) {
+    appearance.setKeepAwake(value);
+    window.electronAPI?.settings.set({ keepAwake: { displaySleep: value } }).catch((err) => {
+      console.warn('Failed to persist keep-awake setting', err);
     });
   }
 
@@ -118,6 +132,30 @@ export function AppearanceTab() {
           checked={appearance.desktopNotifications}
           onCheckedChange={handleDesktopNotificationsChange}
         />
+      </SettingSection>
+
+      <SettingSection
+        title="Keep screen awake"
+        description="Hold off display sleep so the screen doesn't lock while AgentOS runs — in the foreground or the background. Doesn't override a manual lock or one your IT policy forces."
+      >
+        <div className="flex items-center rounded-lg bg-muted p-0.5 w-fit">
+          {KEEP_AWAKE_OPTIONS.map(({ value, label }) => (
+            <Button
+              key={value}
+              type="button"
+              variant="ghost"
+              onClick={() => handleKeepAwakeChange(value)}
+              className={cn(
+                'h-auto px-3 py-1.5 text-sm',
+                appearance.keepAwake === value
+                  ? 'bg-background text-foreground shadow-sm hover:bg-background hover:text-foreground'
+                  : 'text-muted-foreground hover:bg-transparent hover:text-muted-foreground'
+              )}
+            >
+              {label}
+            </Button>
+          ))}
+        </div>
       </SettingSection>
 
       <SettingSection title="Developer">

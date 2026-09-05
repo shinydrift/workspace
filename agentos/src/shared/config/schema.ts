@@ -201,6 +201,14 @@ const baseConfigSchema = z.object({
   recording: recordingSchema.optional(),
 });
 
+// Display-sleep power blocker: 'off' lets the screen lock normally, 'always' holds the blocker for
+// the app's whole lifetime, 'while-active' holds it only while a turn is executing. Blockers are
+// process-wide, so foreground and background are covered identically. Unset resolves to the
+// default in resolveKeepAwakeMode().
+const keepAwakeSchema = z.object({ displaySleep: z.enum(['off', 'always', 'while-active']) });
+export type KeepAwakeSettings = z.infer<typeof keepAwakeSchema>;
+export type KeepAwakeMode = KeepAwakeSettings['displaySleep'];
+
 const appSettingsSchema = baseConfigSchema.extend({
   claudeStreamJson: z.boolean(),
   skipPermissions: z.boolean(),
@@ -222,6 +230,8 @@ const appSettingsSchema = baseConfigSchema.extend({
   // Desktop (OS) notifications when a thread you're not viewing finishes/errors/needs input.
   // Off by default; the in-app toast + unread badges surface these regardless.
   notifications: z.object({ desktop: z.boolean() }).optional(),
+  // Keep the display awake (and so the screen unlocked) while the app runs. See keepAwakeSchema.
+  keepAwake: keepAwakeSchema.optional(),
   // Auto-import Claude Code sessions started outside the app (raw `claude` in a terminal):
   // adopt them as resumable threads and distill them into memory. On by default.
   importExternalSessions: z.object({ enabled: z.boolean() }).optional(),
