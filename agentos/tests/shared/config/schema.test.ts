@@ -14,6 +14,7 @@ import {
   type AppSettings,
   type ProjectConfig,
 } from '../../../src/shared/config/schema';
+import { resolveKeepAwakeMode } from '../../../src/shared/types';
 
 // A representative, fully-populated app settings object (the shape electron-store holds).
 const SAMPLE_APP: AppSettings = {
@@ -69,6 +70,18 @@ test('app patch schema migrates legacy Codex extra-high reasoning to xhigh', () 
     agents: { providerOrder: [{ provider: 'codex', reasoning: 'extra-high' }] },
   });
   assert.equal(parsed.agents?.providerOrder[0]?.reasoning, 'xhigh');
+});
+
+test('app patch schema accepts a keepAwake patch and rejects an unknown mode', () => {
+  const parsed = appSettingsPatchSchema.parse({ keepAwake: { displaySleep: 'always' } });
+  assert.equal(parsed.keepAwake?.displaySleep, 'always');
+  assert.throws(() => appSettingsPatchSchema.parse({ keepAwake: { displaySleep: 'sometimes' } }));
+});
+
+test('keepAwake resolves to while-active when unset (existing installs)', () => {
+  assert.equal(resolveKeepAwakeMode(null), 'while-active');
+  assert.equal(resolveKeepAwakeMode({}), 'while-active');
+  assert.equal(resolveKeepAwakeMode({ keepAwake: { displaySleep: 'off' } }), 'off');
 });
 
 test('app patch schema THROWS on unknown top-level key', () => {

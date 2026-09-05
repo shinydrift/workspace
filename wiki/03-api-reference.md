@@ -930,6 +930,7 @@ interface AppSettings {
   meetingProjectPath?: string;
   continuousCaptureEnabled?: boolean;
   editor?: { label: string; command: string; args?: string };
+  keepAwake?: { displaySleep: 'off' | 'always' | 'while-active' };  // default when unset: 'while-active'
 }
 ```
 

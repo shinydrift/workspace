@@ -50,6 +50,8 @@ import { getErrorMessage } from '../../shared/utils/errorMessage';
 import { loadProjectConfig, updateProjectConfig } from '../config/projectConfig';
 import { reconcilePersonalityRefresh } from '../personality/automation';
 import { installPerfTraceInstrumentation } from '../utils/perfTrace';
+import { DisplaySleepBlocker } from '../utils/displaySleepBlocker';
+import { resolveKeepAwakeMode, type AppSettings } from '../../shared/types';
 import { initProviderRateLimitRefresh } from '../analytics/providerRateLimitRefresh';
 import { createRecordingOverlay, createShutdownOverlay } from './windows';
 import type { Disposable } from '../lifecycle';
@@ -468,28 +470,28 @@ export function bootServices(
     },
   });
 
-  // Dynamic power blocker: prevent system suspend only while turns are actively executing.
-  let appSuspensionBlockerId: number | null = null;
+  // Display blocker: the other half — this is what stops the screensaver, and so the screen lock.
+  // Driven by the keepAwake setting; 'while-active' tracks turn activity off the internal bus.
+  const displaySleepBlocker = new DisplaySleepBlocker(resolveKeepAwakeMode(getStore().get('settings')));
 
-  const startSuspensionBlock = (): void => {
-    if (appSuspensionBlockerId === null || !powerSaveBlocker.isStarted(appSuspensionBlockerId)) {
-      appSuspensionBlockerId = powerSaveBlocker.start('prevent-app-suspension');
-    }
+  const onKeepAwakeChange = (s: AppSettings): void => displaySleepBlocker.setMode(resolveKeepAwakeMode(s));
+  const onTurnStarted = (): void => displaySleepBlocker.setTurnActive(true);
+  const onTurnEnded = (): void => {
+    if (threadManager.getActiveThreadIds().length === 0) displaySleepBlocker.setTurnActive(false);
   };
 
-  const stopSuspensionBlock = (): void => {
-    if (appSuspensionBlockerId !== null && powerSaveBlocker.isStarted(appSuspensionBlockerId)) {
-      powerSaveBlocker.stop(appSuspensionBlockerId);
-      appSuspensionBlockerId = null;
-    }
-  };
+  settingsEvents.on('change', onKeepAwakeChange);
+  internalBus.on('turn:started', onTurnStarted);
+  internalBus.on('turn:ended', onTurnEnded);
 
-  internalBus.on('turn:started', startSuspensionBlock);
-  internalBus.on('turn:ended', () => {
-    if (threadManager.getActiveThreadIds().length === 0) stopSuspensionBlock();
+  disposables.push({
+    dispose: () => {
+      settingsEvents.off('change', onKeepAwakeChange);
+      internalBus.off('turn:started', onTurnStarted);
+      internalBus.off('turn:ended', onTurnEnded);
+      displaySleepBlocker.dispose();
+    },
   });
-
-  disposables.push({ dispose: stopSuspensionBlock });
 
   // Track threads that had active turns when the system suspended so we can recover them.
   let threadsActiveAtSuspend: string[] = [];

@@ -6,6 +6,7 @@ import type {
   SlackSettings,
   WorktreeSettings,
   SandboxSecuritySettings,
+  KeepAwakeMode,
 } from '../config/schema';
 
 // Config-shape types are inferred from the canonical schema (single source of truth).
@@ -29,6 +30,8 @@ export type {
   SlackSettings,
   WorktreeSettings,
   SandboxSecuritySettings,
+  KeepAwakeSettings,
+  KeepAwakeMode,
 } from '../config/schema';
 
 export interface PersonaPreset {
@@ -115,6 +118,17 @@ export const DEFAULT_CONTAINER_PRUNE_SETTINGS: ContainerPruneSettings = {
   idleHours: 24,
   maxAgeDays: 7,
 };
+
+/**
+ * Unset `keepAwake` means the display blocker is held while a turn is running — an agent working
+ * for ten minutes shouldn't be interrupted by the screen locking, but an idle app shouldn't keep
+ * a laptop's display awake all night either.
+ */
+export const DEFAULT_KEEP_AWAKE_MODE: KeepAwakeMode = 'while-active';
+
+export function resolveKeepAwakeMode(settings: { keepAwake?: { displaySleep: KeepAwakeMode } } | null): KeepAwakeMode {
+  return settings?.keepAwake?.displaySleep ?? DEFAULT_KEEP_AWAKE_MODE;
+}
 
 export const DEFAULT_SANDBOX_SETTINGS: SandboxSecuritySettings = {
   readOnlyRoot: false,
